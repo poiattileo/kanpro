@@ -1050,31 +1050,69 @@
       });
     },
     openInvite(){
+      const memberIds = new Set(this.members.map(m=> String(m.users_id)));
+      const all = (K.allUsers || []);
+      const available = all.filter(u=> !memberIds.has(String(u.id)));
       const html = `
-        <div style="display:grid;gap:8px">
-          <input id="invite-user-id" type="number" placeholder="ID do usuário GLPI" style="padding:8px;border:1px solid #dfe1e6;border-radius:4px">
-          <select id="invite-role" style="padding:8px;border:1px solid #dfe1e6;border-radius:4px"><option value="member">Membro</option><option value="admin">Administrador</option><option value="observer">Observador</option></select>
-          <div style="font-size:12px;color:#5e6c84">Dica: use o ID do usuário (ver em Administração → Usuários). Em breve busca por nome.</div>
-          <button onclick="Kanpro.confirmInvite()" style="background:#0079bf;color:#fff;border:none;padding:8px 12px;border-radius:4px;cursor:pointer">Convidar</button>
-          <hr style="border:none;border-top:1px solid #dfe1e6">
-          <div style="font-size:12px;color:#5e6c84">Membros atuais:</div>
+        <div style="display:grid;gap:10px">
+          <div style="display:flex;gap:8px">
+            <select id="invite-role" style="flex:1;padding:8px;border:1px solid #dfe1e6;border-radius:4px"><option value="member">Membro</option><option value="admin">Administrador</option><option value="observer">Observador</option></select>
+          </div>
+          <input id="invite-search" type="text" placeholder="Buscar por nome ou login..." oninput="Kanpro.filterInvite(this.value)" style="padding:8px;border:1px solid #dfe1e6;border-radius:4px">
+          <div id="invite-list" style="max-height:220px;overflow:auto;display:grid;gap:4px;border:1px solid #dfe1e6;border-radius:6px;padding:4px;background:#fff"></div>
+          <div style="font-size:11px;color:#5e6c84">${available.length} usuário(s) disponível(is) · ${all.length} no total</div>
+          <hr style="border:none;border-top:1px solid #dfe1e6;margin:4px 0">
+          <div style="font-size:12px;font-weight:600;color:#5e6c84">Membros atuais (${this.members.length}):</div>
           <div id="invite-current" style="display:grid;gap:4px;max-height:150px;overflow:auto"></div>
         </div>`;
       this.showPicker({title:'Convidar para o quadro', html});
-      // render atuais
       setTimeout(()=>{
         const cur = $('#invite-current');
-        if(cur) cur.innerHTML = this.members.map(m=> `<div style="display:flex;justify-content:space-between;align-items:center;background:#f4f5f7;padding:6px 8px;border-radius:4px"><span>${this.escape(m.name)} (${m.role})</span><button onclick="Kanpro.removeMember(${m.users_id})" style="background:none;border:none;cursor:pointer;color:#eb5a46"><i class="ti ti-x"></i></button></div>`).join('') || '<small>Nenhum</small>';
-      }, 100);
+        if(cur) cur.innerHTML = this.members.map(m=> `<div style="display:flex;justify-content:space-between;align-items:center;background:#f4f5f7;padding:6px 8px;border-radius:4px"><span style="display:flex;align-items:center;gap:6px"><span class="kp-avatar sm">${this.escape(m.initials)}</span>${this.escape(m.name)} <small style="background:#dfe1e6;padding:1px 6px;border-radius:10px">${m.role}</small></span><button onclick="Kanpro.removeMember(${m.users_id})" style="background:none;border:none;cursor:pointer;color:#eb5a46"><i class="ti ti-x"></i></button></div>`).join('') || '<small>Nenhum</small>';
+        this.renderInviteList('');
+      }, 50);
+    },
+    renderInviteList(filter){
+      const q = (filter||'').toLowerCase();
+      const memberIds = new Set(this.members.map(m=> String(m.users_id)));
+      const all = (K.allUsers || []);
+      const list = document.getElementById('invite-list');
+      if(!list) return;
+      let filtered = all.filter(u=> !memberIds.has(String(u.id)));
+      if(q) filtered = filtered.filter(u=> u.name.toLowerCase().includes(q) || u.login.toLowerCase().includes(q));
+      if(filtered.length===0){
+        list.innerHTML = '<div style="padding:12px;text-align:center;color:#5e6c84;font-size:13px">Nenhum usuário encontrado</div>';
+        return;
+      }
+      list.innerHTML = filtered.slice(0,60).map(u=> `
+        <div class="kp-picker-item" style="justify-content:space-between" data-search="${this.escape(u.name)}">
+          <span style="display:flex;align-items:center;gap:8px"><span class="kp-avatar sm">${this.escape(u.initials)}</span><span><strong style="font-size:13px">${this.escape(u.name)}</strong></span></span>
+          <button onclick="Kanpro.confirmInviteId(${u.id})" style="background:#0079bf;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Adicionar</button>
+        </div>`).join('') + (filtered.length>60 ? `<div style="text-align:center;font-size:11px;color:#5e6c84;padding:4px">+${filtered.length-60} mais — refine a busca</div>` : '');
+    },
+    filterInvite(q){ this.renderInviteList(q); },
+    confirmInviteId(uid){
+      const role = document.getElementById('invite-role')?.value || 'member';
+      this.ajax('invite_member', {boards_id: this.board.id, users_id: uid, role}).then(res=>{
+        if(res.success){
+          // atualiza local sem reload
+          const u = (K.allUsers||[]).find(x=> x.id==uid);
+          if(u) this.members.push({users_id: uid, name: u.name, initials: u.initials, role});
+          this.renderMemberAvatars();
+          this.renderBoardMenuDetails();
+          this.openInvite();
+        } else {
+          if(res.msg && res.msg.includes('Sem permissão')){
+            alert('Sem permissão: seu perfil precisa de "Visualizar, Criar e Editar" em Administração → Perfis → KanPro. Depois faça logout/login.');
+          } else alert(res.msg||'Erro ao convidar');
+        }
+      });
     },
     confirmInvite(){
-      const uid = parseInt($('#invite-user-id').value);
-      const role = $('#invite-role').value;
-      if(!uid) return alert('Informe o ID do usuário');
-      this.ajax('invite_member', {boards_id: this.board.id, users_id: uid, role}).then(res=>{
-        if(res.success){ alert('Membro convidado!'); this.closePicker(); location.reload(); }
-        else alert(res.msg||'Erro');
-      });
+      // legado: mantém para compat, mas agora usa lista
+      const input = document.getElementById('invite-search');
+      alert('Selecione um usuário na lista acima e clique em Adicionar.');
+      if(input) input.focus();
     },
     removeMember(uid){
       if(!confirm('Remover membro?')) return;

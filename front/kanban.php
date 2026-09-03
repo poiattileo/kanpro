@@ -45,12 +45,24 @@ foreach ($members_raw as $m) {
     ];
 }
 
-// Dropdown usuários para convidar
+// Dropdown usuários para convidar — lista com nome para picker (evita digitar ID)
 $users_dropdown = [];
-$uiter = $DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['is_deleted' => 0, 'is_active' => 1], 'ORDER' => 'realname ASC', 'LIMIT' => 200]);
+$all_users_for_picker = [];
+$uiter = $DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['is_deleted' => 0, 'is_active' => 1], 'ORDER' => 'realname ASC', 'LIMIT' => 300]);
 foreach ($uiter as $u) {
     $users_dropdown[] = $u;
+    $display = trim(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? ''));
+    if ($display === '') $display = $u['name'];
+    $initials = strtoupper(substr($u['firstname'] ?? $u['name'] ?? '?', 0, 1) . substr($u['realname'] ?? '', 0, 1));
+    if (trim($initials) === '') $initials = strtoupper(substr($display, 0, 2));
+    $all_users_for_picker[] = [
+        'id' => (int)$u['id'],
+        'name' => $display . ' (' . $u['name'] . ')',
+        'login' => $u['name'],
+        'initials' => $initials,
+    ];
 }
+$all_users_json = json_encode($all_users_for_picker, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
 // Prepara JSON
 $board_json  = json_encode($board->fields, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
@@ -317,6 +329,7 @@ window.KANPRO = {
   commentCounts: {$comment_counts_json},
   attCounts: {$att_counts_json},
   members: {$members_json},
+  allUsers: {$all_users_json},
   ajax_url: "{$ajax_url}",
   csrf_token: "{$csrf_token}",
   canEdit: {$canedit},
