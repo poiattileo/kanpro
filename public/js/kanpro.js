@@ -1066,9 +1066,22 @@
           <div id="invite-current" style="display:grid;gap:6px;max-height:140px;overflow-y:auto"></div>
         </div>`;
       this.showPicker({title:'Convidar para o quadro', html});
-      // aumenta picker só para este modal
+      // picker responsivo: ocupa viewport mas sem cortar botão à direita
       const picker = document.getElementById('kanpro-picker');
-      if(picker){ picker.style.minWidth='420px'; picker.style.maxWidth='460px'; picker.style.width='460px'; }
+      const body = document.getElementById('picker-body');
+      if(picker){
+        const w = Math.min(520, window.innerWidth - 32);
+        picker.style.minWidth = w + 'px';
+        picker.style.maxWidth = w + 'px';
+        picker.style.width = w + 'px';
+        picker.style.left = '50%';
+        picker.style.right = 'auto';
+        picker.style.transform = 'translate(-50%,-50%)';
+        picker.style.maxHeight = '90vh';
+        picker.style.display = 'flex';
+        picker.style.flexDirection = 'column';
+      }
+      if(body){ body.style.maxHeight = '70vh'; body.style.overflowY = 'auto'; }
       setTimeout(()=>{
         const cur = document.getElementById('invite-current');
         if(cur) cur.innerHTML = this.members.map(m=> `<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px"><span style="display:flex;align-items:center;gap:8px"><span class="kp-avatar sm">${this.escape(m.initials)}</span><span style="font-size:13px">${this.escape(m.name)}</span> <small style="background:#dfe1e6;padding:2px 6px;border-radius:10px;font-size:11px">${m.role}</small></span><button onclick="event.stopPropagation();Kanpro.removeMember(${m.users_id})" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-x" style="font-size:14px"></i></button></div>`).join('') || '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:8px;border:1px dashed #dfe1e6;border-radius:8px">Nenhum membro além de você</div>';
@@ -1090,9 +1103,9 @@
         return;
       }
       list.innerHTML = filtered.slice(0,60).map(u=> `
-        <div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px 10px;gap:8px">
-          <span style="display:flex;align-items:center;gap:10px;min-width:0;flex:1"><span class="kp-avatar sm" style="flex-shrink:0">${this.escape(u.initials)}</span><span style="min-width:0"><div style="font-size:13px;font-weight:600;color:#172b4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(u.name)}</div><div style="font-size:11px;color:#5e6c84">@${this.escape(u.login)}</div></span></span>
-          <button onclick="event.stopPropagation();Kanpro.confirmInviteId(${u.id}, this)" style="background:#0079bf;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;flex-shrink:0;white-space:nowrap">Adicionar</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;gap:10px;flex-wrap:nowrap">
+          <span style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;overflow:hidden"><span class="kp-avatar sm" style="flex-shrink:0">${this.escape(u.initials)}</span><span style="min-width:0;flex:1;overflow:hidden"><div style="font-size:13px;font-weight:600;color:#172b4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(u.name)}</div><div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${this.escape(u.login)}</div></span></span>
+          <button onclick="event.stopPropagation();Kanpro.confirmInviteId(${u.id}, this)" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.15)">Adicionar</button>
         </div>`).join('') + (filtered.length>60 ? `<div style="text-align:center;font-size:11px;color:#5e6c84;padding:6px;background:#fff;border:1px dashed #dfe1e6;border-radius:8px">+${filtered.length-60} mais — refine a busca</div>` : '');
     },
     filterInvite(q){ this.renderInviteList(q); },
@@ -1285,12 +1298,15 @@
     },
     closePicker(){
       const p = $('#kanpro-picker');
+      const b = document.getElementById('picker-body');
       p.style.display='none';
       p.style.transform='none';
-      // reseta tamanho custom do convite para não quebrar outros pickers
       p.style.minWidth='300px';
       p.style.maxWidth='360px';
       p.style.width='';
+      p.style.maxHeight='';
+      p.style.flexDirection='';
+      if(b){ b.style.maxHeight='400px'; b.style.overflowY='auto'; }
     },
     filterPicker(text){
       const q = (text||'').toLowerCase();
