@@ -12,13 +12,13 @@ class PluginKanproBoard extends CommonDBTM {
     }
 
     static function getMenuName() {
-        return self::getTypeName(2);
+        return 'Projeto';
     }
 
     static function getMenuContent() {
         $menu = parent::getMenuContent();
         $menu['icon'] = 'ti ti-layout-kanban';
-        $menu['title'] = self::getTypeName(2);
+        $menu['title'] = 'Projeto';
         $menu['page']  = '/plugins/kanpro/front/board.php';
         return $menu;
     }
