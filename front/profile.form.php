@@ -1,22 +1,31 @@
 <?php
 include('../../../inc/includes.php');
 Session::checkRight('profile', UPDATE);
-$profile = new Profile();
+
+global $DB;
+
 if (isset($_POST['update'])) {
-    $profiles_id = (int)$_POST['profiles_id'];
-    $rights = (int)($_POST['rights'] ?? 0);
-    $DB->update(ProfileRight::getTable(), ['rights' => $rights], ['profiles_id' => $profiles_id, 'name' => 'plugin_kanpro']);
-    if ($DB->affectedRows() === 0) {
-        // tenta inserir se não existia
-        if (!countElementsInTable(ProfileRight::getTable(), ['profiles_id'=>$profiles_id,'name'=>'plugin_kanpro'])) {
-            $pr = new ProfileRight();
-            $pr->add(['profiles_id'=>$profiles_id,'name'=>'plugin_kanpro','rights'=>$rights]);
+    $profiles_id = (int)($_POST['profiles_id'] ?? 0);
+    $rights      = (int)($_POST['rights'] ?? 0);
+
+    if ($profiles_id > 0) {
+        $profileRight = new ProfileRight();
+        $existing = $DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => ProfileRight::getTable(),
+            'WHERE'  => ['profiles_id' => $profiles_id, 'name' => 'plugin_kanpro'],
+        ])->current();
+
+        if ($existing) {
+            $profileRight->update(['id' => (int)$existing['id'], 'rights' => $rights]);
+        } else {
+            $profileRight->add(['profiles_id' => $profiles_id, 'name' => 'plugin_kanpro', 'rights' => $rights]);
         }
+
+        // atualiza perfil ativo sem precisar relogar
+        PluginKanproProfile::changeProfile();
+        Session::addMessageAfterRedirect('Permissões KanPro salvas com sucesso.');
     }
-    // atualiza sessão se é o perfil ativo
-    if ((int)($_SESSION['glpiactiveprofile']['id'] ?? 0) === $profiles_id) {
-        $_SESSION['glpiactiveprofile']['plugin_kanpro'] = $rights;
-    }
-    Html::back();
 }
-Html::redirect($CFG_GLPI['root_doc'] . '/front/profile.php');
+
+Html::back();
