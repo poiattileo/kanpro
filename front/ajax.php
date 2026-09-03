@@ -17,7 +17,13 @@ $action = $_REQUEST['action'] ?? '';
 global $DB;
 
 function jexit($data) { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
-function needEdit() { if (!Session::haveRight('plugin_kanpro', UPDATE)) jexit(['success'=>false,'msg'=>'Sem permissão']); }
+function needEdit() {
+    // permite CREATE ou UPDATE (criar cartão/lista não deve exigir UPDATE estrito)
+    if (!Session::haveRight('plugin_kanpro', UPDATE) && !Session::haveRight('plugin_kanpro', CREATE)) {
+        $have = $_SESSION['glpiactiveprofile']['plugin_kanpro'] ?? 0;
+        jexit(['success'=>false,'msg'=>"Sem permissão (precisa CREATE ou UPDATE). Seu nível atual: {$have}. Vá em Administração → Perfis → seu perfil → KanPro e marque Criar/Editar, depois saia e entre novamente."]);
+    }
+}
 
 switch ($action) {
 

@@ -69,19 +69,37 @@
       this.renderMemberAvatars();
       this.renderBoardMenuDetails();
       this.updateStats();
-      // fecha picker ao clicar fora
+      // clicar fora fecha picker, board-menu e card-modal
       document.addEventListener('click', e=>{
-        const picker = $('#kanpro-picker');
-        if (picker.style.display !== 'none' && !picker.contains(e.target) && !e.target.closest('.kp-keep-picker')) {
-          // delay para não fechar imediatamente ao abrir
+        const picker = document.getElementById('kanpro-picker');
+        if(picker && picker.style.display!=='none' && !picker.contains(e.target) && !e.target.closest('[onclick*="open"]') && !e.target.closest('[onclick*="Picker"]') && !e.target.closest('.kp-sidebar-btn')){
+          // evita fechar se clique é no botão que abriu (já tratado por showPicker)
+          const isPickerBtn = e.target.closest('button');
+          if(!isPickerBtn || !isPickerBtn.textContent.match(/Membros|Etiquetas|Datas|Capa|Mover|Convidar|Filtrar/)){
+            // só fecha se não for dentro do picker
+            if(!picker.contains(e.target)) this.closePicker();
+          }
+        }
+        const bmenu = document.getElementById('kanpro-board-menu');
+        if(bmenu && bmenu.style.display!=='none' && !bmenu.contains(e.target) && !e.target.closest('[onclick*="openBoardMenu"]') && !e.target.closest('[onclick*="BoardMenu"]')){
+          if(!e.target.closest('#kanpro-board-menu')) this.closeBoardMenu();
         }
       });
-      // ESC fecha modal
+      // ESC fecha tudo
       document.addEventListener('keydown', e=>{
         if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); }
       });
-      // click fora modal fecha
-      $('#kanpro-card-modal').addEventListener('click', e=>{ if(e.target.id==='kanpro-card-modal') this.closeCardModal(); });
+      // clique fora do card-modal (overlay) fecha
+      const m = document.getElementById('kanpro-card-modal');
+      if(m) m.addEventListener('click', e=>{ if(e.target.id==='kanpro-card-modal') this.closeCardModal(); });
+      // clique fora do picker também fecha (captura)
+      document.addEventListener('mousedown', e=>{
+        const picker = document.getElementById('kanpro-picker');
+        if(picker && picker.style.display!=='none' && !picker.contains(e.target) && !e.target.closest('#kanpro-picker')){
+          // não fecha se clicou no botão que abriu picker (evita fechar imediato)
+          if(e.target.closest('button') && e.target.closest('button').onclick && String(e.target.closest('button').onclick).includes('Picker')) return;
+        }
+      });
     },
 
     // ---------- BOARD ----------
