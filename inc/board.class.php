@@ -39,8 +39,6 @@ class PluginKanproBoard extends CommonDBTM {
         return Session::haveRight(self::$rightname, UPDATE);
     }
 
-    function getNameField() { return 'name'; }
-
     function defineTabs($options = []) {
         $ong = [];
         $this->addDefaultFormTab($ong);
