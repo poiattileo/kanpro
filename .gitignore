@@ -1,0 +1,29 @@
+# GLPI / KanPro
+/vendor/
+/node_modules/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.cache
+
+# Env e segredos — nunca commitar
+.env
+.env.local
+config_db.php
+*.key
+*.pem
+id_rsa*
+
+# Uploads do plugin (gerados em produção)
+files/
+glpi/files/_plugins/kanpro/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+Desktop.ini
