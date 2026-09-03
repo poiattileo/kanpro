@@ -2,14 +2,27 @@
 include('../../../inc/includes.php');
 @ob_clean();
 header('Content-Type: application/json; charset=UTF-8');
+// debug log para 403
+$__dbg = sprintf("[%s] UID=%s IP=%s action=%s profile=%s haveREAD=%d haveCREATE=%d haveUPDATE=%d SESSION=%s\n",
+    date('Y-m-d H:i:s'),
+    Session::getLoginUserID() ?: '0',
+    $_SERVER['REMOTE_ADDR'] ?? '-',
+    $_REQUEST['action'] ?? '-',
+    json_encode($_SESSION['glpiactiveprofile']['id'] ?? null),
+    (int)Session::haveRight('plugin_kanpro', READ),
+    (int)Session::haveRight('plugin_kanpro', CREATE),
+    (int)Session::haveRight('plugin_kanpro', UPDATE),
+    json_encode($_SESSION['glpiactiveprofile']['plugin_kanpro'] ?? 'null')
+);
+@file_put_contents('/tmp/kanpro_ajax.log', $__dbg, FILE_APPEND);
 if (!Session::getLoginUserID()) {
     http_response_code(401);
-    echo json_encode(['success' => false, 'msg' => 'Não autenticado']);
+    echo json_encode(['success' => false, 'msg' => 'Não autenticado', 'debug' => $__dbg]);
     exit;
 }
 if (!Session::haveRight('plugin_kanpro', READ)) {
     http_response_code(403);
-    echo json_encode(['success' => false, 'msg' => 'Sem permissão (plugin_kanpro READ) - verifique Perfil > KanPro']);
+    echo json_encode(['success' => false, 'msg' => 'Sem permissão (plugin_kanpro READ) - verifique Perfil > KanPro', 'debug' => $__dbg, 'have' => $_SESSION['glpiactiveprofile']['plugin_kanpro'] ?? 0]);
     exit;
 }
 
@@ -18,10 +31,10 @@ global $DB;
 
 function jexit($data) { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 function needEdit() {
-    // permite CREATE ou UPDATE (criar cartão/lista não deve exigir UPDATE estrito)
     if (!Session::haveRight('plugin_kanpro', UPDATE) && !Session::haveRight('plugin_kanpro', CREATE)) {
         $have = $_SESSION['glpiactiveprofile']['plugin_kanpro'] ?? 0;
-        jexit(['success'=>false,'msg'=>"Sem permissão (precisa CREATE ou UPDATE). Seu nível atual: {$have}. Vá em Administração → Perfis → seu perfil → KanPro e marque Criar/Editar, depois saia e entre novamente."]);
+        $dbg = json_encode(['profile_id'=>$_SESSION['glpiactiveprofile']['id']??null,'have'=>$have,'haveREAD'=>Session::haveRight('plugin_kanpro',READ),'haveCREATE'=>Session::haveRight('plugin_kanpro',CREATE),'haveUPDATE'=>Session::haveRight('plugin_kanpro',UPDATE)]);
+        jexit(['success'=>false,'msg'=>"Sem permissão (precisa CREATE ou UPDATE). Seu nível atual: {$have}. Faça logout/login.", 'debug'=>$dbg]);
     }
 }
 
