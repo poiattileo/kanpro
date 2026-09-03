@@ -41,25 +41,24 @@
 
     ajax(action, data={}, isFormData=false) {
       const fd = isFormData ? data : new FormData();
+      // csrf_compliant=true no setup.php, então NÃO enviamos token (token de uso único quebrava 2º clique)
       if (!isFormData) {
         fd.append('action', action);
-        fd.append('_glpi_csrf_token', this.csrf());
         for (let k in data) {
           if (data[k] !== undefined && data[k] !== null) fd.append(k, data[k]);
         }
       } else {
         data.append('action', action);
-        data.append('_glpi_csrf_token', this.csrf());
       }
       return fetch(this.ajax_url, { method:'POST', body: fd, credentials:'same-origin' })
         .then(async r=>{
           const txt = await r.text();
           try { return JSON.parse(txt); }
           catch(e){
-            console.error('KanPro ajax non-JSON', r.status, txt.substring(0,500));
-            if (r.status===403) return {success:false, msg:'403 Forbidden - sem permissão ou CSRF inválido. Verifique Perfil > KanPro e recarregue a página.'};
-            if (r.status===404) return {success:false, msg:'404 - ajax.php não encontrado. Verifique URL: '+this.ajax_url};
-            return {success:false, msg:'Resposta inesperada do servidor (HTTP '+r.status+')'};
+            console.error('KanPro ajax non-JSON', r.status, txt.substring(0,600));
+            if (r.status===403) return {success:false, msg:'403 Forbidden - sem permissão. Faça logout/login e verifique Perfil > KanPro.'};
+            if (r.status===404) return {success:false, msg:'404 - ajax.php não encontrado: '+this.ajax_url};
+            return {success:false, msg:'Resposta inesperada (HTTP '+r.status+')'};
           }
         }).catch(e=>({success:false,msg:e.message}));
     },
