@@ -23,9 +23,9 @@ function plugin_init_kanpro() {
 
 function plugin_version_kanpro() {
     return [
-        'name'         => 'KanPro - Projetos Kanban',
+        'name'         => '[URE] KanPro',
         'version'      => PLUGIN_KANPRO_VERSION,
-        'author'       => 'KanPro',
+        'author'       => 'URE',
         'license'      => 'GPLv3+',
         'homepage'     => '',
         'requirements' => ['glpi' => ['min' => PLUGIN_KANPRO_MIN_GLPI]],
