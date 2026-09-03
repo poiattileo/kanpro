@@ -57,7 +57,8 @@ $board_json  = json_encode($board->fields, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_Q
 $lists_json  = json_encode($lists, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $labels_json = json_encode($labels, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
-$ajax_url = Plugin::getWebDir('kanpro') . '/front/ajax.php';
+// Usa root_doc para garantir /glpi prefix correto (corrige 404/403)
+$ajax_url = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/ajax.php';
 $board_color = htmlspecialchars($board->fields['color'] ?? '#0079bf');
 $csrf_token = Session::getNewCSRFToken();
 
@@ -317,6 +318,7 @@ window.KANPRO = {
   attCounts: {$att_counts_json},
   members: {$members_json},
   ajax_url: "{$ajax_url}",
+  csrf_token: "{$csrf_token}",
   canEdit: {$canedit},
   boardColor: "{$board_color}"
 };

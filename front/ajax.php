@@ -1,7 +1,17 @@
 <?php
 include('../../../inc/includes.php');
+@ob_clean();
 header('Content-Type: application/json; charset=UTF-8');
-Session::checkRight('plugin_kanpro', READ);
+if (!Session::getLoginUserID()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'msg' => 'Não autenticado']);
+    exit;
+}
+if (!Session::haveRight('plugin_kanpro', READ)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'msg' => 'Sem permissão (plugin_kanpro READ) - verifique Perfil > KanPro']);
+    exit;
+}
 
 $action = $_REQUEST['action'] ?? '';
 global $DB;

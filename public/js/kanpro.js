@@ -26,12 +26,12 @@
     memberFilter: new Set(),
 
     csrf() {
-      // GLPI 11: token pode estar em meta ou input hidden ou em CFG
-      let t = document.querySelector('meta[name="glpi-csrf-token"]')?.content
+      let t = document.getElementById('kanpro-csrf')?.value
+           || document.querySelector('meta[name="glpi-csrf-token"]')?.content
            || document.querySelector('input[name="_glpi_csrf_token"]')?.value
            || window.glpi_csrf_token
+           || K.csrf_token
            || '';
-      // tenta extrair de qualquer form
       if (!t) {
         const m = document.documentElement.innerHTML.match(/_glpi_csrf_token['"]?\s*[:=]\s*['"]([^'"]+)['"]/);
         if (m) t = m[1];
@@ -52,7 +52,16 @@
         data.append('_glpi_csrf_token', this.csrf());
       }
       return fetch(this.ajax_url, { method:'POST', body: fd, credentials:'same-origin' })
-        .then(r=>r.json()).catch(e=>({success:false,msg:e.message}));
+        .then(async r=>{
+          const txt = await r.text();
+          try { return JSON.parse(txt); }
+          catch(e){
+            console.error('KanPro ajax non-JSON', r.status, txt.substring(0,500));
+            if (r.status===403) return {success:false, msg:'403 Forbidden - sem permissão ou CSRF inválido. Verifique Perfil > KanPro e recarregue a página.'};
+            if (r.status===404) return {success:false, msg:'404 - ajax.php não encontrado. Verifique URL: '+this.ajax_url};
+            return {success:false, msg:'Resposta inesperada do servidor (HTTP '+r.status+')'};
+          }
+        }).catch(e=>({success:false,msg:e.message}));
     },
 
     init(){
