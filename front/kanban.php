@@ -70,8 +70,8 @@ $board_json  = json_encode($board->fields, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_Q
 $lists_json  = json_encode($lists, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $labels_json = json_encode($labels, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
-// Usa ajax2.php novo para bypass opcache do ajax.php velho
-$ajax_url = '/glpi/plugins/kanpro/front/ajax2.php';
+// Usa ajax3.php novo para bypass opcache velho (ajax.php/ajax2.php com cache travado)
+$ajax_url = '/glpi/plugins/kanpro/front/ajax3.php';
 $board_color = htmlspecialchars($board->fields['color'] ?? '#0079bf');
 $csrf_token = Session::getNewCSRFToken();
 
