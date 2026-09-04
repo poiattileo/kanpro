@@ -1,4 +1,5 @@
 <?php
+if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
 include('../../../inc/includes.php');
 Session::checkRight('plugin_kanpro', READ);
 
