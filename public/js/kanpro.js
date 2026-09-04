@@ -16,7 +16,7 @@
     commentCounts: K.commentCounts || {},
     attCounts: K.attCounts || {},
     members: K.members || [],
-    ajax_url: (K.ajax_url && K.ajax_url.indexOf('/glpi/')===0) ? K.ajax_url : (K.ajax_url ? K.ajax_url.replace(/^\/plugins\//, '/glpi/plugins/') : '/glpi/plugins/kanpro/front/ajax.php'),
+    ajax_url: (K.ajax_url && K.ajax_url.indexOf('/glpi/')===0) ? K.ajax_url.replace('ajax.php','ajax2.php') : (K.ajax_url ? K.ajax_url.replace(/^\/plugins\//, '/glpi/plugins/').replace('ajax.php','ajax2.php') : '/glpi/plugins/kanpro/front/ajax2.php'),
     canEdit: K.canEdit,
     currentCardId: null,
     dragCard: null,
