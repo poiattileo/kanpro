@@ -1,4 +1,5 @@
 <?php
+define('GLPI_USE_CSRF_CHECK', false);
 file_put_contents('/tmp/kanpro_ajax2_hit.log', date('Y-m-d H:i:s')." HIT ".($_SERVER['REQUEST_URI']??'-')." UID=".(function_exists('Session')?Session::getLoginUserID():'no')."\n", FILE_APPEND);
 if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
 include('../../../inc/includes.php');
