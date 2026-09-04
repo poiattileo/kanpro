@@ -1,4 +1,5 @@
 <?php
+if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
 include('../../../inc/includes.php');
 @ob_clean();
 header('Content-Type: application/json; charset=UTF-8');
