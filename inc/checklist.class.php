@@ -3,9 +3,10 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
-class PluginKanproChecklist extends CommonDBTM {
+class PluginKanproChecklistItem extends CommonDBTM {
     static $rightname = 'plugin_kanpro';
-    static function getTypeName($nb = 0) { return 'Checklist'; }
+    static function getTable($classname = null) { return 'glpi_plugin_kanpro_checklist_items'; }
+    static function getTypeName($nb = 0) { return 'Item Checklist'; }
 
     function prepareInputForAdd($input) {
         if (empty($input['name'])) $input['name'] = 'Checklist';

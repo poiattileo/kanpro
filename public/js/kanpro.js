@@ -50,7 +50,15 @@
       } else {
         data.append('action', action);
       }
-      return fetch(this.ajax_url, { method:'POST', body: fd, credentials:'same-origin' })
+            return fetch(this.ajax_url, {
+        method:'POST',
+        body: fd,
+        credentials:'same-origin',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Glpi-Csrf-Token': this.csrf()
+        }
+      })
         .then(async r=>{
           const txt = await r.text();
           try { return JSON.parse(txt); }
