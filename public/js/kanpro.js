@@ -249,6 +249,7 @@
       `;
       div.addEventListener('click', ()=> this.openCard(card.id));
       div.addEventListener('dragstart', e=>{
+        e.stopPropagation();
         this.dragCard = div;
         div.classList.add('dragging');
         e.dataTransfer.effectAllowed='move';
@@ -256,7 +257,8 @@
         // necessário para firefox
         setTimeout(()=> div.style.display='none', 0);
       });
-      div.addEventListener('dragend', ()=>{
+      div.addEventListener('dragend', e=>{
+        e.stopPropagation();
         div.classList.remove('dragging');
         div.style.display='';
         this.dragCard=null;
@@ -429,7 +431,7 @@
             <button class="kp-picker-item" onclick="Kanpro.copyList(${listId})"><i class="ti ti-copy"></i> Copiar lista</button>
             <button class="kp-picker-item" onclick="Kanpro.archiveList(${listId})"><i class="ti ti-archive"></i> Arquivar lista</button>
             <hr style="margin:4px 0;border:none;border-top:1px solid #dfe1e6">
-            <button class="kp-picker-item" style="color:#eb5a46" onclick="if(confirm('Excluir lista e todos os cartões?')) Kanpro.deleteList(${listId})"><i class="ti ti-trash"></i> Excluir lista</button>
+            <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.askDeleteList(${listId})"><i class="ti ti-trash"></i> Excluir lista</button>
           </div>`
       });
     },
@@ -502,10 +504,10 @@
         } else alert(res.msg||'Erro');
       });
     },
-    quickEditCard(cardId, e){
+    async quickEditCard(cardId, e){
       e.stopPropagation();
       const card = this.cards.find(c=> c.id==cardId);
-      const newName = prompt('Editar título do cartão:', card.name);
+      const newName = await this.kpPrompt('Editar título do cartão:', card.name);
       if(newName && newName!==card.name){
         this.ajax('update_card', {id: cardId, name: newName}).then(res=>{
           if(res.success){ card.name=newName; this.renderBoard();}
@@ -677,9 +679,9 @@
       this.renderMemberAvatars();
     },
 
-    editCardTitle(){
+    async editCardTitle(){
       const cur = this.cards.find(c=> c.id==this.currentCardId);
-      const novo = prompt('Título do cartão:', cur.name);
+      const novo = await this.kpPrompt('Título do cartão:', cur.name);
       if(novo && novo!==cur.name){
         this.ajax('update_card', {id: this.currentCardId, name: novo}).then(res=>{
           if(res.success){ cur.name=novo; $('#card-modal-title').textContent=novo; this.renderBoard(); }
@@ -773,7 +775,7 @@
             <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" ${checked?'checked':''} onchange="Kanpro.toggleLabel(${cardId}, ${l.id}, this.checked)" style="accent-color:#fff"> ${this.escape(l.name||'Etiqueta')}</span>
             <span style="display:flex;gap:4px">
               <button onclick="event.preventDefault(); Kanpro.editLabel(${l.id})" style="background:rgba(255,255,255,.3);border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer"><i class="ti ti-pencil"></i></button>
-              <button onclick="event.preventDefault(); if(confirm('Excluir etiqueta?')) Kanpro.deleteLabel(${l.id})" style="background:rgba(255,255,255,.3);border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer"><i class="ti ti-trash"></i></button>
+              <button onclick="event.preventDefault(); Kanpro.askDeleteLabel(${l.id})" style="background:rgba(255,255,255,.3);border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer"><i class="ti ti-trash"></i></button>
             </span>
           </label>`;
       });
@@ -814,11 +816,11 @@
         }
       });
     },
-    editLabel(labelId){
+    async editLabel(labelId){
       const l = this.labels.find(x=> x.id==labelId);
-      const newName = prompt('Nome da etiqueta:', l.name);
+      const newName = await this.kpPrompt('Nome da etiqueta:', l.name);
       if(newName===null) return;
-      const newColor = prompt('Cor (hex #rrggbb):', l.color) || l.color;
+      const newColor = await this.kpPrompt('Cor (hex #rrggbb):', l.color) || l.color;
       this.ajax('update_label', {id: labelId, name: newName, color: newColor}).then(res=>{
         if(res.success){ l.name=newName; l.color=newColor; this.openLabelsPicker(); this.renderBoard(); }
       });
@@ -830,39 +832,38 @@
     },
 
     // Checklist
-    addChecklist(){
-      const name = prompt('Nome do checklist:', 'Checklist');
+    async addChecklist(){
+      const name = await this.kpPrompt('Nome do checklist:', 'Checklist');
       if(!name) return;
       this.ajax('add_checklist', {cards_id: this.currentCardId, name}).then(res=>{
-        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
       });
     },
     openChecklistPicker(){
       this.addChecklist();
     },
-    deleteChecklist(id){
-      if(!confirm('Excluir checklist?')) return;
+    async deleteChecklist(id){
+      if(!await this.kpConfirm('Excluir checklist?')) return;
       this.ajax('delete_checklist', {id}).then(res=>{
-        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
       });
     },
     addCheckItem(clId, input){
       const name = input.value.trim();
       if(!name) return;
       this.ajax('add_checkitem', {checklists_id: clId, name}).then(res=>{
-        if(res.success){ input.value=''; this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); }); }
+        if(res.success){ input.value=''; this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } }); }
       });
     },
     toggleCheckItem(itemId, checked){
       this.ajax('toggle_checkitem', {id: itemId}).then(res=>{
         if(res.success){
-          // atualiza progress local
-          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.updateCheckProgressLocal(); });
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
         }
       });
     },
-    editCheckItem(itemId){
-      const novo = prompt('Editar item:');
+    async editCheckItem(itemId){
+      const novo = await this.kpPrompt('Editar item:');
       if(novo===null) return;
       this.ajax('rename_checkitem', {id: itemId, name: novo}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
@@ -870,11 +871,21 @@
     },
     deleteCheckItem(itemId){
       this.ajax('delete_checkitem', {id: itemId}).then(res=>{
-        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
       });
     },
-    updateCheckProgressLocal(){
-      // recalcula badge
+    updateCheckProgressLocal(data){
+      // recalcula badge de progresso (X/Y) do cartão a partir dos checklists retornados por get_card
+      if(!data || !data.id) return;
+      let total = 0, done = 0;
+      (data.checklists || []).forEach(cl=>{
+        (cl.items || []).forEach(it=>{
+          total++;
+          if (it.is_checked == 1 || it.is_checked === true) done++;
+        });
+      });
+      this.checkProgress[data.id] = {total, done};
+      this.renderBoard();
     },
 
     // Comments
@@ -889,15 +900,15 @@
         }
       });
     },
-    editComment(id){
-      const cur = prompt('Editar comentário:');
+    async editComment(id){
+      const cur = await this.kpPrompt('Editar comentário:');
       if(cur===null) return;
       this.ajax('update_comment', {id, content: cur}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
       });
     },
-    deleteComment(id){
-      if(!confirm('Excluir comentário?')) return;
+    async deleteComment(id){
+      if(!await this.kpConfirm('Excluir comentário?')) return;
       this.ajax('delete_comment', {id}).then(res=>{
         if(res.success){ this.commentCounts[this.currentCardId] = Math.max(0,(this.commentCounts[this.currentCardId]||1)-1); this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); }); }
       });
@@ -922,8 +933,8 @@
         input.value='';
       });
     },
-    deleteAttachment(id){
-      if(!confirm('Excluir anexo?')) return;
+    async deleteAttachment(id){
+      if(!await this.kpConfirm('Excluir anexo?')) return;
       this.ajax('delete_attachment', {id}).then(res=>{
         if(res.success){ this.attCounts[this.currentCardId]=Math.max(0,(this.attCounts[this.currentCardId]||1)-1); this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); }); }
       });
@@ -1021,23 +1032,23 @@
         if(res.success){ alert('Cartão copiado!'); this.closeCardModal(); location.reload(); }
       });
     },
-    archiveCard(){
-      if(!confirm('Arquivar este cartão?')) return;
+    async archiveCard(){
+      if(!await this.kpConfirm('Arquivar este cartão?')) return;
       this.ajax('archive_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }
       });
     },
-    deleteCard(){
-      if(!confirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
+    async deleteCard(){
+      if(!await this.kpConfirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
       this.ajax('delete_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }
       });
     },
 
     // Board actions
-    renameBoard(){
+    async renameBoard(){
       if(!this.canEdit) return;
-      const novo = prompt('Novo nome do quadro:', this.board.name);
+      const novo = await this.kpPrompt('Novo nome do quadro:', this.board.name);
       if(novo && novo!==this.board.name){
         this.ajax('rename_board', {boards_id: this.board.id, name: novo}).then(res=>{
           if(res.success){ this.board.name=novo; $('#board-title').textContent=novo; document.title = novo + ' — KanPro'; }
@@ -1054,16 +1065,16 @@
       this.loadBoardActivity();
     },
     closeBoardMenu(){ $('#kanpro-board-menu').style.display='none'; },
-    openBoardSettings(){
-      const novo = prompt('Cor do quadro (hex):', this.board.color);
+    async openBoardSettings(){
+      const novo = await this.kpPrompt('Cor do quadro (hex):', this.board.color);
       if(novo && /^#[0-9a-fA-F]{6}$/.test(novo)){
         this.ajax('update_board_color', {boards_id: this.board.id, color: novo}).then(res=>{
           if(res.success){ this.board.color=novo; $('#kanpro-app').style.background=novo; this.closeBoardMenu(); }
         });
       }
     },
-    archiveBoard(){
-      if(!confirm('Arquivar quadro?')) return;
+    async archiveBoard(){
+      if(!await this.kpConfirm('Arquivar quadro?')) return;
       this.ajax('archive_board', {boards_id: this.board.id}).then(res=>{
         if(res.success) location.href = K.ajax_url.replace('/front/ajax.php','/front/board.php');
       });
@@ -1103,10 +1114,11 @@
         picker.style.right = 'auto';
         picker.style.transform = 'translate(-50%,-50%)';
         picker.style.maxHeight = '90vh';
+        picker.style.overflow = 'hidden';
         picker.style.display = 'flex';
         picker.style.flexDirection = 'column';
       }
-      if(body){ body.style.maxHeight = '70vh'; body.style.overflowY = 'auto'; }
+      if(body){ body.style.maxHeight = '70vh'; body.style.overflowY = 'auto'; body.style.minHeight = '0'; }
       setTimeout(()=>{
         const cur = document.getElementById('invite-current');
         if(cur) cur.innerHTML = this.members.map(m=> `<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px"><span style="display:flex;align-items:center;gap:8px"><span class="kp-avatar sm">${this.escape(m.initials)}</span><span style="font-size:13px">${this.escape(m.name)}</span> <small style="background:#dfe1e6;padding:2px 6px;border-radius:10px;font-size:11px">${m.role}</small></span><button onclick="event.stopPropagation();Kanpro.removeMember(${m.users_id})" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-x" style="font-size:14px"></i></button></div>`).join('') || '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:8px;border:1px dashed #dfe1e6;border-radius:8px">Nenhum membro além de você</div>';
@@ -1128,7 +1140,7 @@
         return;
       }
       list.innerHTML = filtered.slice(0,60).map(u=> `
-        <div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;gap:10px;flex-wrap:nowrap">
+        <div onclick="Kanpro.confirmInviteId(${u.id})" style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;gap:10px;cursor:pointer">
           <span style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;overflow:hidden"><span class="kp-avatar sm" style="flex-shrink:0">${this.escape(u.initials)}</span><span style="min-width:0;flex:1;overflow:hidden"><div style="font-size:13px;font-weight:600;color:#172b4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(u.name)}</div><div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${this.escape(u.login)}</div></span></span>
           <button onclick="event.stopPropagation();Kanpro.confirmInviteId(${u.id}, this)" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.15)">Adicionar</button>
         </div>`).join('') + (filtered.length>60 ? `<div style="text-align:center;font-size:11px;color:#5e6c84;padding:6px;background:#fff;border:1px dashed #dfe1e6;border-radius:8px">+${filtered.length-60} mais — refine a busca</div>` : '');
@@ -1166,8 +1178,8 @@
       alert('Selecione um usuário na lista acima e clique em Adicionar.');
       if(input) input.focus();
     },
-    removeMember(uid){
-      if(!confirm('Remover membro?')) return;
+    async removeMember(uid){
+      if(!await this.kpConfirm('Remover membro?')) return;
       this.ajax('remove_member', {boards_id: this.board.id, users_id: uid}).then(res=>{
         if(res.success) location.reload();
       });
@@ -1304,22 +1316,26 @@
       $('#picker-title').textContent = title||'';
       $('#picker-body').innerHTML = html||'';
       p.style.display='block';
-      if(x!==null && y!==null){
+      const hasPos = (x !== null && x !== undefined && y !== null && y !== undefined);
+      if(hasPos){
         p.style.left = Math.max(12, Math.min(x, window.innerWidth-360)) + 'px';
         p.style.top = (y+8) + 'px';
         p.style.right='auto';
+        p.style.transform='none';
       } else {
         // centraliza próximo ao modal ou centro da tela
         p.style.left = '50%';
         p.style.top = '50%';
         p.style.transform = 'translate(-50%,-50%)';
       }
-      // posicionamento inteligente se sair da tela
-      setTimeout(()=>{
-        const rect = p.getBoundingClientRect();
-        if(rect.right > window.innerWidth) p.style.left = (window.innerWidth - rect.width -12) + 'px';
-        if(rect.bottom > window.innerHeight) p.style.top = (window.innerHeight - rect.height -12) + 'px';
-      }, 0);
+      // posicionamento inteligente se sair da tela (só se aberto perto de um clique, não quando centralizado)
+      if(hasPos){
+        setTimeout(()=>{
+          const rect = p.getBoundingClientRect();
+          if(rect.right > window.innerWidth) p.style.left = (window.innerWidth - rect.width -12) + 'px';
+          if(rect.bottom > window.innerHeight) p.style.top = (window.innerHeight - rect.height -12) + 'px';
+        }, 0);
+      }
     },
     closePicker(){
       const p = $('#kanpro-picker');
@@ -1332,6 +1348,59 @@
       p.style.maxHeight='';
       p.style.flexDirection='';
       if(b){ b.style.maxHeight='400px'; b.style.overflowY='auto'; }
+    },
+    kpConfirm(message){
+      return new Promise(resolve=>{
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.innerHTML = `
+          <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:380px;width:100%;padding:20px">
+            <div style="font-size:14px;color:#172b4d;margin-bottom:18px;white-space:pre-wrap;line-height:1.4">${this.escape(message)}</div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button data-a="cancel" style="background:#f4f5f7;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+              <button data-a="ok" style="background:#eb5a46;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Confirmar</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        const cleanup = (val)=>{ overlay.remove(); resolve(val); };
+        overlay.addEventListener('click', e=>{ if(e.target===overlay) cleanup(false); });
+        overlay.querySelector('[data-a="cancel"]').onclick = ()=> cleanup(false);
+        overlay.querySelector('[data-a="ok"]').onclick = ()=> cleanup(true);
+        const onKey = e=>{ if(e.key==='Escape'){ cleanup(false); document.removeEventListener('keydown', onKey); } };
+        document.addEventListener('keydown', onKey);
+      });
+    },
+    kpPrompt(message, defaultValue){
+      return new Promise(resolve=>{
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.innerHTML = `
+          <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:380px;width:100%;padding:20px">
+            <div style="font-size:14px;color:#172b4d;margin-bottom:10px;font-weight:600">${this.escape(message)}</div>
+            <input type="text" data-a="input" value="${this.escape(defaultValue||'')}" style="width:100%;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;margin-bottom:16px;box-sizing:border-box;font-size:14px">
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button data-a="cancel" style="background:#f4f5f7;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+              <button data-a="ok" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">OK</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        const input = overlay.querySelector('[data-a="input"]');
+        const cleanup = (val)=>{ overlay.remove(); resolve(val); };
+        overlay.addEventListener('click', e=>{ if(e.target===overlay) cleanup(null); });
+        overlay.querySelector('[data-a="cancel"]').onclick = ()=> cleanup(null);
+        overlay.querySelector('[data-a="ok"]').onclick = ()=> cleanup(input.value);
+        input.addEventListener('keydown', e=>{
+          if(e.key==='Enter'){ e.preventDefault(); cleanup(input.value); }
+          if(e.key==='Escape'){ cleanup(null); }
+        });
+        setTimeout(()=>{ input.focus(); input.select(); }, 30);
+      });
+    },
+    async askDeleteList(listId){
+      if(await this.kpConfirm('Excluir lista e todos os cartões?')) this.deleteList(listId);
+    },
+    async askDeleteLabel(labelId){
+      if(await this.kpConfirm('Excluir etiqueta?')) this.deleteLabel(labelId);
     },
     filterPicker(text){
       const q = (text||'').toLowerCase();
@@ -1361,9 +1430,9 @@
       const pad=n=>String(n).padStart(2,'0');
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
-    addBoardLabel(){
-      const name = prompt('Nome da etiqueta:','');
-      const color = prompt('Cor hex (#rrggbb):','#61bd4f');
+    async addBoardLabel(){
+      const name = await this.kpPrompt('Nome da etiqueta:','');
+      const color = await this.kpPrompt('Cor hex (#rrggbb):','#61bd4f');
       if(!color) return;
       this.ajax('add_label', {boards_id: this.board.id, name: name||'', color}).then(res=>{
         if(res.success){ this.labels.push({id:res.id, plugin_kanpro_boards_id:this.board.id, name:name||'', color}); this.renderBoardMenuDetails(); this.renderBoard(); alert('Etiqueta criada!'); }

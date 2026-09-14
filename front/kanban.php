@@ -1,4 +1,5 @@
 <?php
+file_put_contents('/tmp/kanpro_kanban_top.log', date('Y-m-d H:i:s')." TOPO EXECUTADO GET=".json_encode($_GET)."\n", FILE_APPEND);
 if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
 include('../../../inc/includes.php');
 Session::checkRight('plugin_kanpro', READ);
@@ -97,7 +98,7 @@ foreach ($cl_iter as $r) {
     $card_labels_map[$r['plugin_kanpro_cards_id']][] = ['id' => $r['id'], 'name' => $r['name'], 'color' => $r['color']];
 }
 $card_members_map = [];
-$cm_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => ['IN' => array_column($all_cards, 'id') ?: [0]]]]);
+$cm_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => array_column($all_cards, 'id') ?: [0]]]);
 foreach ($cm_iter as $r) {
     $u = new User();
     $initials = '?';
@@ -113,7 +114,8 @@ $card_members_json = json_encode($card_members_map, JSON_HEX_TAG|JSON_HEX_APOS|J
 
 // Checklist progress
 $check_progress = [];
-$check_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => ['IN' => array_column($all_cards, 'id') ?: [0]]]]);
+$__cp_ids = array_column($all_cards, 'id') ?: [0];
+$check_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $__cp_ids]]);
 $check_ids_by_card = [];
 foreach ($check_iter as $cl) {
     $check_ids_by_card[$cl['plugin_kanpro_cards_id']][] = $cl['id'];
