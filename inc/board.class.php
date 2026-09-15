@@ -57,11 +57,16 @@ class PluginKanproBoard extends CommonDBTM {
         if (!isset($input['entities_id'])) {
             $input['entities_id'] = $_SESSION['glpiactive_entity'] ?? 0;
         }
+        $input['generate_term'] = !empty($input['generate_term']) ? 1 : 0;
         return $input;
     }
 
     function prepareInputForUpdate($input) {
         $input['date_mod'] = $_SESSION['glpi_currenttime'] ?? date('Y-m-d H:i:s');
+        if (array_key_exists('generate_term', $input) || isset($input['_glpi_csrf_token'])) {
+            // formulário de edição sempre envia o form completo, então se o checkbox não veio, é porque foi desmarcado
+            $input['generate_term'] = !empty($input['generate_term']) ? 1 : 0;
+        }
         return $input;
     }
 
@@ -195,6 +200,15 @@ class PluginKanproBoard extends CommonDBTM {
         echo "<tr class='tab_bg_1'>";
         echo "<td>Descrição</td><td colspan='3'>";
         echo "<textarea name='comment' rows='3' style='width:100%'>" . htmlspecialchars($this->fields['comment'] ?? '') . "</textarea>";
+        echo "</td></tr>";
+
+        echo "<tr class='tab_bg_1'>";
+        echo "<td>Gerar termo</td><td colspan='3'>";
+        $generate_term_checked = !empty($this->fields['generate_term']) ? 'checked' : '';
+        echo "<label style='cursor:pointer;display:flex;align-items:center;gap:8px'>
+                <input type='checkbox' name='generate_term' value='1' {$generate_term_checked}>
+                Exibir botão de gerar termo neste quadro
+              </label>";
         echo "</td></tr>";
 
         if (!$is_new) {

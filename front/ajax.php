@@ -15,7 +15,6 @@ $__dbg = sprintf("[%s] UID=%s IP=%s action=%s profile=%s haveREAD=%d haveCREATE=
     (int)Session::haveRight('plugin_kanpro', UPDATE),
     json_encode($_SESSION['glpiactiveprofile']['plugin_kanpro'] ?? 'null')
 );
-@file_put_contents('/tmp/kanpro_ajax.log', $__dbg, FILE_APPEND);
 if (!Session::getLoginUserID()) {
     http_response_code(401);
     echo json_encode(['success' => false, 'msg' => 'Não autenticado', 'debug' => $__dbg]);
@@ -175,6 +174,50 @@ switch ($action) {
         $l = new PluginKanproList();
         $l->delete(['id'=>$id], true);
         jexit(['success'=>true]);
+
+    case 'global_search_cards':
+        $q = trim($_POST['q'] ?? '');
+        if (mb_strlen($q) < 2) jexit(['success' => true, 'results' => []]);
+        $entities = $_SESSION['glpiactiveentities'] ?? [0];
+        $boards_iter = $DB->request([
+            'FROM'  => 'glpi_plugin_kanpro_boards',
+            'WHERE' => ['entities_id' => $entities, 'is_archived' => 0],
+        ]);
+        $boards_by_id = [];
+        foreach ($boards_iter as $b) { $boards_by_id[$b['id']] = $b; }
+        if (empty($boards_by_id)) jexit(['success' => true, 'results' => []]);
+
+        $lists_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => array_keys($boards_by_id)]]);
+        $lists_by_id = [];
+        foreach ($lists_iter as $l) { $lists_by_id[$l['id']] = $l; }
+
+        $cards_iter = $DB->request([
+            'FROM'  => 'glpi_plugin_kanpro_cards',
+            'WHERE' => [
+                'plugin_kanpro_boards_id' => array_keys($boards_by_id),
+                'is_archived' => 0,
+                'OR' => [
+                    'name'        => ['LIKE', "%{$q}%"],
+                    'description' => ['LIKE', "%{$q}%"],
+                ],
+            ],
+            'ORDER' => 'date_mod DESC',
+            'LIMIT' => 40,
+        ]);
+        $results = [];
+        foreach ($cards_iter as $c) {
+            $board = $boards_by_id[$c['plugin_kanpro_boards_id']] ?? null;
+            $list  = $lists_by_id[$c['plugin_kanpro_lists_id']] ?? null;
+            if (!$board) continue;
+            $results[] = [
+                'card_id'    => (int) $c['id'],
+                'card_name'  => $c['name'],
+                'board_id'   => (int) $board['id'],
+                'board_name' => $board['name'],
+                'list_name'  => $list['name'] ?? '',
+            ];
+        }
+        jexit(['success' => true, 'results' => $results]);
 
     case 'reorder_lists':
         needEdit();

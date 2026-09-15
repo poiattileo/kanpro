@@ -23,6 +23,7 @@ function plugin_kanpro_install(): bool {
                 `background`      VARCHAR(255) DEFAULT NULL COMMENT 'cor ou url imagem',
                 `is_archived`     TINYINT(1)   NOT NULL DEFAULT '0',
                 `is_starred`      TINYINT(1)   NOT NULL DEFAULT '0',
+                `generate_term`   TINYINT(1)   NOT NULL DEFAULT '0',
                 `visibility`      VARCHAR(20)  NOT NULL DEFAULT 'private',
                 `users_id`        INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`   DATETIME     DEFAULT NULL,
@@ -39,6 +40,9 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'is_starred')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `is_starred` TINYINT(1) NOT NULL DEFAULT '0'");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'generate_term')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `generate_term` TINYINT(1) NOT NULL DEFAULT '0'");
         }
     }
 
