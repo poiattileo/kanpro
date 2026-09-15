@@ -16,7 +16,8 @@
     commentCounts: K.commentCounts || {},
     attCounts: K.attCounts || {},
     members: K.members || [],
-    ajax_url: (K.ajax_url && K.ajax_url.indexOf('/glpi/')===0) ? K.ajax_url.replace(/ajax2?\.php/,'ajax3.php') : (K.ajax_url ? K.ajax_url.replace(/^\/plugins\//, '/glpi/plugins/').replace(/ajax2?\.php/,'ajax3.php') : '/glpi/plugins/kanpro/front/ajax3.php'),
+    ajax_url: K.ajax_url || '/plugins/kanpro/front/ajax.php',
+    openCardId: K.openCardId || null,
     canEdit: K.canEdit,
     currentCardId: null,
     dragCard: null,
@@ -76,6 +77,7 @@
       this.renderMemberAvatars();
       this.renderBoardMenuDetails();
       this.updateStats();
+      if(this.openCardId){ this.openCard(this.openCardId); }
       // clicar fora fecha picker, board-menu e card-modal
       document.addEventListener('click', e=>{
         const picker = document.getElementById('kanpro-picker');
@@ -628,16 +630,22 @@
       // attachments
       const attContainer = $('#card-modal-attachments');
       if(data.attachments && data.attachments.length){
-        attContainer.innerHTML = data.attachments.map(a=>`
+        attContainer.innerHTML = data.attachments.map(a=>{
+          const url = K.ajax_url.replace('ajax.php','attachment.php?id='+a.id);
+          const isImage = a.mime && a.mime.indexOf('image/')===0;
+          const thumb = isImage
+            ? `<img src="${url}" alt="${this.escape(a.name)}" onclick="Kanpro.previewImage('${url}', '${this.escape(a.name).replace(/'/g,"\\'")}')" style="width:44px;height:44px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0">`
+            : `<div style="width:44px;height:44px;background:#dfe1e6;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file"></i></div>`;
+          return `
           <div style="display:flex;gap:10px;padding:8px;background:#fff;border-radius:4px;align-items:center;box-shadow:0 1px 1px rgba(9,30,66,.13)">
-            <div style="width:36px;height:36px;background:#dfe1e6;border-radius:4px;display:flex;align-items:center;justify-content:center"><i class="ti ti-file"></i></div>
-            <div style="flex:1">
-              <div style="font-weight:600;font-size:13px">${this.escape(a.name)}</div>
-              <div style="font-size:11px;color:#5e6c84">${this.formatFileSize(a.filesize)} • ${this.formatDate(a.date_creation)} • <a href="${K.ajax_url.replace('ajax.php','attachment.php?id='+a.id)}" target="_blank">Abrir</a> • <a href="#" onclick="Kanpro.makeCover(${a.id});return false">Tornar capa</a></div>
+            ${thumb}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(a.name)}</div>
+              <div style="font-size:11px;color:#5e6c84">${this.formatFileSize(a.filesize)} • ${this.formatDate(a.date_creation)} • <a href="${url}" target="_blank">Abrir</a> • <a href="#" onclick="Kanpro.makeCover(${a.id});return false">Tornar capa</a></div>
             </div>
             <button onclick="Kanpro.deleteAttachment(${a.id})" style="background:none;border:none;cursor:pointer;color:#eb5a46"><i class="ti ti-trash"></i></button>
           </div>
-        `).join('');
+        `;}).join('');
       } else attContainer.innerHTML='<div style="color:#5e6c84;font-size:13px">Nenhum anexo ainda.</div>';
 
       // comments
@@ -918,6 +926,22 @@
       el.style.display = el.style.display==='none' ? 'grid' : 'none';
     },
 
+    previewImage(url, name){
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:30000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;cursor:zoom-out';
+      overlay.innerHTML = `
+        <div style="position:absolute;top:16px;right:20px;display:flex;gap:12px;align-items:center">
+          <a href="${url}" target="_blank" style="color:#fff;text-decoration:none;font-size:13px;background:rgba(255,255,255,.15);padding:6px 12px;border-radius:6px" onclick="event.stopPropagation()"><i class="ti ti-download"></i> Abrir original</a>
+          <button style="background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px" onclick="event.stopPropagation();this.closest('div[style*=fixed]').remove()">✕</button>
+        </div>
+        <img src="${url}" alt="${this.escape(name||'')}" style="max-width:90vw;max-height:82vh;object-fit:contain;border-radius:4px;box-shadow:0 8px 32px rgba(0,0,0,.5);cursor:default" onclick="event.stopPropagation()">
+        ${name ? `<div style="color:#fff;margin-top:12px;font-size:13px;opacity:.8">${this.escape(name)}</div>` : ''}
+      `;
+      overlay.addEventListener('click', ()=> overlay.remove());
+      const onKey = e=>{ if(e.key==='Escape'){ overlay.remove(); document.removeEventListener('keydown', onKey); } };
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+    },
     // Attachments
     uploadAttachment(input){
       const file = input.files[0];
@@ -1084,6 +1108,47 @@
         if(res.success) location.href = K.ajax_url.replace('/front/ajax.php','/front/board.php');
         else alert(res.msg||'Erro');
       });
+    },
+    openGlobalSearch(){
+      const html = `
+        <input id="global-search-input" type="text" placeholder="Buscar cartões em todos os quadros..." style="width:100%;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:14px;margin-bottom:12px" autocomplete="off">
+        <div id="global-search-results" style="display:grid;gap:6px;max-height:50vh;overflow-y:auto"><div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Digite pelo menos 2 letras...</div></div>
+      `;
+      this.showPicker({title:'Busca global', html});
+      const input = document.getElementById('global-search-input');
+      const resultsBox = document.getElementById('global-search-results');
+      let debounceTimer = null;
+      const doSearch = (q)=>{
+        if(q.trim().length < 2){
+          resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Digite pelo menos 2 letras...</div>';
+          return;
+        }
+        resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Buscando...</div>';
+        this.ajax('global_search_cards', {q}).then(res=>{
+          if(!res.success){ resultsBox.innerHTML = '<div style="text-align:center;color:#eb5a46;font-size:13px;padding:12px">Erro ao buscar.</div>'; return; }
+          if(!res.results.length){ resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Nenhum cartão encontrado.</div>'; return; }
+          resultsBox.innerHTML = res.results.map(r=> `
+            <div onclick="Kanpro.goToCard(${r.board_id}, ${r.card_id})" style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;cursor:pointer">
+              <div style="font-size:13px;font-weight:600;color:#172b4d">${this.escape(r.card_name)}</div>
+              <div style="font-size:11px;color:#5e6c84;margin-top:2px"><i class="ti ti-layout-kanban"></i> ${this.escape(r.board_name)} ${r.list_name ? '· '+this.escape(r.list_name) : ''}</div>
+            </div>`).join('');
+        });
+      };
+      input.addEventListener('input', e=>{
+        clearTimeout(debounceTimer);
+        const q = e.target.value;
+        debounceTimer = setTimeout(()=> doSearch(q), 300);
+      });
+      setTimeout(()=> input.focus(), 30);
+    },
+    goToCard(boardId, cardId){
+      const url = this.ajax_url.replace(/\/front\/ajax\.php.*$/, `/front/kanban.php?boards_id=${boardId}&open_card=${cardId}`);
+      if(boardId == this.board.id){
+        this.closePicker();
+        this.openCard(cardId);
+      } else {
+        window.open(url, '_blank');
+      }
     },
     openInvite(){
       const memberIds = new Set(this.members.map(m=> String(m.users_id)));

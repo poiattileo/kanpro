@@ -71,8 +71,8 @@ $board_json  = json_encode($board->fields, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_Q
 $lists_json  = json_encode($lists, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $labels_json = json_encode($labels, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
-// Usa ajax3.php novo para bypass opcache velho (ajax.php/ajax2.php com cache travado)
-$ajax_url = '/glpi/plugins/kanpro/front/ajax3.php';
+// Endpoint AJAX do plugin
+$ajax_url = Plugin::getWebDir('kanpro') . '/front/ajax.php';
 $board_color = htmlspecialchars($board->fields['color'] ?? '#0079bf');
 $csrf_token = Session::getNewCSRFToken();
 
@@ -142,6 +142,9 @@ if (!empty($board->fields['generate_term'])) {
     $generate_term_btn = '<a href="http://10.180.152.31/termo/" target="_blank" rel="noopener" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i> Gerar termo</a>';
 }
 
+$open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
+$open_card_id_json = json_encode($open_card_id ?: null);
+
 echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
@@ -162,6 +165,7 @@ echo <<<HTML
       <button onclick="Kanpro.openInvite()" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600"><i class="ti ti-user-plus"></i> Convidar</button>
       {$generate_term_btn}
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
+      <button onclick="Kanpro.openGlobalSearch()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer" title="Buscar em todos os quadros"><i class="ti ti-search"></i> Busca global</button>
       <div style="position:relative">
         <input id="kanpro-filter" type="text" placeholder="Filtrar cartões..." oninput="Kanpro.filterCards(this.value)" style="padding:6px 12px 6px 32px;border:none;border-radius:4px;background:rgba(255,255,255,.3);color:#fff;width:200px">
         <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#fff"></i>
@@ -342,7 +346,8 @@ window.KANPRO = {
   ajax_url: "{$ajax_url}",
   csrf_token: "{$csrf_token}",
   canEdit: {$canedit},
-  boardColor: "{$board_color}"
+  boardColor: "{$board_color}",
+  openCardId: {$open_card_id_json}
 };
 </script>
 HTML;
