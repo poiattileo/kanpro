@@ -137,6 +137,11 @@ foreach ($all_cards as $c) {
 $comment_counts_json = json_encode($comment_counts);
 $att_counts_json = json_encode($att_counts);
 
+$generate_term_btn = '';
+if (!empty($board->fields['generate_term'])) {
+    $generate_term_btn = '<a href="http://10.180.152.31/termo/" target="_blank" rel="noopener" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i> Gerar termo</a>';
+}
+
 echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
@@ -155,6 +160,7 @@ echo <<<HTML
     <div style="display:flex;align-items:center;gap:8px">
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       <button onclick="Kanpro.openInvite()" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600"><i class="ti ti-user-plus"></i> Convidar</button>
+      {$generate_term_btn}
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
       <div style="position:relative">
         <input id="kanpro-filter" type="text" placeholder="Filtrar cartões..." oninput="Kanpro.filterCards(this.value)" style="padding:6px 12px 6px 32px;border:none;border-radius:4px;background:rgba(255,255,255,.3);color:#fff;width:200px">
