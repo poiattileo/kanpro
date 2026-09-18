@@ -263,6 +263,7 @@
       board.appendChild(addListWrap);
 
       this.enableDragAndDrop();
+      this.updateAssinaturaButton();
     },
 
     createListEl(list, cardsInList){
@@ -2636,6 +2637,12 @@
       const listsCount = this.lists.filter(l=> l.is_archived==0).length;
       const el = $('#kanpro-stats');
       if(el) el.textContent = `${listsCount} listas • ${total} cartões`;
+    },
+    updateAssinaturaButton(){
+      const btn = document.getElementById('kanpro-assinatura-btn');
+      if(!btn) return;
+      const hasMaint = this.cards.some(c=> c.is_maintenance==1 && c.is_archived==0);
+      btn.style.display = hasMaint ? 'inline-flex' : 'none';
     },
     showPicker({title, html, x, y}){
       const p = $('#kanpro-picker');
