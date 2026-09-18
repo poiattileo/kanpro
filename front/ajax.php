@@ -1098,6 +1098,17 @@ switch ($action) {
         }catch(Throwable $e){}
         if($existing){
             $transfer_id = (int)$existing['id'];
+            // KanPro: garante que Responsável pela Retirada já fique com nome do Card mesmo em transferências antigas (antes do fix)
+            if (empty(trim($existing['assinatura_nome'] ?? '')) && !empty($card->fields['name']) && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
+                try { $DB->update('glpi_plugin_assetmgrstatus_transfers', ['assinatura_nome' => mb_substr($card->fields['name'],0,255)], ['id' => $transfer_id]); } catch(Throwable $e) {}
+            }
+            // Corrige Escola de Origem antiga (board_name) para nome do Card se necessário
+            try {
+                $firstIt = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfer_items','WHERE'=>['transfers_id'=>$transfer_id],'ORDER'=>'id ASC','LIMIT'=>1])->current();
+                if ($firstIt && trim($firstIt['origin_entity_name'] ?? '') !== trim($card->fields['name'] ?? '') && trim($card->fields['name'] ?? '') !== '') {
+                    $DB->update('glpi_plugin_assetmgrstatus_transfer_items', ['origin_entity_name' => mb_substr($card->fields['name'],0,255)], ['transfers_id'=>$transfer_id]);
+                }
+            } catch(Throwable $e) {}
             $base = Plugin::getWebDir('assetmgrstatus');
             if(!$base) $base = '/plugins/assetmgrstatus';
             $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
@@ -1122,8 +1133,10 @@ switch ($action) {
         $now = date('Y-m-d H:i:s');
         $uid = Session::getLoginUserID();
         $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
+        // Responsável pela Retirada = nome do Card (KanPro) — pré-preenche assinatura_nome para o termo já exibir correto antes de assinar
+        $kanpro_responsavel = trim($card->fields['name'] ?? '');
         // cria transferência em status pronto (já vai para Assinatura)
-        $DB->insert('glpi_plugin_assetmgrstatus_transfers', [
+        $transfer_data = [
             'entity_dest'      => $entity_dest,
             'reason'           => $reason,
             'status'           => 'pronto',
@@ -1132,7 +1145,12 @@ switch ($action) {
             'date_pending'     => $now,
             'date_creation'    => $now,
             'date_pronto'      => $now,
-        ]);
+        ];
+        // Pré-preenche Responsável pela Retirada com nome do Card se a coluna existir (assetmgrstatus)
+        if ($kanpro_responsavel !== '' && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
+            $transfer_data['assinatura_nome'] = mb_substr($kanpro_responsavel, 0, 255);
+        }
+        $DB->insert('glpi_plugin_assetmgrstatus_transfers', $transfer_data);
         $transfer_id = (int)$DB->insertId();
         if(!$transfer_id){
             // tenta buscar último inserido
