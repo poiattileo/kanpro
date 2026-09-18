@@ -186,6 +186,21 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- PRESENCE (quem está vendo o quadro agora) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_presence')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_presence` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `last_seen`                   DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `board_user` (`plugin_kanpro_boards_id`, `users_id`),
+                KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     // --- COMMENTS ---
     if (!$DB->tableExists('glpi_plugin_kanpro_comments')) {
         $DB->doQuery("
@@ -256,6 +271,7 @@ function plugin_kanpro_uninstall(): bool {
         'glpi_plugin_kanpro_comments',
         'glpi_plugin_kanpro_checklist_items',
         'glpi_plugin_kanpro_checklists',
+        'glpi_plugin_kanpro_presence',
         'glpi_plugin_kanpro_boards_members',
         'glpi_plugin_kanpro_cards_members',
         'glpi_plugin_kanpro_cards_labels',
