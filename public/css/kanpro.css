@@ -363,8 +363,10 @@
 
 /* Manutenção */
 .kp-maint-machine { transition: box-shadow .15s, border-color .15s; }
+.kp-maint-machine.urgent { border-left-color: #eb5a46 !important; background: #fff1f0 !important; }
 .kp-maint-machine textarea:focus { border-color: #ffab00 !important; outline: none; box-shadow: 0 0 0 2px rgba(255,171,0,.2); }
 #card-modal-maintenance { animation: kp-fadeIn .2s ease; }
+.kp-card.kp-urgent, .kp-card[data-urgent="1"] { border-color: #eb5a46 !important; box-shadow: 0 0 0 2px rgba(235,90,70,.18), 0 1px 3px rgba(0,0,0,.12) !important; background: #fff5f5 !important; }
 
 /* Responsive */
 @media (max-width: 768px) {

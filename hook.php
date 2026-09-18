@@ -293,6 +293,7 @@ function plugin_kanpro_install(): bool {
                 `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=OK, 0=pendente/defeito',
                 `status`                      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente',
                 `is_inventoried`              TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao,1=inventariado',
+                `is_urgent`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=normal,1=urgencia',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -300,7 +301,8 @@ function plugin_kanpro_install(): bool {
                 KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
                 KEY `seq` (`seq`),
                 KEY `is_done` (`is_done`),
-                KEY `is_inventoried` (`is_inventoried`)
+                KEY `is_inventoried` (`is_inventoried`),
+                KEY `is_urgent` (`is_urgent`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
     } else {
@@ -320,6 +322,9 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_inventoried')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_inventoried` TINYINT(1) NOT NULL DEFAULT '0' AFTER `status`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_urgent')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
         }
     }
 

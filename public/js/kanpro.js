@@ -347,6 +347,21 @@
         } else {
           badges.push(`<span class="kp-badge" style="background:#fffae6;color:#172b4d;border:1px solid #ffab00;font-weight:700"><i class="ti ti-tool"></i> Manutenção</span>`);
         }
+        // Urgência badge (se tem máquina com urgência)
+        const mProgUrgent = this.maintenanceProgress && this.maintenanceProgress[card.id];
+        if (mProgUrgent && mProgUrgent.urgent > 0) {
+          badges.push(`<span class="kp-badge" style="background:#eb5a46;color:#fff;font-weight:700;border:1px solid #eb5a46"><i class="ti ti-alert-triangle"></i> URGÊNCIA ${mProgUrgent.urgent}</span>`);
+        }
+      }
+      // borda vermelha se tem urgência dentro do card (destaque na lista)
+      const mProgBorder = this.maintenanceProgress && this.maintenanceProgress[card.id];
+      if (mProgBorder && mProgBorder.urgent > 0) {
+        div.classList.add('kp-urgent');
+        div.dataset.urgent = "1";
+        div.style.borderColor = '#eb5a46';
+        div.style.borderWidth = '2px';
+        div.style.boxShadow = '0 0 0 2px rgba(235,90,70,.18), 0 1px 3px rgba(0,0,0,.12)';
+        div.style.background = '#fff5f5';
       }
       // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
       const tStat = this.transferStatus && this.transferStatus[card.id];
@@ -968,7 +983,13 @@
         else if(status==="inservivel"){ statusLabel="❌ Inservível"; statusColor="#eb5a46"; statusTextColor="#fff"; }
         else if(status==="pendente"){ statusLabel="⏳ Pendente"; statusColor="#ffab00"; statusTextColor="#172b4d"; }
         else { statusLabel="— Selecione *"; statusColor="#ffebe6"; statusTextColor="#bf2600"; }
-        const borderColor = !status ? "#eb5a46" : (isDone ? "#61bd4f" : "#ffab00");
+        const isUrgent = String(m.is_urgent)==="1" || m.is_urgent===1;
+        const urgBg = isUrgent ? "#eb5a46" : "#fff";
+        const urgColor = isUrgent ? "#fff" : "#bf2600";
+        const urgBorder = isUrgent ? "1px solid #eb5a46" : "1px solid #ffbdad";
+        const urgLabel = isUrgent ? "🔥 Urgência" : "Urgência";
+        const urgIcon = isUrgent ? "ti ti-alert-triangle" : "ti ti-flag";
+        const borderColor = isUrgent ? "#eb5a46" : (!status ? "#eb5a46" : (isDone ? "#61bd4f" : "#ffab00"));
         const selectBorder = !status ? "2px solid #eb5a46" : `1px solid ${statusColor}`;
         const statusSelectBg = !status ? "#fff" : statusColor;
         const statusSelectColor = !status ? "#bf2600" : statusTextColor;
@@ -979,12 +1000,12 @@
         const invLabel = isInventoried ? "✓ Inventariado" : "Inventário";
         const invIcon = isInventoried ? "ti ti-check" : "ti ti-clipboard";
         html += `
-          <div class="kp-maint-machine" data-mid="${m.id}" style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
-            <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;background:${isDone?"#e3fcef":"#f4f5f7"}">
+          <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isUrgent?"#fff1f0":"#fff"};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
+            <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;background:${isUrgent?"#ffecec":isDone?"#e3fcef":"#f4f5f7"}">
               <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-                <span style="background:#091e42;color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
+                <span style="background:${isUrgent?"#eb5a46":"#091e42"};color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
                 <div style="flex:1;min-width:0">
-                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small></div>
+                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}</div>
                   <div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label)}</div>
                 </div>
               </div>
@@ -1002,6 +1023,10 @@
                 <button onclick="Kanpro.toggleMaintenanceInventoried(${m.id})" title="${isInventoried?"Clique para desmarcar inventário":"Clique para marcar como inventariado"}" style="display:flex;align-items:center;gap:4px;background:${invBg};color:${invColor};border:${invBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:110px;justify-content:center">
                   <i class="${invIcon}" style="font-size:12px"></i> ${invLabel}
                 </button>
+                <button onclick="Kanpro.toggleUrgent(${m.id})" title="${isUrgent?"Remover urgência":"Marcar como urgência"}" style="display:flex;align-items:center;gap:4px;background:${urgBg};color:${urgColor};border:${urgBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:90px;justify-content:center">
+                  <i class="${urgIcon}" style="font-size:12px"></i> ${urgLabel}
+                </button>
+                ${isUrgent ? `<button onclick="Kanpro.retiradaMachine(${m.id})" title="Criar card de Retirada para esta máquina e ir para Assinatura" style="display:flex;align-items:center;gap:4px;background:#ff5630;color:#fff;border:1px solid #ff5630;padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700"><i class="ti ti-truck" style="font-size:12px"></i> Retirada</button>` : ""}
                 <button onclick="Kanpro.deleteMaintenanceMachine(${m.id})" title="Remover máquina" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-trash" style="font-size:14px"></i></button>
               </div>
             </div>
@@ -1625,6 +1650,34 @@
         if(btn){ btn.disabled=false; btn.style.opacity="1"; }
       });
     },
+    toggleUrgent(mid){
+      const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
+      const current = data ? Number(data.is_urgent)||0 : 0;
+      const newVal = current ? 0 : 1;
+      this.ajax("update_maintenance_machine", {id: mid, is_urgent: newVal}).then(res=>{
+        if(res.success){
+          this.showToast(newVal ? "🔥 Urgência marcada" : "Urgência removida");
+          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        } else alert(res.msg||"Erro");
+      });
+    },
+    retiradaMachine(mid){
+      if(!confirm("Criar card de Retirada para esta máquina (urgência)? O card atual perderá esta máquina e um novo card será criado com as mesmas informações, indo para Assinatura.")) return;
+      this.ajax("retirada_machine", {id: mid}).then(res=>{
+        if(!res.success){ alert(res.msg||"Erro"); return; }
+        this.showToast("Retirada criada — card #" + res.new_card_id);
+        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        if(res.new_card_id) setTimeout(()=> this.openCard(res.new_card_id), 600);
+        if(res.assinatura_url) window.open(res.assinatura_url, "_blank");
+        else if(res.transfer_id){
+          const base = this.ajax_url.replace("/ajax.php","");
+          window.open(base + "/../assetmgrstatus/front/assinatura.php?f=pendente&highlight=" + res.transfer_id, "_blank");
+        } else {
+          const base = this.ajax_url.replace("/plugins/kanpro/front/ajax.php","");
+          window.open(base + "/plugins/assetmgrstatus/front/assinatura.php?f=pendente&highlight=" + (res.transfer_id||""), "_blank");
+        }
+      });
+    },
     onDiaryInput(mid){
       const ta=document.getElementById("maint-diary-"+mid);
       const status=document.getElementById("maint-save-status-"+mid);
@@ -1865,10 +1918,6 @@
         else if(!st){ statusLabel="SEM STATUS"; statusColor="#bf2600"; }
         else { statusLabel=st.toUpperCase(); statusColor="#5e6c84"; }
         const doneIcon = m.is_done==1 ? "✔" : "—";
-        const inv = String(m.is_inventoried)==="1" || m.is_inventoried===1;
-        const invLabel = inv ? "Inventariado" : "Não inventariado";
-        const invColor = inv ? "#61bd4f" : "#dfe1e6";
-        const invText = inv ? "#fff" : "#5e6c84";
         return `
           <tr>
             <td style="text-align:center;font-weight:700">#${m.seq}</td>
@@ -1876,8 +1925,7 @@
             <td style="font-size:11px">${esc(m.label)}</td>
             <td style="text-align:center"><span style="background:${statusColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">Status Final: ${statusLabel}</span></td>
             <td style="text-align:center">${doneIcon}</td>
-            <td style="text-align:center"><span style="background:${invColor};color:${invText};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">${invLabel}</span></td>
-            <td style="font-size:11px;white-space:pre-wrap;max-width:260px">${esc(m.diary||"—")}</td>
+            <td style="font-size:12px;white-space:pre-wrap;word-break:break-word;min-width:320px">${esc(m.diary||"—")}</td>
           </tr>`;
       }).join("");
       return `<!DOCTYPE html>
@@ -1927,7 +1975,7 @@
   <h2>Checklist por Máquina — Diário (Status Final)</h2>
   <table>
     <thead>
-      <tr><th style="width:40px">#</th><th>Modelo</th><th>Etiqueta</th><th style="width:130px">Status Final</th><th style="width:40px">Feito</th><th style="width:110px">Inventário</th><th>Diário — O que foi feito</th></tr>
+      <tr><th style="width:50px">#</th><th style="min-width:140px">Modelo</th><th>Etiqueta</th><th style="width:130px">Status Final</th><th style="width:50px">Feito</th><th>O QUE FOI FEITO</th></tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>

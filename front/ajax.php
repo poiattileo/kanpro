@@ -134,6 +134,7 @@ function kanpro_ensure_maintenance_tables() {
                 `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0',
                 `status`                      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente',
                 `is_inventoried`              TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao,1=inventariado',
+                `is_urgent`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=normal,1=urgencia',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -141,7 +142,8 @@ function kanpro_ensure_maintenance_tables() {
                 KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
                 KEY `seq` (`seq`),
                 KEY `is_done` (`is_done`),
-                KEY `is_inventoried` (`is_inventoried`)
+                KEY `is_inventoried` (`is_inventoried`),
+                KEY `is_urgent` (`is_urgent`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ");
     } else {
@@ -154,6 +156,9 @@ function kanpro_ensure_maintenance_tables() {
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_inventoried')) {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_inventoried` TINYINT(1) NOT NULL DEFAULT '0' AFTER `status`");
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_urgent')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
             }
             // limpeza: Nome do Recebedor deve ficar vazio por padrão — remove preenchimento automático antigo em transferências pendentes do KanPro
             try {
@@ -449,11 +454,15 @@ switch ($action) {
             foreach ($maint_by_card as $cid => $machines) {
                 $total = count($machines);
                 $done = 0;
-                foreach ($machines as $mm) if (!empty($mm['is_done'])) $done++;
-                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0];
+                $urgent = 0;
+                foreach ($machines as $mm) {
+                    if (!empty($mm['is_done'])) $done++;
+                    if (!empty($mm['is_urgent'])) $urgent++;
+                }
+                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent];
             }
             foreach ($all_cards as $c) {
-                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0];
+                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0];
             }
         }
 
@@ -1032,6 +1041,7 @@ switch ($action) {
                     'is_ok'                  => 0,
                     'status'                 => '',
                     'is_inventoried'         => 0,
+                    'is_urgent'              => 0,
                     'users_id'               => $uid,
                     'date_creation'          => $now,
                     'date_mod'               => $now,
@@ -1051,7 +1061,8 @@ switch ($action) {
         $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
         foreach ($iter as $r) $all[] = $r;
         $done = count(array_filter($all, fn($x)=> $x['is_done']==1));
-        jexit(['success'=>true,'total'=>$total,'created'=>count($created),'machines'=>$all,'progress'=>['total'=>count($all),'done'=>$done,'percent'=> count($all)? round($done/count($all)*100):0]]);
+        $urgent = count(array_filter($all, fn($x)=> !empty($x['is_urgent'])));
+        jexit(['success'=>true,'total'=>$total,'created'=>count($created),'machines'=>$all,'progress'=>['total'=>count($all),'done'=>$done,'percent'=> count($all)? round($done/count($all)*100):0,'urgent'=>$urgent]]);
 
     case 'get_maintenance':
         kanpro_ensure_maintenance_tables();
@@ -1118,6 +1129,9 @@ switch ($action) {
         }
         if (array_key_exists('is_inventoried', $_POST)) $updates['is_inventoried'] = (int)$_POST['is_inventoried'] ? 1:0;
         if (array_key_exists('inventoried', $_POST)) $updates['is_inventoried'] = (int)$_POST['inventoried'] ? 1:0;
+        if (array_key_exists('is_urgent', $_POST)) $updates['is_urgent'] = (int)$_POST['is_urgent'] ? 1:0;
+        if (array_key_exists('urgent', $_POST)) $updates['is_urgent'] = (int)$_POST['urgent'] ? 1:0;
+        if (array_key_exists('urgencia', $_POST)) $updates['is_urgent'] = (int)$_POST['urgencia'] ? 1:0;
         if (empty($updates)) jexit(['success'=>false,'msg'=>'Nada para atualizar']);
         $updates['date_mod'] = date('Y-m-d H:i:s');
         $updates['users_id'] = Session::getLoginUserID();
@@ -1185,6 +1199,7 @@ switch ($action) {
                     'is_ok'=>0,
                     'status'=>'',
                     'is_inventoried'=>0,
+                    'is_urgent'=>0,
                     'users_id'=>$uid,
                     'date_creation'=>$now,
                     'date_mod'=>$now
@@ -1219,6 +1234,106 @@ switch ($action) {
         $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
         foreach($iter as $r) $all[]=$r;
         jexit(['success'=>true,'machines'=>$all]);
+
+    case 'retirada_machine':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $mid = (int)($_POST['id'] ?? $_POST['machine_id'] ?? 0);
+        if (!$mid) jexit(['success'=>false,'msg'=>'Máquina inválida']);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
+        if (empty($row['is_urgent'])) jexit(['success'=>false,'msg'=>'Apenas máquinas com urgência podem ser retiradas']);
+        $cid = (int)$row['plugin_kanpro_cards_id'];
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Card não é de manutenção']);
+        // cria novo card com mesmo nome/entidade
+        $origName = trim($card->fields['name']);
+        $newName = mb_substr($origName, 0, 255);
+        $newCard = new PluginKanproCard();
+        $newId = $newCard->add([
+            'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
+            'plugin_kanpro_lists_id'  => $card->fields['plugin_kanpro_lists_id'],
+            'name'        => $newName,
+            'description' => $card->fields['description'] ?? '',
+        ]);
+        if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de retirada']);
+        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
+        // move máquina para novo card, re-sequencia como 1 e mantém infos
+        $newLabel = "Máquina 1 - {$row['model']}";
+        $DB->update('glpi_plugin_kanpro_maintenance_machines', [
+            'plugin_kanpro_cards_id'=>$newId,
+            'seq'=>1,
+            'label'=>$newLabel,
+            'date_mod'=>date('Y-m-d H:i:s')
+        ], ['id'=>$mid]);
+        // re-sequencia card original
+        $remaining=[];
+        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+        foreach($iter as $r) $remaining[]=$r;
+        $seq=1;
+        foreach($remaining as $r){
+            $newLabel2 = "Máquina {$seq} - {$r['model']}";
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel2,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$r['id']]);
+            $seq++;
+        }
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_retirada', "Máquina #{$row['seq']} ({$row['model']}) retirada para card #{$newId}");
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_retirada_new', "Card de retirada criado a partir de #{$cid} máquina #{$row['seq']}");
+        // cria transferência para assinatura (se plugin disponível)
+        $transfer_id = null;
+        $assinatura_url = null;
+        if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers') && $DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items')) {
+            $board = new PluginKanproBoard();
+            $board->getFromDB($card->fields['plugin_kanpro_boards_id']);
+            $list = new PluginKanproList();
+            $list->getFromDB($card->fields['plugin_kanpro_lists_id']);
+            $board_name = $board->fields['name'] ?? 'Quadro';
+            $list_name  = $list->fields['name'] ?? 'Lista';
+            $entity_dest = (int)($board->fields['entities_id'] ?? $_SESSION['glpiactive_entity'] ?? 0);
+            $stRaw = mb_strtolower(trim($row['status'] ?? ''), 'UTF-8');
+            $status_final = in_array($stRaw, ['garantia','ok','inservivel','pendente']) ? $stRaw : (!empty($stRaw) ? $stRaw : 'pendente');
+            $work_status = !empty($row['is_done']) ? 'done' : 'pending';
+            $reason = "[KanPro #{$newId} - Retirada Urgência] Quadro: {$board_name} | Lista: {$list_name} | Card origem: #{$cid} {$origName} | Máquina #{$row['seq']} {$row['model']} [{$status_final}] URGÊNCIA | Diário: " . mb_substr($row['diary'] ?? '',0,300) . " | Gerado em ".date('d/m/Y H:i');
+            $now = date('Y-m-d H:i:s');
+            $uid = Session::getLoginUserID();
+            $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
+            $DB->insert('glpi_plugin_assetmgrstatus_transfers', [
+                'entity_dest'      => $entity_dest,
+                'reason'           => $reason,
+                'status'           => 'pronto',
+                'users_id_created' => $uid,
+                'users_id_tech'    => $tech_id,
+                'date_pending'     => $now,
+                'date_creation'    => $now,
+                'date_pronto'      => $now,
+            ]);
+            $transfer_id = (int)$DB->insertId();
+            if (!$transfer_id) {
+                $r = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>$reason],'ORDER'=>'id DESC','LIMIT'=>1])->current();
+                $transfer_id = (int)($r['id']??0);
+            }
+            if ($transfer_id) {
+                $DB->insert('glpi_plugin_assetmgrstatus_transfer_items', [
+                    'transfers_id'       => $transfer_id,
+                    'items_id'           => (int)$mid,
+                    'itemtype'           => 'KanPro',
+                    'item_name'          => $row['label'] . ' - ' . $row['model'],
+                    'origin_entity_id'   => $entity_dest,
+                    'origin_entity_name' => $origName,
+                    'final_status'       => $status_final,
+                    'final_reason'       => $row['diary'] ?? '',
+                    'final_components'   => json_encode(!empty(trim($row['diary'] ?? '')) ? ['diario'=>trim($row['diary'])] : [], JSON_UNESCAPED_UNICODE),
+                    'work_log'           => $row['diary'] ?? '',
+                    'work_components'    => json_encode([], JSON_UNESCAPED_UNICODE),
+                    'work_status'        => $work_status,
+                ]);
+                try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Retirada Urgência: Máquina #{$row['seq']} '{$row['model']}' de #{$cid} para #{$newId}"); }catch(Throwable $e){}
+                $base = Plugin::getWebDir('assetmgrstatus');
+                if(!$base) $base = '/plugins/assetmgrstatus';
+                $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
+            }
+        }
+        jexit(['success'=>true,'new_card_id'=>$newId,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'msg'=>'Retirada criada']);
 
     case 'revert_maintenance':
         needEdit();
