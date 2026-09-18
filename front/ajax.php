@@ -767,6 +767,25 @@ switch ($action) {
         foreach ($iter as $r) $ids[] = $r['id'];
         jexit(['success'=>true,'ids'=>$ids]);
 
+    case 'list_entities':
+        // Lista entidades GLPI para seleção ao converter manutenção — nome do Card vira nome da Entidade
+        $entities = [];
+        try {
+            $iter = $DB->request(['FROM' => 'glpi_entities', 'ORDER' => 'completename ASC']);
+            foreach ($iter as $row) {
+                // ignora lixeira se houver
+                if (isset($row['is_deleted']) && $row['is_deleted']) continue;
+                $entities[] = [
+                    'id'           => (int)$row['id'],
+                    'name'         => $row['name'] ?? '',
+                    'completename' => $row['completename'] ?? $row['name'] ?? '',
+                ];
+            }
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao listar entidades: '.$e->getMessage()]);
+        }
+        jexit(['success'=>true,'entities'=>$entities]);
+
     // ==================== MANUTENÇÃO (2FA + checklist por máquina) ====================
     case 'convert_to_maintenance':
         needEdit();
@@ -789,14 +808,31 @@ switch ($action) {
         if ($password !== '' && $password !== null && !kanpro_verify_password($password)) {
             jexit(['success'=>false,'msg'=>'Senha incorreta. Verifique sua senha do GLPI.','need_password'=>true]);
         }
-        $DB->update('glpi_plugin_kanpro_cards', [
+        // Entidade selecionada — nome do Card vira nome da Entidade
+        $entities_id = isset($_POST['entities_id']) ? (int)$_POST['entities_id'] : 0;
+        $entity_name_input = trim($_POST['entity_name'] ?? $_POST['entities_name'] ?? '');
+        $newName = null;
+        if ($entities_id > 0) {
+            $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$entities_id]])->current();
+            if (!$entRow) jexit(['success'=>false,'msg'=>'Entidade não encontrada']);
+            $newName = trim($entRow['completename'] ?? $entRow['name'] ?? '');
+            if ($newName === '') jexit(['success'=>false,'msg'=>'Nome da entidade vazio']);
+            $newName = mb_substr($newName, 0, 255);
+        } elseif ($entity_name_input !== '') {
+            $newName = mb_substr($entity_name_input, 0, 255);
+        } else {
+            jexit(['success'=>false,'msg'=>'Selecione a entidade. O nome do card virará o nome da entidade.','need_entity'=>true]);
+        }
+        $updateData = [
             'is_maintenance'   => 1,
             'maintenance_date' => date('Y-m-d H:i:s'),
             'maintenance_by'   => Session::getLoginUserID(),
-            'date_mod'         => date('Y-m-d H:i:s')
-        ], ['id' => $cid]);
-        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_maintenance_convert', "Cartão convertido para manutenção por ". Session::getLoginUserID());
-        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1]);
+            'date_mod'         => date('Y-m-d H:i:s'),
+            'name'             => $newName
+        ];
+        $DB->update('glpi_plugin_kanpro_cards', $updateData, ['id' => $cid]);
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_maintenance_convert', "Cartão convertido para manutenção por ". Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})");
+        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1,'new_name'=>$newName,'entities_id'=>$entities_id]);
 
     case 'verify_maintenance_password':
         // endpoint auxiliar só para validar senha antes de converter (usado em fluxo 2 etapas separado)

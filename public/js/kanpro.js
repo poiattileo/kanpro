@@ -27,6 +27,9 @@
     filterText: '',
     labelFilter: new Set(),
     memberFilter: new Set(),
+    _diaryTimers: {},
+    _diarySaving: {},
+    _lastDiarySaved: {},
 
     csrf() {
       let t = document.getElementById('kanpro-csrf')?.value
@@ -672,6 +675,17 @@
       });
     },
     closeCardModal(){
+      // salva pendências de diário antes de fechar e limpa timers
+      Object.keys(this._diaryTimers||{}).forEach(mid=>{
+        clearTimeout(this._diaryTimers[mid]);
+        const ta=document.getElementById("maint-diary-"+mid);
+        if(ta && this._lastDiarySaved[mid]!==ta.value){
+          // dispara save síncrono antes de fechar
+          this.ajax("update_maintenance_machine", {id: mid, diary: ta.value});
+        }
+      });
+      this._diaryTimers={};
+      this._diarySaving={};
       $('#kanpro-card-modal').style.display='none';
       document.body.style.overflow='';
       this.currentCardId=null;
@@ -941,10 +955,11 @@
             </div>
             <div style="padding:10px 12px">
               <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">DIÁRIO — o que foi feito nesta máquina</div>
-              <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box">${this.escape(diary)}</textarea>
+              <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
                 <button onclick="Kanpro.saveMaintenanceDiary(${m.id})" style="background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600"><i class="ti ti-device-floppy"></i> Salvar diário</button>
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
+                <span style="font-size:10px;color:#97a0af;font-style:italic">autosave a cada palavra</span>
                 <span style="margin-left:auto;font-size:11px;color:#97a0af">Status: ${statusLabel} • ${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span>
               </div>
             </div>
@@ -957,6 +972,8 @@
         <button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>
       </div>`;
       wrap.innerHTML = html;
+      // inicializa cache de autosave para evitar save desnecessário logo ao abrir
+      machines.forEach(m=>{ this._lastDiarySaved[m.id] = m.diary||""; });
     },
 
     openMaintenanceFlow(){
@@ -984,52 +1001,116 @@
       }, 900);
     },
     showMaintenanceStep1(){
-      let challenge;
-      if (Math.random() < 0.30) {
-        const specials = ["PAIVA","MASSON","FERRARI"];
-        challenge = specials[Math.floor(Math.random()*specials.length)];
-      } else {
-        const others = MAINT_CHALLENGE_WORDS.filter(w=> !["PAIVA","MASSON","FERRARI"].includes(w));
-        challenge = others[Math.floor(Math.random()*others.length)];
-      }
-      this._maintChallenge = challenge;
-      const html = `
-        <div style="display:grid;gap:8px">
-          <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:6px;color:#172b4d;font-size:12px;line-height:1.3">
-            <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).
-          </div>
-          <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
-            <div style="font-size:10px;opacity:.7;letter-spacing:0.04em">DIGITE A PALAVRA ABAIXO</div>
-            <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
-          </div>
-          <input id="maint-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:8px;border:2px solid #ffab00;border-radius:6px;font-size:15px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.06em;text-align:center;font-weight:700">
-          <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
-            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
-            <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Confirmar e Converter</button>
-          </div>
-          <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
-        </div>
-      `;
-      this.showPicker({title:"Confirmação — Manutenção", html});
-      // garante picker compacto sem scroll desnecessário
-      setTimeout(()=>{
-        const picker = document.getElementById("kanpro-picker");
-        const body = document.getElementById("picker-body");
-        if(picker){
-          picker.style.maxHeight = "85vh";
-          picker.style.display = "flex";
-          picker.style.flexDirection = "column";
+      // Busca entidades GLPI antes de mostrar desafio — nome do Card virará nome da Entidade
+      this.showPicker({title:"Confirmação — Manutenção", html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>Carregando entidades...</div>'});
+      this.ajax("list_entities", {}).then(res=>{
+        let entities = (res && res.success && Array.isArray(res.entities)) ? res.entities : [];
+        // fallback se listagem vazia
+        if(!entities.length){
+          entities = [];
         }
-        if(body){
-          body.style.maxHeight = "none";
-          body.style.overflowY = "visible";
+        this._maintEntities = entities;
+        let challenge;
+        if (Math.random() < 0.30) {
+          const specials = ["PAIVA","MASSON","FERRARI"];
+          challenge = specials[Math.floor(Math.random()*specials.length)];
+        } else {
+          const others = MAINT_CHALLENGE_WORDS.filter(w=> !["PAIVA","MASSON","FERRARI"].includes(w));
+          challenge = others[Math.floor(Math.random()*others.length)];
         }
-        const inp=document.getElementById("maint-confirm-input");
-        if(inp){ inp.focus(); inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); }
-      }, 30);
+        this._maintChallenge = challenge;
+        const options = entities.map(e=> `<option value="${e.id}">${this.escape(e.completename||e.name)}</option>`).join("");
+        const html = `
+          <div style="display:grid;gap:10px">
+            <div style="background:#e6f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:6px;color:#003a8c;font-size:12px;line-height:1.3">
+              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade</strong> — selecione a entidade GLPI. O <strong>nome do Card virará o nome da entidade</strong> selecionada.
+            </div>
+            <input id="maint-entity-filter" type="text" placeholder="Filtrar entidade... (digite para buscar)" style="width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px" oninput="Kanpro.filterMaintEntities(this.value)">
+            <select id="maint-entity-select" size="6" style="width:100%;padding:8px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;min-height:120px">
+              <option value="">Selecione a entidade...</option>
+              ${options}
+            </select>
+            <div id="maint-entity-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
+            <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:6px;color:#172b4d;font-size:12px;line-height:1.3">
+              <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).
+            </div>
+            <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
+              <div style="font-size:10px;opacity:.7;letter-spacing:0.04em">DIGITE A PALAVRA ABAIXO</div>
+              <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
+            </div>
+            <input id="maint-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:8px;border:2px solid #ffab00;border-radius:6px;font-size:15px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.06em;text-align:center;font-weight:700">
+            <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
+              <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+              <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Confirmar e Converter</button>
+            </div>
+            <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+          </div>
+        `;
+        this.showPicker({title:"Confirmação — Manutenção", html});
+        setTimeout(()=>{
+          const picker = document.getElementById("kanpro-picker");
+          const body = document.getElementById("picker-body");
+          if(picker){
+            picker.style.maxHeight = "85vh";
+            picker.style.display = "flex";
+            picker.style.flexDirection = "column";
+          }
+          if(body){
+            body.style.maxHeight = "none";
+            body.style.overflowY = "visible";
+          }
+          const filter=document.getElementById("maint-entity-filter");
+          const sel=document.getElementById("maint-entity-select");
+          const inp=document.getElementById("maint-confirm-input");
+          if(filter) filter.focus();
+          else if(sel) sel.focus();
+          if(inp){ inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); }
+          if(sel){ sel.addEventListener("keydown", e=>{ if(e.key==="Enter") { e.preventDefault(); document.getElementById("maint-confirm-input")?.focus(); } }); }
+          if(filter){ filter.addEventListener("keydown", e=>{ if(e.key==="Enter") { e.preventDefault(); sel?.focus(); } }); }
+        }, 30);
+      }).catch(()=>{
+        // fallback sem entidades — ainda mostra desafio mas sem seleção
+        let challenge;
+        if (Math.random() < 0.30) {
+          const specials = ["PAIVA","MASSON","FERRARI"];
+          challenge = specials[Math.floor(Math.random()*specials.length)];
+        } else {
+          const others = MAINT_CHALLENGE_WORDS.filter(w=> !["PAIVA","MASSON","FERRARI"].includes(w));
+          challenge = others[Math.floor(Math.random()*others.length)];
+        }
+        this._maintChallenge = challenge;
+        this._maintEntities = [];
+        const html = `
+          <div style="display:grid;gap:8px">
+            <div style="background:#fff1f0;border:1px solid #ffa39e;padding:8px 10px;border-radius:6px;color:#a8071a;font-size:12px">Erro ao carregar entidades. Tente novamente.</div>
+            <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
+              <div style="font-size:10px;opacity:.7;letter-spacing:0.04em">DIGITE A PALAVRA ABAIXO</div>
+              <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
+            </div>
+            <input id="maint-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:8px;border:2px solid #ffab00;border-radius:6px;font-size:15px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.06em;text-align:center;font-weight:700">
+            <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
+              <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+              <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Confirmar e Converter</button>
+            </div>
+          </div>
+        `;
+        this.showPicker({title:"Confirmação — Manutenção", html});
+      });
     },
     confirmMaintenanceStep1(){
+      const sel = document.getElementById("maint-entity-select");
+      const entErr = document.getElementById("maint-entity-error");
+      const entities_id = sel ? parseInt(sel.value||"0") : 0;
+      if(sel && !entities_id){
+        if(entErr){ entErr.textContent="Selecione a entidade. O nome do card virará o nome dela."; entErr.style.display="block"; }
+        sel.style.borderColor="#eb5a46";
+        sel.focus();
+        return;
+      }
+      if(entErr) entErr.style.display="none";
+      if(sel) sel.style.borderColor="#1890ff";
       const inp = document.getElementById("maint-confirm-input");
       const err = document.getElementById("maint-step1-error");
       const btn = document.getElementById("maint-step1-btn");
@@ -1047,22 +1128,33 @@
       if(btn){ btn.disabled=true; btn.textContent="Convertendo..."; }
       if(err){ err.style.display="none"; }
       this._maintConfirmText = challenge;
-      this.ajax("convert_to_maintenance", {cards_id: this.currentCardId, confirm_text: challenge}).then(res=>{
+      this._maintEntitiesId = entities_id;
+      this.ajax("convert_to_maintenance", {cards_id: this.currentCardId, confirm_text: challenge, entities_id: entities_id}).then(res=>{
         if(btn){ btn.disabled=false; btn.textContent="Confirmar e Converter"; }
         if(!res.success){
           if(err){ err.textContent=res.msg||"Falha ao converter"; err.style.display="block"; }
           return;
         }
         this.closePicker();
-        this.showToast("Card convertido para Manutenção!");
+        this.showToast("Card convertido para Manutenção — " + (res.new_name||""));
         const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
-        if(c) c.is_maintenance=1;
+        if(c){ c.is_maintenance=1; if(res.new_name) c.name=res.new_name; this.renderBoard(); }
         this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
           if(r.success){
             this.renderCardModal(r.data);
             setTimeout(()=> this.openMaintenanceSetup(), 400);
           } else location.reload();
         });
+      });
+    },
+    filterMaintEntities(q){
+      const sel=document.getElementById("maint-entity-select");
+      if(!sel) return;
+      const term=(q||"").toLowerCase().trim();
+      [...sel.options].forEach(opt=>{
+        if(!opt.value){ opt.style.display=""; return; }
+        const txt=opt.textContent.toLowerCase();
+        opt.style.display = (!term || txt.includes(term)) ? "" : "none";
       });
     },
     showMaintenanceStep2(){
@@ -1362,14 +1454,51 @@
         }
       });
     },
+    onDiaryInput(mid){
+      const ta=document.getElementById("maint-diary-"+mid);
+      const status=document.getElementById("maint-save-status-"+mid);
+      if(!ta) return;
+      if(status){ status.textContent=" ✎ digitando…"; status.style.color="#97a0af"; }
+      clearTimeout(this._diaryTimers[mid]);
+      const val = ta.value;
+      const lastChar = val.slice(-1);
+      // a cada palavra (espaço/quebra) salva mais rápido — 400ms vs 800ms
+      const delay = (lastChar===" "||lastChar==="\n") ? 400 : 800;
+      this._diaryTimers[mid]=setTimeout(()=> this.autoSaveDiary(mid), delay);
+    },
+    autoSaveDiary(mid){
+      const ta=document.getElementById("maint-diary-"+mid);
+      const status=document.getElementById("maint-save-status-"+mid);
+      if(!ta) return;
+      const diary=ta.value;
+      if(this._lastDiarySaved[mid]===diary) return;
+      if(this._diarySaving[mid]) return;
+      if(status){ status.textContent=" Salvando…"; status.style.color="#5e6c84"; }
+      this._diarySaving[mid]=true;
+      this.ajax("update_maintenance_machine", {id: mid, diary}).then(res=>{
+        this._diarySaving[mid]=false;
+        if(res.success){
+          this._lastDiarySaved[mid]=diary;
+          if(status){ status.textContent=" ✓ Salvo automaticamente"; status.style.color="#61bd4f"; setTimeout(()=>{ if(status.textContent.includes("Salvo")) status.textContent=""; }, 2200); }
+        } else {
+          if(status){ status.textContent=" Erro ao salvar"; status.style.color="#eb5a46"; }
+        }
+      }).catch(()=>{
+        this._diarySaving[mid]=false;
+        if(status){ status.textContent=" Erro ao salvar"; status.style.color="#eb5a46"; }
+      });
+    },
     saveMaintenanceDiary(mid){
       const ta=document.getElementById("maint-diary-"+mid);
       const status=document.getElementById("maint-save-status-"+mid);
       if(!ta) return;
       const diary=ta.value;
+      // cancela autosave pendente e salva imediatamente
+      clearTimeout(this._diaryTimers[mid]);
       if(status) status.textContent=" Salvando...";
       this.ajax("update_maintenance_machine", {id: mid, diary}).then(res=>{
         if(res.success){
+          this._lastDiarySaved[mid]=diary;
           if(status){ status.textContent=" ✓ Salvo"; status.style.color="#61bd4f"; setTimeout(()=> status.textContent="", 2000); }
         } else {
           if(status){ status.textContent=" Erro ao salvar"; status.style.color="#eb5a46"; }
