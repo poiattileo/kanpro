@@ -775,6 +775,11 @@ switch ($action) {
             foreach ($iter as $row) {
                 // ignora lixeira se houver
                 if (isset($row['is_deleted']) && $row['is_deleted']) continue;
+                $cname = trim($row['completename'] ?? $row['name'] ?? '');
+                $rname = trim($row['name'] ?? '');
+                // remove a própria "Unidade Regional de Ensino de Jales" da lista
+                if ($cname === 'Unidade Regional de Ensino de Jales' || $rname === 'Unidade Regional de Ensino de Jales') continue;
+                if (strcasecmp($cname, 'Unidade Regional de Ensino de Jales') === 0) continue;
                 $entities[] = [
                     'id'           => (int)$row['id'],
                     'name'         => $row['name'] ?? '',

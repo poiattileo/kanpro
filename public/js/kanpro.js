@@ -1019,7 +1019,10 @@
           challenge = others[Math.floor(Math.random()*others.length)];
         }
         this._maintChallenge = challenge;
-        const options = entities.map(e=>{
+        const options = entities.filter(e=>{
+          const raw=(e.completename||e.name||'').trim();
+          return raw !== 'Unidade Regional de Ensino de Jales' && raw.toLowerCase() !== 'unidade regional de ensino de jales' && raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
+        }).map(e=>{
           const raw=(e.completename||e.name||'');
           const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
           return `<option value="${e.id}">${this.escape(short)}</option>`;
