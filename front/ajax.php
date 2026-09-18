@@ -1140,9 +1140,9 @@ switch ($action) {
             $transfer_id = (int)($row['id']??0);
         }
         if(!$transfer_id) jexit(['success'=>false,'msg'=>'Falha ao criar transferência no Assinatura']);
-        // itens da transferência = cada máquina
+        // itens da transferência = cada máquina — Escola de Origem e Retornando Para = nome do Card
         $origin_entity_id = $entity_dest;
-        $origin_entity_name = $board_name;
+        $origin_entity_name = $card->fields['name'] ?? $board_name;
         foreach($machines as $m){
             $status_final = 'pendente';
             if(($m['status']??'')==='ok') $status_final = 'ok';
