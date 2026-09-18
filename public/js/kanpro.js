@@ -891,15 +891,31 @@
       const total = progress.total || 0;
       const done = progress.done || 0;
       const allDone = total>0 && done===total;
+      // status obrigatório — conta faltantes
+      const missingStatus = machines.filter(m=> !m.status || String(m.status).trim()==="").length;
+      const hasMissing = missingStatus>0;
+      const pendenteCount = machines.filter(m=> (m.status||"")==="pendente" || (m.status||"")==="pending").length;
+      // botão finalizar: desabilita apenas se faltar status
+      let finalizeBtnHtml = "";
+      if (hasMissing) {
+        finalizeBtnHtml = `<button disabled title="Selecione o Status Final de todas as máquinas (${missingStatus}/${total})" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
+      } else if (allDone) {
+        finalizeBtnHtml = `<button onclick="Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-check"></i> FINALIZAR</button>`;
+      } else {
+        const pendenteInfo = pendenteCount>0 ? ` • ${pendenteCount} pendente(s) → novo card` : "";
+        finalizeBtnHtml = `<button onclick="Kanpro.finalizeMaintenance()" title="Nem todos estão como 'Feito' — pendentes ficarão em novo card" style="background:#ffab00;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-check"></i> FINALIZAR (${pct}%${pendenteInfo})</button>`;
+      }
       let html = `
         <div style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);overflow:hidden;margin-bottom:16px;border-left:4px solid #ffab00">
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:8px;justify-content:space-between">
-            <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d">Manutenção — Checklist por Máquina</strong> <span style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${done}/${total} • ${pct}%</span></div>
-            <div style="display:flex;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d">Manutenção — Checklist por Máquina</strong> <span style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${missingStatus} sem Status</span>`:""}</div>
+            <div style="display:flex;gap:6px;align-items:center">
               <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
-              ${allDone ? `<button onclick="Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-check"></i> FINALIZAR</button>` : `<button disabled title="Conclua 100% para finalizar" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed"><i class="ti ti-check"></i> FINALIZAR (${pct}%)</button>`}
+              ${finalizeBtnHtml}
             </div>
           </div>
+          ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
+          ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
           ${total? `<div style="padding:10px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:#5e6c84;min-width:36px">${pct}%</span><div class="kp-progress" style="flex:1;height:8px"><div class="kp-progress-bar" style="width:${pct}%;background:${allDone?"#61bd4f":"#ffab00"}"></div></div></div></div>` : ""}
         </div>
       `;
@@ -925,12 +941,22 @@
       html += `<div style="display:grid;gap:10px">`;
       machines.forEach(m=>{
         const isDone = m.is_done==1;
-        const status = (m.status||"pending");
+        const rawStatus = (m.status||"").toString().trim().toLowerCase();
+        // normaliza legado
+        let status = rawStatus;
+        if(status==="pending") status="pendente";
+        if(status==="defect" || status==="defeito" || status==="nok") status="inservivel";
         const diary = m.diary||"";
-        const statusLabel = status==="ok" ? "✅ OK" : status==="defect" ? "❌ Com Defeito" : "⏳ Pendente";
-        const statusColor = status==="ok" ? "#61bd4f" : status==="defect" ? "#eb5a46" : "#dfe1e6";
-        const statusTextColor = status==="ok" || status==="defect" ? "#fff" : "#5e6c84";
-        const borderColor = isDone ? "#61bd4f" : "#ffab00";
+        let statusLabel="", statusColor="#dfe1e6", statusTextColor="#5e6c84";
+        if(status==="garantia"){ statusLabel="🛡️ Garantia"; statusColor="#0052cc"; statusTextColor="#fff"; }
+        else if(status==="ok"){ statusLabel="✅ OK"; statusColor="#61bd4f"; statusTextColor="#fff"; }
+        else if(status==="inservivel"){ statusLabel="❌ Inservível"; statusColor="#eb5a46"; statusTextColor="#fff"; }
+        else if(status==="pendente"){ statusLabel="⏳ Pendente"; statusColor="#ffab00"; statusTextColor="#172b4d"; }
+        else { statusLabel="— Selecione *"; statusColor="#ffebe6"; statusTextColor="#bf2600"; }
+        const borderColor = !status ? "#eb5a46" : (isDone ? "#61bd4f" : "#ffab00");
+        const selectBorder = !status ? "2px solid #eb5a46" : `1px solid ${statusColor}`;
+        const statusSelectBg = !status ? "#fff" : statusColor;
+        const statusSelectColor = !status ? "#bf2600" : statusTextColor;
         html += `
           <div class="kp-maint-machine" data-mid="${m.id}" style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
             <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;background:${isDone?"#e3fcef":"#f4f5f7"}">
@@ -945,10 +971,12 @@
                 <label style="display:flex;align-items:center;gap:4px;background:#fff;padding:4px 8px;border-radius:20px;border:1px solid #dfe1e6;cursor:pointer;font-size:12px">
                   <input type="checkbox" ${isDone?"checked":""} onchange="Kanpro.toggleMaintenanceDone(${m.id}, this.checked)" style="accent-color:#61bd4f"> Feito
                 </label>
-                <select onchange="Kanpro.updateMaintenanceStatus(${m.id}, this.value)" style="padding:4px 8px;border-radius:20px;border:1px solid ${statusColor};background:${statusColor};color:${statusTextColor};font-size:11px;font-weight:700;cursor:pointer">
-                  <option value="pending" ${status==="pending"?"selected":""}>⏳ Pendente</option>
+                <select onchange="Kanpro.updateMaintenanceStatus(${m.id}, this.value)" style="padding:6px 10px;border-radius:20px;border:${selectBorder};background:${statusSelectBg};color:${statusSelectColor};font-size:11px;font-weight:700;cursor:pointer;min-width:150px">
+                  <option value="" ${!status?"selected":""}>— Status Final *</option>
+                  <option value="garantia" ${status==="garantia"?"selected":""}>🛡️ Garantia</option>
                   <option value="ok" ${status==="ok"?"selected":""}>✅ OK</option>
-                  <option value="defect" ${status==="defect"?"selected":""}>❌ Defeito</option>
+                  <option value="inservivel" ${status==="inservivel"?"selected":""}>❌ Inservível</option>
+                  <option value="pendente" ${status==="pendente"?"selected":""}>⏳ Pendente</option>
                 </select>
                 <button onclick="Kanpro.deleteMaintenanceMachine(${m.id})" title="Remover máquina" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-trash" style="font-size:14px"></i></button>
               </div>
@@ -956,11 +984,11 @@
             <div style="padding:10px 12px">
               <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">DIÁRIO — o que foi feito nesta máquina</div>
               <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
-              <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+              <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
                 <button onclick="Kanpro.saveMaintenanceDiary(${m.id})" style="background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600"><i class="ti ti-device-floppy"></i> Salvar diário</button>
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
                 <span style="font-size:10px;color:#97a0af;font-style:italic">autosave a cada palavra</span>
-                <span style="margin-left:auto;font-size:11px;color:#97a0af">Status: ${statusLabel} • ${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span>
+                <span style="margin-left:auto;font-size:11px;color:#97a0af">Status Final: <span style="background:${statusColor};color:${statusTextColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${statusLabel}</span> • ${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span>
               </div>
             </div>
           </div>
@@ -1670,19 +1698,58 @@
     finalizeMaintenance(){
       const cardId=this.currentCardId;
       if(!cardId) return;
-      // verifica progresso local antes de chamar backend (evita chamada desnecessaria)
+      // valida status obrigatório local antes de chamar backend
+      const checkAndPrompt = ()=>{
+        // busca dados atuais do modal para validar pendentes sem recarregar
+        const wrap = document.getElementById("card-modal-maintenance");
+        if(wrap){
+          const selects = wrap.querySelectorAll("select");
+          let missing = 0;
+          selects.forEach(s=>{ if(!s.value || s.value.trim()==="") missing++; });
+          if(missing>0){
+            alert(`Selecione o Status Final de todas as máquinas antes de finalizar. Faltam ${missing} com status em branco (campo obrigatório ao lado de 'Feito').`);
+            return false;
+          }
+        }
+        return true;
+      };
+      if(!checkAndPrompt()) return;
       const prog = this.maintenanceProgress[cardId];
       let force = 0;
       if(prog && prog.total>0 && prog.done!==prog.total){
-        const ok = confirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`);
-        if(!ok) return;
-        force = 1;
+        // verifica se há pendentes — pendentes justificam não estar 100% Feito (ficam em novo card)
+        const wrap = document.getElementById("card-modal-maintenance");
+        const pendingCount = wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
+        if(pendingCount>0){
+          const ok = confirm(`Atenção: ${prog.done}/${prog.total} concluídas como 'Feito', mas ${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD. As demais (Garantia/Ok/Inservível) irão para o termo.\nDeseja continuar?`);
+          if(!ok) return;
+          force = 1;
+        } else {
+          const ok = confirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`);
+          if(!ok) return;
+          force = 1;
+        }
+      } else {
+        // mesmo se 100% Feito, confirma pendentes
+        const wrap = document.getElementById("card-modal-maintenance");
+        const pendingCount = wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
+        if(pendingCount>0){
+          const ok = confirm(`${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD e não irão para o termo. As demais (Garantia/Ok/Inservível) serão enviadas para Assinatura. Continuar?`);
+          if(!ok) return;
+        }
       }
       const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
       if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
       this.ajax("finalize_maintenance", {cards_id: cardId, force}).then(res=>{
         if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
         if(!res.success){
+          if(res.need_status){
+            alert(res.msg||"Selecione o Status Final de todas as máquinas.");
+            // destaca selects vazios
+            const wrap = document.getElementById("card-modal-maintenance");
+            if(wrap) wrap.querySelectorAll("select").forEach(s=>{ if(!s.value) s.style.boxShadow="0 0 0 2px #eb5a46"; });
+            return;
+          }
           if(res.need_100){
             const goLocal = confirm((res.msg||"Conclua 100%") + "\nDeseja gerar termo local (fallback) em vez de enviar para Assinatura?");
             if(goLocal) this.generateMaintenanceTerm();
@@ -1691,13 +1758,21 @@
           alert(res.msg||"Erro ao finalizar");
           return;
         }
-        this.showToast("Enviado para Assinatura!");
+        if(res.pending_only){
+          this.showToast(`Pendentes movidos para novo card #${res.pending_card_id} — ${res.pending_count} máquinas`);
+          this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          // abre novo card em modal?
+          setTimeout(()=>{ if(res.pending_card_id) this.openCard(res.pending_card_id); }, 600);
+          return;
+        }
+        let msg = "Enviado para Assinatura!";
+        if(res.pending_card_id) msg += ` Pendentes → card #${res.pending_card_id} (${res.pending_count})`;
+        this.showToast(msg);
         // marca local como finalizado visualmente
         this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
         // redireciona para assetmgrstatus Assinatura mantendo padrão de termos de lá
         let assinaturaUrl = res.assinatura_url;
         if(!assinaturaUrl){
-          // fallback: tenta construir URL relativa a partir do ajax_url
           try{
             const base = this.ajax_url.replace("/plugins/kanpro/front/ajax.php","");
             assinaturaUrl = base + "/plugins/assetmgrstatus/front/assinatura.php?f=pendente&highlight=" + (res.transfer_id||"");
@@ -1705,9 +1780,12 @@
             assinaturaUrl = "/plugins/assetmgrstatus/front/assinatura.php?f=pendente";
           }
         }
-        // abre em nova aba para manter KanPro aberto, e também tenta abrir PDF se houver
         window.open(assinaturaUrl, "_blank");
         if(res.pdf_url) setTimeout(()=> window.open(res.pdf_url, "_blank"), 900);
+        if(res.pending_card_id){
+          // informa pendentes
+          setTimeout(()=> alert(`✅ Pendentes (${res.pending_count}) movidos para novo card #${res.pending_card_id}. O novo card ficou na mesma lista para atenção posterior.`), 900);
+        }
         this.closeCardModal();
       }).catch(e=>{
         if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
@@ -1717,20 +1795,29 @@
     buildTermHtml(card, machines, boardName, listName){
       const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR");
       const total = machines.length;
-      const okCount = machines.filter(m=> m.status==="ok" || m.is_ok==1).length;
-      const defectCount = machines.filter(m=> m.status==="defect").length;
-      const pendingCount = total - okCount - defectCount;
+      const norm = s=> (s||"").toString().trim().toLowerCase();
+      const garantiaCount = machines.filter(m=> norm(m.status)==="garantia").length;
+      const okCount = machines.filter(m=> norm(m.status)==="ok" || m.is_ok==1).length;
+      const inservivelCount = machines.filter(m=> ["inservivel","defect","defeito","nok"].includes(norm(m.status))).length;
+      const pendenteCount = machines.filter(m=> ["pendente","pending"].includes(norm(m.status))).length;
+      const semStatus = total - garantiaCount - okCount - inservivelCount - pendenteCount;
       const esc = s=> this.escape(s||"");
       const rows = machines.map(m=>{
-        const statusLabel = m.status==="ok" ? "OK" : m.status==="defect" ? "COM DEFEITO" : "PENDENTE";
-        const statusColor = m.status==="ok" ? "#61bd4f" : m.status==="defect" ? "#eb5a46" : "#ffab00";
+        const st = norm(m.status);
+        let statusLabel="—", statusColor="#97a0af";
+        if(st==="garantia"){ statusLabel="GARANTIA"; statusColor="#0052cc"; }
+        else if(st==="ok"){ statusLabel="OK"; statusColor="#61bd4f"; }
+        else if(st==="inservivel"||st==="defect"||st==="defeito"||st==="nok"){ statusLabel="INSERVÍVEL"; statusColor="#eb5a46"; }
+        else if(st==="pendente"||st==="pending"){ statusLabel="PENDENTE"; statusColor="#ffab00"; }
+        else if(!st){ statusLabel="SEM STATUS"; statusColor="#bf2600"; }
+        else { statusLabel=st.toUpperCase(); statusColor="#5e6c84"; }
         const doneIcon = m.is_done==1 ? "✔" : "—";
         return `
           <tr>
             <td style="text-align:center;font-weight:700">#${m.seq}</td>
             <td>${esc(m.model)}</td>
             <td style="font-size:11px">${esc(m.label)}</td>
-            <td style="text-align:center"><span style="background:${statusColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">${statusLabel}</span></td>
+            <td style="text-align:center"><span style="background:${statusColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">Status Final: ${statusLabel}</span></td>
             <td style="text-align:center">${doneIcon}</td>
             <td style="font-size:11px;white-space:pre-wrap;max-width:280px">${esc(m.diary||"—")}</td>
           </tr>`;
@@ -1761,26 +1848,27 @@
     <div>
       <h1>🔧 Termo de Manutenção</h1>
       <div class="meta"><strong>Quadro:</strong> ${esc(boardName||"—")} &nbsp;|&nbsp; <strong>Lista:</strong> ${esc(listName||"—")} &nbsp;|&nbsp; <strong>Cartão:</strong> #${card.id} — ${esc(card.name)}</div>
-      <div class="meta">Gerado em: ${now} &nbsp;|&nbsp; Total de máquinas: ${total} &nbsp;|&nbsp; OK: ${okCount} &nbsp;|&nbsp; Defeito: ${defectCount} &nbsp;|&nbsp; Pendente: ${pendingCount}</div>
+      <div class="meta">Gerado em: ${now} &nbsp;|&nbsp; Total de máquinas: ${total} &nbsp;|&nbsp; Garantia: ${garantiaCount} &nbsp;|&nbsp; OK: ${okCount} &nbsp;|&nbsp; Inservível: ${inservivelCount} &nbsp;|&nbsp; Pendente: ${pendenteCount}${semStatus?` &nbsp;|&nbsp; <span style="color:#bf2600">Sem Status: ${semStatus}</span>`:""}</div>
     </div>
     <div class="no-print" style="text-align:right">
       <button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button><br>
       <small style="color:#5e6c84">Use o navegador para salvar em PDF</small>
     </div>
   </div>
-  <h2>Resumo da Manutenção</h2>
+  <h2>Resumo da Manutenção — Status Final</h2>
   <div class="summary">
     <div><strong>${total}</strong><span>Total de Máquinas</span></div>
+    <div style="background:#e6f7ff"><strong style="color:#0052cc">${garantiaCount}</strong><span>Garantia</span></div>
     <div style="background:#e3fcef"><strong style="color:#006644">${okCount}</strong><span>OK</span></div>
-    <div style="background:#ffebe6"><strong style="color:#bf2600">${defectCount}</strong><span>Com Defeito</span></div>
-    <div><strong>${pendingCount}</strong><span>Pendentes</span></div>
+    <div style="background:#ffebe6"><strong style="color:#bf2600">${inservivelCount}</strong><span>Inservível</span></div>
+    <div style="background:#fff8e6"><strong style="color:#974f00">${pendenteCount}</strong><span>Pendente</span></div>
   </div>
   <h2>Descrição do Card</h2>
   <div style="background:#f4f5f7;padding:10px;border-radius:6px;white-space:pre-wrap">${esc(card.description||"—")}</div>
-  <h2>Checklist por Máquina — Diário</h2>
+  <h2>Checklist por Máquina — Diário (Status Final)</h2>
   <table>
     <thead>
-      <tr><th style="width:40px">#</th><th>Modelo</th><th>Etiqueta</th><th style="width:90px">Situação</th><th style="width:40px">Feito</th><th>Diário — O que foi feito</th></tr>
+      <tr><th style="width:40px">#</th><th>Modelo</th><th>Etiqueta</th><th style="width:130px">Status Final</th><th style="width:40px">Feito</th><th>Diário — O que foi feito</th></tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>

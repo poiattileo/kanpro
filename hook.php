@@ -281,7 +281,7 @@ function plugin_kanpro_install(): bool {
                 `diary`                       TEXT         DEFAULT NULL COMMENT 'diário do que foi feito',
                 `is_done`                     TINYINT(1)   NOT NULL DEFAULT '0',
                 `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=OK, 0=pendente/defeito',
-                `status`                      VARCHAR(20)  NOT NULL DEFAULT 'pending' COMMENT 'pending,ok,defect',
+                `status`                      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -294,7 +294,14 @@ function plugin_kanpro_install(): bool {
     } else {
         // migrações leves
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'status')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `status` VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER `is_ok`");
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `status` VARCHAR(20) NOT NULL DEFAULT '' AFTER `is_ok`");
+        } else {
+            // garante default '' (vazio obrigatório) e converte legacy pending -> pendente para consistência
+            try {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` MODIFY `status` VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente'");
+                $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='pendente' WHERE `status`='pending'");
+                $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='inservivel' WHERE `status`='defect' OR `status`='nok'");
+            } catch (Throwable $e) {}
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'diary')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `diary` TEXT DEFAULT NULL AFTER `label`");

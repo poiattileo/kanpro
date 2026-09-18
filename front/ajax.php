@@ -132,7 +132,7 @@ function kanpro_ensure_maintenance_tables() {
                 `diary`                       TEXT         DEFAULT NULL,
                 `is_done`                     TINYINT(1)   NOT NULL DEFAULT '0',
                 `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0',
-                `status`                      VARCHAR(20)  NOT NULL DEFAULT 'pending',
+                `status`                      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -142,6 +142,15 @@ function kanpro_ensure_maintenance_tables() {
                 KEY `is_done` (`is_done`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ");
+    } else {
+        // garante status default '' (obrigatório) e migra legados pending/defect
+        try {
+            if ($DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'status')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` MODIFY `status` VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente'");
+                $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='pendente' WHERE `status`='pending'");
+                $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='inservivel' WHERE `status`='defect' OR `status`='nok'");
+            }
+        } catch (Throwable $e) {}
     }
     // garante colunas de card
     if ($DB->tableExists('glpi_plugin_kanpro_cards')) {
@@ -940,7 +949,7 @@ switch ($action) {
                     'diary'                  => '',
                     'is_done'                => 0,
                     'is_ok'                  => 0,
-                    'status'                 => 'pending',
+                    'status'                 => '',
                     'users_id'               => $uid,
                     'date_creation'          => $now,
                     'date_mod'               => $now,
@@ -992,9 +1001,26 @@ switch ($action) {
         if (array_key_exists('is_ok', $_POST)) $updates['is_ok'] = (int)$_POST['is_ok'] ? 1:0;
         if (array_key_exists('status', $_POST)) {
             $st = trim($_POST['status']);
-            if (!in_array($st, ['pending','ok','defect','nok'])) $st = 'pending';
-            // normaliza nok -> defect
-            if ($st==='nok') $st='defect';
+            $stLower = mb_strtolower($st, 'UTF-8');
+            // normaliza aliases legados e aceita vazio (obrigatório — validação no finalize)
+            $map = [
+                'pending'   => 'pendente',
+                'pendente'  => 'pendente',
+                'garantia'  => 'garantia',
+                'ok'        => 'ok',
+                'inservivel'=> 'inservivel',
+                'inservível'=> 'inservivel',
+                'defect'    => 'inservivel',
+                'defeito'   => 'inservivel',
+                'nok'       => 'inservivel',
+                ''          => '',
+            ];
+            if (array_key_exists($stLower, $map)) {
+                $st = $map[$stLower];
+            } else {
+                // valor desconhecido -> vazio (força seleção)
+                $st = '';
+            }
             $updates['status'] = $st;
             // sincroniza is_ok para compat
             $updates['is_ok'] = ($st==='ok'?1:0);
@@ -1052,7 +1078,7 @@ switch ($action) {
                     'diary'=>'',
                     'is_done'=>0,
                     'is_ok'=>0,
-                    'status'=>'pending',
+                    'status'=>'',
                     'users_id'=>$uid,
                     'date_creation'=>$now,
                     'date_mod'=>$now
@@ -1130,7 +1156,6 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão não é de manutenção']);
-        // verifica progresso 100% (mantém padrão do termo)
         $machines = [];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
@@ -1138,42 +1163,143 @@ switch ($action) {
         }
         $total = count($machines);
         if ($total===0) jexit(['success'=>false,'msg'=>'Nenhuma máquina cadastrada. Configure as máquinas antes de finalizar.']);
-        $done = 0; $okCount=0;
-        foreach ($machines as $m){ if(!empty($m['is_done'])) $done++; if(($m['status']??'')==='ok' || !empty($m['is_ok'])) $okCount++; }
-        $percent = $total? round($done/$total*100):0;
-        if (!$force && $done!==$total) {
-            jexit(['success'=>false,'msg'=>"Conclua 100% antes de finalizar ({$done}/{$total} • {$percent}%).",'need_100'=>true,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
+        // Validação obrigatória: Status Final não pode ficar em branco
+        $missing = [];
+        foreach ($machines as $m) {
+            $st = trim($m['status'] ?? '');
+            if ($st === '') $missing[] = $m['seq'];
         }
-        // verifica se assetmgrstatus está disponível (tabelas)
-        if (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers') || !$DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items')) {
-            // fallback: gera termo local (mantém compat)
+        if (!empty($missing)) {
+            $list = implode(', ', array_slice($missing,0,10));
+            if (count($missing)>10) $list .= ' ... (+'.(count($missing)-10).')';
+            jexit(['success'=>false,'msg'=>"Selecione o Status Final de todas as máquinas antes de finalizar. Faltam: #". $list . " (" . count($missing) . "/" . $total . ")",'need_status'=>true,'missing'=>$missing,'progress'=>['total'=>$total,'missing'=>count($missing)]]);
+        }
+        // Classifica por status — pendente vai para novo card
+        $pendingMachines = [];
+        $nonPending = [];
+        // normaliza contadores por status
+        $cntGarantia=0; $cntOk=0; $cntInservivel=0; $cntPendente=0;
+        foreach ($machines as $m) {
+            $st = mb_strtolower(trim($m['status'] ?? ''), 'UTF-8');
+            if ($st==='pending') $st='pendente';
+            if ($st==='defect' || $st==='defeito' || $st==='nok') $st='inservivel';
+            if ($st==='pendente') { $pendingMachines[]=$m; $cntPendente++; }
+            elseif ($st==='garantia') { $nonPending[]=$m; $cntGarantia++; }
+            elseif ($st==='ok') { $nonPending[]=$m; $cntOk++; }
+            elseif ($st==='inservivel') { $nonPending[]=$m; $cntInservivel++; }
+            else { // fallback trata como pendente
+                $pendingMachines[]=$m; $cntPendente++;
+            }
+        }
+        $pendingCount = count($pendingMachines);
+        $nonCount = count($nonPending);
+        $done = 0;
+        foreach ($machines as $m){ if(!empty($m['is_done'])) $done++; }
+        $doneNon = 0;
+        foreach ($nonPending as $m){ if(!empty($m['is_done'])) $doneNon++; }
+        $percent = $total? round($done/$total*100):0;
+        $percentNon = $nonCount? round($doneNon/$nonCount*100):0;
+        // Se existem pendentes e nenhum item finalizável, apenas cria card de pendentes
+        if ($pendingCount>0 && $nonCount===0) {
+            // Cria novo card com todos os pendentes (move)
+            $origName = $card->fields['name'];
+            $newName = mb_substr($origName . ' — Pendentes ('.$pendingCount.' máq.)', 0, 255);
+            $newCard = new PluginKanproCard();
+            $newId = $newCard->add([
+                'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
+                'plugin_kanpro_lists_id'  => $card->fields['plugin_kanpro_lists_id'],
+                'name'        => $newName,
+                'description' => $card->fields['description'] ?? '',
+            ]);
+            if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
+            // garante que novo card também é manutenção
+            $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
+            // move pendentes para novo card com seq 1..N
+            $seq=1;
+            foreach ($pendingMachines as $pm) {
+                $newLabel = "Máquina {$seq} - {$pm['model']}";
+                $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
+                $seq++;
+            }
+            PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes criado a partir de #{$cid} com {$pendingCount} máquinas");
+            PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Máquinas pendentes movidas para #{$newId} ({$pendingCount}) — card original ficou vazio");
+            jexit(['success'=>true,'pending_only'=>true,'pending_card_id'=>$newId,'pending_count'=>$pendingCount,'msg'=>"Todas as máquinas estavam como Pendente. Novo card #{$newId} criado com {$pendingCount} pendentes. Nenhum termo gerado para levar.",'progress'=>['total'=>$total,'pending'=>$pendingCount]]);
+        }
+        // Valida progresso 100% apenas para itens que vão para o termo (não pendentes)
+        if ($nonCount>0 && !$force && $doneNon!==$nonCount) {
+            jexit(['success'=>false,'msg'=>"Conclua 'Feito' de todos os itens que vão para o termo antes de finalizar (não pendentes: {$doneNon}/{$nonCount} • {$percentNon}%). Pendentes ({$pendingCount}) ficarão em novo card.",'need_100'=>true,'progress'=>['total'=>$nonCount,'done'=>$doneNon,'percent'=>$percentNon,'pending'=>$pendingCount]]);
+        }
+        // verifica se assetmgrstatus está disponível (tabelas) — só necessário se houver itens para levar
+        if ($nonCount>0 && (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers') || !$DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items'))) {
             jexit(['success'=>false,'msg'=>'Plugin Assinatura (assetmgrstatus) não encontrado. Use Gerar Termo local.','need_fallback'=>true,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
         }
-        // evita duplicidade: se já existe transferência KanPro para este card, reutiliza
-        $existing = null;
-        try{
-            $like = "%[KanPro #{$cid}]%";
-            $iter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
-            if($iter->count()>0) $existing = $iter->current();
-        }catch(Throwable $e){}
-        if($existing){
-            $transfer_id = (int)$existing['id'];
-            // KanPro: garante que Responsável pela Retirada já fique com nome do Card mesmo em transferências antigas (antes do fix)
-            if (empty(trim($existing['assinatura_nome'] ?? '')) && !empty($card->fields['name']) && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
-                try { $DB->update('glpi_plugin_assetmgrstatus_transfers', ['assinatura_nome' => mb_substr($card->fields['name'],0,255)], ['id' => $transfer_id]); } catch(Throwable $e) {}
-            }
-            // Corrige Escola de Origem antiga (board_name) para nome do Card se necessário
-            try {
-                $firstIt = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfer_items','WHERE'=>['transfers_id'=>$transfer_id],'ORDER'=>'id ASC','LIMIT'=>1])->current();
-                if ($firstIt && trim($firstIt['origin_entity_name'] ?? '') !== trim($card->fields['name'] ?? '') && trim($card->fields['name'] ?? '') !== '') {
-                    $DB->update('glpi_plugin_assetmgrstatus_transfer_items', ['origin_entity_name' => mb_substr($card->fields['name'],0,255)], ['transfers_id'=>$transfer_id]);
+        // evita duplicidade: se já existe transferência KanPro para este card, reutiliza (só se não há pendentes a separar)
+        if ($pendingCount===0) {
+            $existing = null;
+            try{
+                $like = "%[KanPro #{$cid}]%";
+                $iter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
+                if($iter->count()>0) $existing = $iter->current();
+            }catch(Throwable $e){}
+            if($existing){
+                $transfer_id = (int)$existing['id'];
+                if (empty(trim($existing['assinatura_nome'] ?? '')) && !empty($card->fields['name']) && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
+                    try { $DB->update('glpi_plugin_assetmgrstatus_transfers', ['assinatura_nome' => mb_substr($card->fields['name'],0,255)], ['id' => $transfer_id]); } catch(Throwable $e) {}
                 }
-            } catch(Throwable $e) {}
-            $base = Plugin::getWebDir('assetmgrstatus');
-            if(!$base) $base = '/plugins/assetmgrstatus';
-            $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
-            $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
-            jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true]);
+                try {
+                    $firstIt = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfer_items','WHERE'=>['transfers_id'=>$transfer_id],'ORDER'=>'id ASC','LIMIT'=>1])->current();
+                    if ($firstIt && trim($firstIt['origin_entity_name'] ?? '') !== trim($card->fields['name'] ?? '') && trim($card->fields['name'] ?? '') !== '') {
+                        $DB->update('glpi_plugin_assetmgrstatus_transfer_items', ['origin_entity_name' => mb_substr($card->fields['name'],0,255)], ['transfers_id'=>$transfer_id]);
+                    }
+                } catch(Throwable $e) {}
+                $base = Plugin::getWebDir('assetmgrstatus');
+                if(!$base) $base = '/plugins/assetmgrstatus';
+                $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
+                $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
+                jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true]);
+            }
+        }
+        // Se há pendentes, cria novo card com pendentes ANTES de gerar termo
+        $pendingCardId = null;
+        if ($pendingCount>0) {
+            $origName = $card->fields['name'];
+            $newName = mb_substr($origName . ' — Pendentes ('.$pendingCount.' máq.)', 0, 255);
+            $newCard = new PluginKanproCard();
+            $newId = $newCard->add([
+                'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
+                'plugin_kanpro_lists_id'  => $card->fields['plugin_kanpro_lists_id'],
+                'name'        => $newName,
+                'description' => $card->fields['description'] ?? '',
+            ]);
+            if ($newId) {
+                $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
+                $seq=1;
+                foreach ($pendingMachines as $pm) {
+                    $newLabel = "Máquina {$seq} - {$pm['model']}";
+                    $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
+                    $seq++;
+                }
+                $pendingCardId = $newId;
+                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes #{$newId} criado com {$pendingCount} máquinas de #{$cid}");
+            }
+            // re-sequencia card original (não pendentes) 1..N
+            $remaining = $nonPending;
+            usort($remaining, fn($a,$b)=> $a['seq']<=>$b['seq']);
+            $seq=1;
+            foreach ($remaining as $rm) {
+                $newLabel = "Máquina {$seq} - {$rm['model']}";
+                $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$rm['id']]);
+                $seq++;
+            }
+            // atualiza array máquinas para termo (apenas não pendentes, já re-sequenciadas em memória)
+            $machines = [];
+            $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+            foreach ($iter as $r) $machines[] = $r;
+            $total = count($machines); // agora é nonCount
+        }
+        // Se após split não há itens para termo (caso já tratado all-pendente), sai
+        if (empty($machines) || $nonCount===0) {
+            jexit(['success'=>true,'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'msg'=>"Pendentes movidos para card #{$pendingCardId}. Nenhum termo gerado.","pending_only"=>true]);
         }
         // dados do quadro/lista para razão e entidade
         $board = new PluginKanproBoard();
@@ -1183,19 +1309,20 @@ switch ($action) {
         $board_name = $board->fields['name'] ?? 'Quadro';
         $list_name  = $list->fields['name'] ?? 'Lista';
         $entity_dest = (int)($board->fields['entities_id'] ?? $_SESSION['glpiactive_entity'] ?? 0);
-        $reason = "[KanPro #{$cid}] Quadro: {$board_name} | Lista: {$list_name} | Card: {$card->fields['name']} | Manutenção: {$total} máquinas ({$done} concluídas, {$okCount} OK) | Gerado em ".date('d/m/Y H:i');
+        // recalcula done/ok etc para termo (já só nonPending)
+        $doneTerm = 0; $cntGarantiaTerm=0; $cntOkTerm=0; $cntInservivelTerm=0;
+        foreach ($machines as $m){ if(!empty($m['is_done'])) $doneTerm++; $st=mb_strtolower(trim($m['status']??''),'UTF-8'); if($st==='garantia') $cntGarantiaTerm++; elseif($st==='ok') $cntOkTerm++; elseif($st==='inservivel') $cntInservivelTerm++; }
+        $reason = "[KanPro #{$cid}] Quadro: {$board_name} | Lista: {$list_name} | Card: {$card->fields['name']} | Manutenção: {$total} máquinas ({$doneTerm} concluídas | Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm} Pendente:{$pendingCount}→card #{$pendingCardId}) | Gerado em ".date('d/m/Y H:i');
         if(!empty($card->fields['description'])) $reason .= " | Desc: ".mb_substr($card->fields['description'],0,300);
-        // resumo das máquinas para razão (primeiras 5)
         $summary = [];
-        foreach(array_slice($machines,0,5) as $m){ $summary[] = "#{$m['seq']} {$m['model']}: ".mb_substr($m['diary']??'',0,60); }
+        foreach(array_slice($machines,0,5) as $m){ $summary[] = "#{$m['seq']} {$m['model']} [{$m['status']}]: ".mb_substr($m['diary']??'',0,60); }
         if(count($machines)>5) $summary[] = "... e mais ".(count($machines)-5)." máquinas";
         if($summary) $reason .= " | Máquinas: ".implode("; ", $summary);
+        if($pendingCount>0) $reason .= " | Pendentes movidos para card #{$pendingCardId} ({$pendingCount})";
         $now = date('Y-m-d H:i:s');
         $uid = Session::getLoginUserID();
         $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
-        // Responsável pela Retirada = nome do Card (KanPro) — pré-preenche assinatura_nome para o termo já exibir correto antes de assinar
         $kanpro_responsavel = trim($card->fields['name'] ?? '');
-        // cria transferência em status pronto (já vai para Assinatura)
         $transfer_data = [
             'entity_dest'      => $entity_dest,
             'reason'           => $reason,
@@ -1206,26 +1333,28 @@ switch ($action) {
             'date_creation'    => $now,
             'date_pronto'      => $now,
         ];
-        // Pré-preenche Responsável pela Retirada com nome do Card se a coluna existir (assetmgrstatus)
         if ($kanpro_responsavel !== '' && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
             $transfer_data['assinatura_nome'] = mb_substr($kanpro_responsavel, 0, 255);
         }
         $DB->insert('glpi_plugin_assetmgrstatus_transfers', $transfer_data);
         $transfer_id = (int)$DB->insertId();
         if(!$transfer_id){
-            // tenta buscar último inserido
             $row = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>$reason],'ORDER'=>'id DESC','LIMIT'=>1])->current();
             $transfer_id = (int)($row['id']??0);
         }
         if(!$transfer_id) jexit(['success'=>false,'msg'=>'Falha ao criar transferência no Assinatura']);
-        // itens da transferência = cada máquina — Escola de Origem e Retornando Para = nome do Card
         $origin_entity_id = $entity_dest;
         $origin_entity_name = $card->fields['name'] ?? $board_name;
         foreach($machines as $m){
+            $stRaw = mb_strtolower(trim($m['status'] ?? ''), 'UTF-8');
+            if ($stRaw==='pending') $stRaw='pendente';
+            if ($stRaw==='defect' || $stRaw==='defeito' || $stRaw==='nok') $stRaw='inservivel';
             $status_final = 'pendente';
-            if(($m['status']??'')==='ok') $status_final = 'ok';
-            elseif(($m['status']??'')==='defect') $status_final = 'defeito';
-            elseif(!empty($m['is_ok'])) $status_final = 'ok';
+            if ($stRaw==='garantia') $status_final='garantia';
+            elseif ($stRaw==='ok') $status_final='ok';
+            elseif ($stRaw==='inservivel') $status_final='inservivel';
+            elseif ($stRaw==='pendente') $status_final='pendente';
+            elseif (!empty($m['is_ok'])) $status_final='ok';
             $work_status = !empty($m['is_done']) ? 'done' : 'pending';
             $DB->insert('glpi_plugin_assetmgrstatus_transfer_items', [
                 'transfers_id'       => $transfer_id,
@@ -1242,14 +1371,15 @@ switch ($action) {
                 'work_status'        => $work_status,
             ]);
         }
-        // timeline
-        try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Finalizado: Card #{$cid} '{$card->fields['name']}' — {$total} máquinas"); }catch(Throwable $e){}
-        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_finalize', "Manutenção finalizada e enviada para Assinatura #{$transfer_id}");
+        try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Finalizado: Card #{$cid} '{$card->fields['name']}' — {$total} máquinas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm}) pendentes→#{$pendingCardId}"); }catch(Throwable $e){}
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_finalize', "Manutenção finalizada e enviada para Assinatura #{$transfer_id} ({$total} itens) pendentes→#{$pendingCardId}");
         $base = Plugin::getWebDir('assetmgrstatus');
         if(!$base) $base = '/plugins/assetmgrstatus';
         $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
         $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
-        jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
+        $resp = ['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$doneTerm,'percent'=>$total?round($doneTerm/$total*100):0,'garantia'=>$cntGarantiaTerm,'ok'=>$cntOkTerm,'inservivel'=>$cntInservivelTerm]];
+        if ($pendingCardId) { $resp['pending_card_id']=$pendingCardId; $resp['pending_count']=$pendingCount; $resp['msg_pending']="Pendentes ({$pendingCount}) movidos para novo card #{$pendingCardId}"; }
+        jexit($resp);
 
     default:
         jexit(['success'=>false,'msg'=>'Ação desconhecida: '.$action]);
