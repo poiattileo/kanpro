@@ -1011,7 +1011,7 @@
         }
         this._maintEntities = entities;
         let challenge;
-        if (Math.random() < 0.30) {
+        if (Math.random() < 0.10) {
           const specials = ["PAIVA","MASSON","FERRARI"];
           challenge = specials[Math.floor(Math.random()*specials.length)];
         } else {
@@ -1079,7 +1079,7 @@
       }).catch(()=>{
         // fallback sem entidades — ainda mostra desafio mas sem seleção
         let challenge;
-        if (Math.random() < 0.30) {
+        if (Math.random() < 0.10) {
           const specials = ["PAIVA","MASSON","FERRARI"];
           challenge = specials[Math.floor(Math.random()*specials.length)];
         } else {
