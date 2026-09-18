@@ -1019,24 +1019,23 @@
           challenge = others[Math.floor(Math.random()*others.length)];
         }
         this._maintChallenge = challenge;
-        const options = entities.filter(e=>{
+        // filtra raiz e prepara lista já sem prefixo
+        this._maintEntities = entities.filter(e=>{
           const raw=(e.completename||e.name||'').trim();
           return raw !== 'Unidade Regional de Ensino de Jales' && raw.toLowerCase() !== 'unidade regional de ensino de jales' && raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
-        }).map(e=>{
-          const raw=(e.completename||e.name||'');
-          const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
-          return `<option value="${e.id}">${this.escape(short)}</option>`;
-        }).join("");
+        });
         const html = `
           <div style="display:grid;gap:10px">
             <div style="background:#e6f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:6px;color:#003a8c;font-size:12px;line-height:1.3">
-              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade</strong> — selecione a entidade GLPI. O <strong>nome do Card virará o nome da entidade</strong> selecionada.
+              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade</strong> — digite para buscar. O <strong>nome do Card virará o nome da entidade</strong> selecionada.
             </div>
-            <input id="maint-entity-filter" type="text" placeholder="Filtrar entidade... (digite para buscar)" style="width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px" oninput="Kanpro.filterMaintEntities(this.value)">
-            <select id="maint-entity-select" size="6" style="width:100%;padding:8px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;min-height:120px">
-              <option value="">Selecione a entidade...</option>
-              ${options}
-            </select>
+            <div style="position:relative">
+              <input id="maint-entity-search" type="text" placeholder="Digite para buscar entidade... ex: Adelino, EE, Jales" autocomplete="off" style="width:100%;padding:10px 10px 10px 36px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;box-sizing:border-box" oninput="Kanpro.onEntitySearch(this.value)" onfocus="Kanpro.showEntityDropdown()" onkeydown="if(event.key==='Escape') Kanpro.hideEntityDropdown()">
+              <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#8c8c8c;font-size:14px"></i>
+              <div id="maint-entity-dropdown" style="position:absolute;top:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:#fff;border:1px solid #91d5ff;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;z-index:20"></div>
+            </div>
+            <input type="hidden" id="maint-entity-select" value="">
+            <div id="maint-entity-selected" style="font-size:12px;color:#389e0d;display:none;background:#f6ffed;border:1px solid #b7eb8f;padding:6px 8px;border-radius:4px"><i class="ti ti-check"></i> Selecionado: <strong id="maint-entity-selected-name"></strong> <a href="#" onclick="Kanpro.clearEntitySelection();return false" style="margin-left:8px;color:#ff4d4f;font-size:11px">trocar</a></div>
             <div id="maint-entity-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
             <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:6px;color:#172b4d;font-size:12px;line-height:1.3">
               <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).
@@ -1067,14 +1066,37 @@
             body.style.maxHeight = "none";
             body.style.overflowY = "visible";
           }
-          const filter=document.getElementById("maint-entity-filter");
-          const sel=document.getElementById("maint-entity-select");
+          const search=document.getElementById("maint-entity-search");
           const inp=document.getElementById("maint-confirm-input");
-          if(filter) filter.focus();
-          else if(sel) sel.focus();
+          if(search) search.focus();
+          // renderiza dropdown inicial com todas (filtradas já)
+          this.renderEntityDropdown("");
           if(inp){ inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); }
-          if(sel){ sel.addEventListener("keydown", e=>{ if(e.key==="Enter") { e.preventDefault(); document.getElementById("maint-confirm-input")?.focus(); } }); }
-          if(filter){ filter.addEventListener("keydown", e=>{ if(e.key==="Enter") { e.preventDefault(); sel?.focus(); } }); }
+          if(search){
+            search.addEventListener("keydown", e=>{
+              if(e.key==="Enter"){
+                e.preventDefault();
+                const dd=document.getElementById("maint-entity-dropdown");
+                const first=dd?.querySelector(".maint-entity-item");
+                if(first) first.click();
+                else document.getElementById("maint-confirm-input")?.focus();
+              } else if(e.key==="Escape"){
+                this.hideEntityDropdown();
+              }
+            });
+          }
+          // fecha dropdown ao clicar fora
+          const onDocClick=(ev)=>{
+            const wrap=document.getElementById("maint-entity-search")?.parentElement;
+            const dd=document.getElementById("maint-entity-dropdown");
+            if(wrap && dd && !wrap.contains(ev.target)){
+              this.hideEntityDropdown();
+            }
+          };
+          // remove listener anterior se houver
+          if(this._entityDocClick) document.removeEventListener("click", this._entityDocClick);
+          this._entityDocClick=onDocClick;
+          document.addEventListener("click", onDocClick);
         }, 30);
       }).catch(()=>{
         // fallback sem entidades — ainda mostra desafio mas sem seleção
@@ -1108,15 +1130,17 @@
     },
     confirmMaintenanceStep1(){
       const sel = document.getElementById("maint-entity-select");
+      const search = document.getElementById("maint-entity-search");
       const entErr = document.getElementById("maint-entity-error");
       const entities_id = sel ? parseInt(sel.value||"0") : 0;
       if(sel && !entities_id){
         if(entErr){ entErr.textContent="Selecione a entidade. O nome do card virará o nome dela."; entErr.style.display="block"; }
-        sel.style.borderColor="#eb5a46";
-        sel.focus();
+        if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showEntityDropdown(); }
+        else if(sel){ sel.style.borderColor="#eb5a46"; sel.focus(); }
         return;
       }
       if(entErr) entErr.style.display="none";
+      if(search) search.style.borderColor="#52c41a";
       if(sel) sel.style.borderColor="#1890ff";
       const inp = document.getElementById("maint-confirm-input");
       const err = document.getElementById("maint-step1-error");
@@ -1154,15 +1178,76 @@
         });
       });
     },
-    filterMaintEntities(q){
-      const sel=document.getElementById("maint-entity-select");
-      if(!sel) return;
-      const term=(q||"").toLowerCase().trim();
-      [...sel.options].forEach(opt=>{
-        if(!opt.value){ opt.style.display=""; return; }
-        const txt=opt.textContent.toLowerCase();
-        opt.style.display = (!term || txt.includes(term)) ? "" : "none";
+    filterMaintEntities(q){ this.onEntitySearch(q); },
+    onEntitySearch(q){ this.renderEntityDropdown(q||""); this.showEntityDropdown(); },
+    showEntityDropdown(){
+      const dd=document.getElementById("maint-entity-dropdown");
+      if(dd) dd.style.display="block";
+    },
+    hideEntityDropdown(){
+      const dd=document.getElementById("maint-entity-dropdown");
+      if(dd) dd.style.display="none";
+    },
+    renderEntityDropdown(filter){
+      const dd=document.getElementById("maint-entity-dropdown");
+      if(!dd) return;
+      const norm=s=> s.normalize ? s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase() : s.toLowerCase();
+      const term=norm((filter||"").trim());
+      const entities=this._maintEntities||[];
+      const filtered=entities.filter(e=>{
+        const raw=(e.completename||e.name||'');
+        const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+        const hay=norm(short+" "+raw);
+        return !term || hay.includes(term);
+      }).slice(0,80);
+      if(!filtered.length){
+        dd.innerHTML='<div style="padding:10px;color:#8c8c8c;font-size:12px;text-align:center">Nenhuma entidade encontrada</div>';
+        dd.style.display="block";
+        return;
+      }
+      dd.innerHTML=filtered.map(e=>{
+        const raw=(e.completename||e.name||'');
+        const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+        const escShort=this.escape(short);
+        const escRaw=this.escape(raw);
+        const hint = raw!==short ? ` title="${escRaw}"` : "";
+        return `<div class="maint-entity-item" data-id="${e.id}" data-name="${escShort}"${hint} style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:12px;display:flex;justify-content:space-between;align-items:center"><span>${escShort}</span><small style="color:#8c8c8c;margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%">${escRaw!==short?escRaw:''}</small></div>`;
+      }).join("");
+      dd.querySelectorAll(".maint-entity-item").forEach(el=>{
+        el.addEventListener("click", ()=>{
+          const id=parseInt(el.dataset.id);
+          const name=el.dataset.name;
+          this.selectMaintEntity(id, name);
+        });
+        el.addEventListener("mouseenter", ()=> el.style.background="#e6f7ff");
+        el.addEventListener("mouseleave", ()=> el.style.background="#fff");
       });
+      dd.style.display="block";
+    },
+    selectMaintEntity(id, name){
+      const hid=document.getElementById("maint-entity-select");
+      const search=document.getElementById("maint-entity-search");
+      const selBox=document.getElementById("maint-entity-selected");
+      const selName=document.getElementById("maint-entity-selected-name");
+      if(hid) hid.value=String(id);
+      if(search) search.value=name;
+      if(selName) selName.textContent=name;
+      if(selBox) selBox.style.display="block";
+      this.hideEntityDropdown();
+      const err=document.getElementById("maint-entity-error");
+      if(err) err.style.display="none";
+      const sI=document.getElementById("maint-entity-search");
+      if(sI) sI.style.borderColor="#52c41a";
+    },
+    clearEntitySelection(){
+      const hid=document.getElementById("maint-entity-select");
+      const search=document.getElementById("maint-entity-search");
+      const selBox=document.getElementById("maint-entity-selected");
+      if(hid) hid.value="";
+      if(search){ search.value=""; search.focus(); search.style.borderColor="#1890ff"; }
+      if(selBox) selBox.style.display="none";
+      this.renderEntityDropdown("");
+      this.showEntityDropdown();
     },
     showMaintenanceStep2(){
       const html = `
