@@ -1104,72 +1104,229 @@
         });
       });
     },
+    getMaintModels(){
+      const defaults = ["Notebook Positivo","Notebook Multilaser","Notebook Ultra","Notebook Lenovo","Desktop Legado","Desktop","Tablet Positivo","Smartphone"];
+      try{
+        const custom = JSON.parse(localStorage.getItem("kanpro_custom_models")||"[]");
+        if(Array.isArray(custom) && custom.length){
+          const merged = [...defaults];
+          custom.forEach(m=>{
+            const mm = String(m).trim();
+            if(mm && !merged.includes(mm)) merged.push(mm);
+          });
+          return merged;
+        }
+      }catch(e){}
+      return defaults;
+    },
+    saveCustomModel(model){
+      const m = String(model).trim();
+      if(!m) return false;
+      if(m.length>80) return false;
+      try{
+        const cur = JSON.parse(localStorage.getItem("kanpro_custom_models")||"[]");
+        if(!Array.isArray(cur)) throw new Error();
+        if(cur.includes(m)) return false;
+        cur.push(m);
+        localStorage.setItem("kanpro_custom_models", JSON.stringify(cur));
+        return true;
+      }catch(e){
+        try{ localStorage.setItem("kanpro_custom_models", JSON.stringify([m])); return true; }catch(_){ return false; }
+      }
+    },
+    addMaintenanceRow(qty=1, model=""){
+      const wrap = document.getElementById("maint-rows");
+      if(!wrap) return;
+      const models = this.getMaintModels();
+      const selModel = model || models[0] || "Notebook Positivo";
+      const row = document.createElement("div");
+      row.className = "maint-row";
+      row.style.cssText = "display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px";
+      const qtyVal = Math.max(1, Math.min(500, parseInt(qty)||1));
+      row.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:2px;min-width:90px">
+          <label style="font-size:10px;font-weight:700;color:#5e6c84;letter-spacing:.04em">QTD</label>
+          <input type="number" min="1" max="500" value="${qtyVal}" style="width:80px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;font-size:14px;text-align:center;font-weight:700">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0">
+          <label style="font-size:10px;font-weight:700;color:#5e6c84;letter-spacing:.04em">MODELO</label>
+          <select style="width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;font-size:13px;background:#fff">
+            ${models.map(m=> `<option value="${this.escape(m)}" ${m===selModel?"selected":""}>${this.escape(m)}</option>`).join("")}
+            <option value="__custom__">➕ Outro / Novo modelo...</option>
+          </select>
+        </div>
+        <button title="Remover" onclick="Kanpro.removeMaintenanceRow(this)" style="margin-top:14px;background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash"></i></button>
+      `;
+      // eventos
+      const qtyInput = row.querySelector("input");
+      const sel = row.querySelector("select");
+      qtyInput.addEventListener("input", ()=> this.updateMaintPreview());
+      qtyInput.addEventListener("change", ()=> this.updateMaintPreview());
+      sel.addEventListener("change", ()=>{
+        if(sel.value==="__custom__"){
+          const novo = prompt("Nome do novo modelo:");
+          if(novo && novo.trim()){
+            const ok = this.saveCustomModel(novo.trim());
+            if(ok){
+              this.refreshMaintModelSelects(novo.trim());
+              sel.value = novo.trim();
+            } else {
+              sel.value = models[0];
+            }
+          } else {
+            sel.value = models[0];
+          }
+        }
+        this.updateMaintPreview();
+      });
+      wrap.appendChild(row);
+      this.updateMaintPreview();
+    },
+    removeMaintenanceRow(btn){
+      const row = btn.closest(".maint-row");
+      if(row) row.remove();
+      const wrap = document.getElementById("maint-rows");
+      if(wrap && wrap.children.length===0){
+        this.addMaintenanceRow(1, this.getMaintModels()[0]);
+      }
+      this.updateMaintPreview();
+    },
+    promptAddCustomModel(){
+      const novo = prompt("Cadastrar novo modelo (ex: Notebook Dell):");
+      if(!novo || !novo.trim()) return;
+      const ok = this.saveCustomModel(novo.trim());
+      if(!ok){ alert("Modelo já existe ou inválido."); return; }
+      this.refreshMaintModelSelects(novo.trim());
+      // adiciona uma linha com esse modelo já selecionado
+      this.addMaintenanceRow(1, novo.trim());
+    },
+    refreshMaintModelSelects(selectValue){
+      const models = this.getMaintModels();
+      document.querySelectorAll("#maint-rows select").forEach(sel=>{
+        const cur = sel.value;
+        const keepCustom = cur==="__custom__" ? selectValue : cur;
+        sel.innerHTML = models.map(m=> `<option value="${this.escape(m)}">${this.escape(m)}</option>`).join("") + `<option value="__custom__">➕ Outro / Novo modelo...</option>`;
+        if(models.includes(keepCustom)) sel.value = keepCustom;
+        else if(selectValue && models.includes(selectValue)) sel.value = selectValue;
+      });
+      this.updateMaintPreview();
+    },
+    updateMaintPreview(){
+      const rows = document.querySelectorAll("#maint-rows .maint-row");
+      let total=0;
+      const parts=[];
+      rows.forEach(r=>{
+        const qty = parseInt(r.querySelector("input")?.value||"0")||0;
+        const model = r.querySelector("select")?.value||"";
+        if(qty>0 && model && model!=="__custom__"){
+          total+=qty;
+          parts.push(qty+"x "+model);
+        }
+      });
+      const prev = document.getElementById("maint-setup-preview");
+      if(prev){
+        if(total===0) prev.innerHTML = "<span style='opacity:.6'>Adicione pelo menos um tipo</span>";
+        else prev.innerHTML = parts.join(", ") + ` → <strong>${total} máquinas</strong> (1…${total})`;
+      }
+      const btn = document.getElementById("maint-setup-btn");
+      if(btn) btn.disabled = total===0;
+    },
     openMaintenanceSetup(isAppend=false){
       const isAppendMode = !!isAppend;
       const title = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas — Manutenção";
+      const models = this.getMaintModels();
       const html = `
-        <div style="display:grid;gap:12px">
-          <div style="background:#f4f5f7;padding:10px;border-radius:6px;font-size:12px;color:#5e6c84">
-            <strong style="color:#172b4d">Como informar?</strong><br>
-            Digite cada tipo em uma linha no formato <code style="background:#fff;padding:1px 4px;border-radius:3px">QTD x Modelo</code>.<br>
-            Exemplos:<br>
-            <code style="background:#fff;padding:2px 6px;border-radius:4px;display:inline-block;margin:2px">10x Notebook Positivo</code>
-            <code style="background:#fff;padding:2px 6px;border-radius:4px;display:inline-block;margin:2px">5x Notebook Ultra</code>
-            <code style="background:#fff;padding:2px 6px;border-radius:4px;display:inline-block;margin:2px">10x Notebook Multilaser</code><br>
-            <small>Ou em uma linha separados por vírgula: <em>10x Notebook Positivo, 10x Notebook Ultra</em></small>
+        <div style="display:grid;gap:10px">
+          <div style="background:#f4f5f7;padding:8px 10px;border-radius:6px;font-size:11px;color:#5e6c84;line-height:1.4">
+            Informe <strong>quantidade</strong> e <strong>modelo</strong> por linha. Use <code style="background:#fff;padding:1px 4px;border-radius:3px">+</code> para adicionar mais tipos.
           </div>
-          <textarea id="maint-setup-raw" placeholder="Ex:\n10x Notebook Positivo\n5x Notebook Ultra\n10x Notebook Multilaser\n\nou\n10x Notebook Positivo, 10x Notebook Ultra, 10x Notebook Multilaser" style="width:100%;min-height:110px;padding:10px;border:2px solid #ffab00;border-radius:6px;resize:vertical;box-sizing:border-box;font-size:13px"></textarea>
-          <div id="maint-setup-preview" style="background:#fff;border:1px dashed #dfe1e6;border-radius:6px;padding:8px;min-height:32px;font-size:12px;color:#5e6c84">Prévia aparecerá aqui ao digitar...</div>
-          <div id="maint-setup-error" style="color:#eb5a46;font-size:12px;display:none"></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
-            <button id="maint-setup-btn" onclick="Kanpro.submitMaintenanceSetup(${isAppendMode?1:0})" style="background:#ffab00;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700"><i class="ti ti-tool"></i> ${isAppendMode?"Adicionar":"Gerar Checklist Enumerado"}</button>
+          <div id="maint-rows" style="display:grid;gap:8px;max-height:220px;overflow-y:auto;padding-right:2px"></div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.addMaintenanceRow()" style="flex:1;background:#fff;border:1px dashed #97a0af;color:#172b4d;padding:8px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px"><i class="ti ti-plus"></i> Adicionar tipo</button>
+            <button onclick="Kanpro.promptAddCustomModel()" title="Cadastrar novo modelo" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px"><i class="ti ti-plus"></i> Modelo</button>
+          </div>
+          <div id="maint-setup-preview" style="background:#fff;border:1px dashed #dfe1e6;border-radius:6px;padding:8px;min-height:32px;font-size:12px;color:#5e6c84;text-align:center">Adicione pelo menos um tipo</div>
+          <div id="maint-setup-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:6px">
+            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+            <button id="maint-setup-btn" onclick="Kanpro.submitMaintenanceSetup(${isAppendMode?1:0})" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-tool"></i> ${isAppendMode?"Adicionar":"Gerar Checklist Enumerado"}</button>
           </div>
         </div>
       `;
       this.showPicker({title, html});
       setTimeout(()=>{
-        const ta=document.getElementById("maint-setup-raw");
-        const prev=document.getElementById("maint-setup-preview");
-        if(ta && prev){
-          const updatePreview = ()=>{
-            const raw=ta.value.trim();
-            if(!raw){ prev.innerHTML="<span style=\"opacity:.6\">Prévia aparecerá aqui ao digitar...</span>"; return; }
-            const lines = raw.split(/[\n,;]+/).map(s=> s.trim()).filter(Boolean);
-            let total=0;
-            const parts=[];
-            lines.forEach(l=>{
-              const m=l.match(/(\d+)\s*[xX]\s*(.+)/);
-              if(m){ const qty=parseInt(m[1]); total+=qty; parts.push(qty+"x "+m[2].trim()); }
-              else { total+=1; parts.push("1x "+l); }
-            });
-            if(parts.length){ prev.innerHTML=parts.join(", ")+" → <strong>"+total+" máquinas</strong> (1…"+total+")"; }
-            else prev.innerHTML="Formato não reconhecido. Use: 10x Notebook Positivo";
-          };
-          ta.addEventListener("input", updatePreview);
-          ta.focus();
+        const picker = document.getElementById("kanpro-picker");
+        const body = document.getElementById("picker-body");
+        if(picker){
+          picker.style.maxHeight = "85vh";
+          picker.style.display = "flex";
+          picker.style.flexDirection = "column";
+          picker.style.width = "520px";
+          picker.style.maxWidth = "95vw";
         }
-      }, 100);
+        if(body){
+          body.style.maxHeight = "70vh";
+          body.style.overflowY = "auto";
+        }
+        // cria primeira linha se vazio
+        const wrap = document.getElementById("maint-rows");
+        if(wrap && wrap.children.length===0){
+          this.addMaintenanceRow(1, models[0]);
+        }
+        this.updateMaintPreview();
+      }, 30);
     },
     submitMaintenanceSetup(isAppend){
-      const ta=document.getElementById("maint-setup-raw");
       const err=document.getElementById("maint-setup-error");
       const btn=document.getElementById("maint-setup-btn");
-      const raw=(ta?.value||"").trim();
-      if(!raw){
-        if(err){ err.textContent="Informe as máquinas. Ex: 10x Notebook Positivo"; err.style.display="block"; }
+      const rows=document.querySelectorAll("#maint-rows .maint-row");
+      const defs=[];
+      rows.forEach(r=>{
+        const qty = parseInt(r.querySelector("input")?.value||"0")||0;
+        const model = (r.querySelector("select")?.value||"").trim();
+        if(qty>0 && model && model!=="__custom__" && model!==""){
+          defs.push({qty, model});
+        }
+      });
+      // fallback para compat: se nao houver rows mas houver textarea antigo
+      if(defs.length===0){
+        const ta=document.getElementById("maint-setup-raw");
+        if(ta){
+          const raw=(ta.value||"").trim();
+          if(raw){
+            // tenta parse simples via split
+            raw.split(/[\n,;]+/).forEach(part=>{
+              part=part.trim();
+              if(!part) return;
+              const m=part.match(/(\d+)\s*[xX]\s*(.+)/);
+              if(m) defs.push({qty: parseInt(m[1]), model: m[2].trim()});
+              else defs.push({qty:1, model: part});
+            });
+          }
+        }
+      }
+      if(defs.length===0){
+        if(err){ err.textContent="Informe pelo menos um tipo com quantidade e modelo."; err.style.display="block"; }
+        return;
+      }
+      let total=0;
+      defs.forEach(d=> total+=d.qty);
+      if(total<=0 || total>500){
+        if(err){ err.textContent="Total de máquinas inválido (1-500). Total: "+total; err.style.display="block"; }
         return;
       }
       if(btn){ btn.disabled=true; btn.textContent="Processando..."; }
+      if(err) err.style.display="none";
       const action = isAppend ? "add_maintenance_machines" : "setup_maintenance_machines";
-      const payload = isAppend ? {cards_id: this.currentCardId, machines_raw: raw} : {cards_id: this.currentCardId, machines_raw: raw, replace: 0};
+      const payload = {cards_id: this.currentCardId, definitions: JSON.stringify(defs)};
+      if(!isAppend) payload.replace = 0;
       this.ajax(action, payload).then(res=>{
         if(btn){ btn.disabled=false; btn.textContent= isAppend ? "Adicionar" : "Gerar Checklist Enumerado"; }
         if(!res.success){
           if(err){ err.textContent=res.msg||"Erro ao configurar"; err.style.display="block"; }
           if(res.need_replace){
             if(confirm("Já existem máquinas. Deseja SUBSTITUIR? Esta ação apagará o cadastro atual.")){
-              this.ajax("setup_maintenance_machines", {cards_id: this.currentCardId, machines_raw: raw, replace: 1}).then(r2=>{
+              this.ajax("setup_maintenance_machines", {cards_id: this.currentCardId, definitions: JSON.stringify(defs), replace: 1}).then(r2=>{
                 if(!r2.success) alert(r2.msg||"Erro");
                 else { this.closePicker(); this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); }); this.renderBoard(); }
               });
@@ -1178,7 +1335,7 @@
           return;
         }
         this.closePicker();
-        this.showToast(isAppend ? "Máquinas adicionadas!" : "Checklist gerado: "+res.total+" máquinas enumeradas");
+        this.showToast(isAppend ? "Máquinas adicionadas!" : "Checklist gerado: "+(res.total||total)+" máquinas enumeradas");
         this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
       });
     },
