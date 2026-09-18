@@ -372,7 +372,7 @@
       div.innerHTML = `
         ${coverHtml}
         ${labelsHtml}
-        <div class="kp-card-title">${this.escape(card.name)}</div>
+        <div class="kp-card-title"><span style="color:#5e6c84;font-weight:700;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
         ${badges.length?`<div class="kp-card-badges">${badges.join('')}</div>`:''}
         ${membersHtml}
         <button class="kp-card-edit" onclick="event.stopPropagation(); Kanpro.quickEditCard(${card.id}, event)"><i class="ti ti-pencil" style="font-size:14px"></i></button>
@@ -678,7 +678,7 @@
       this.closePicker();
     },
     renderCardModal(data){
-      $('#card-modal-title').textContent = data.name;
+      $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${data.id}</span>${this.escape(data.name)}`;
       $('#card-modal-listname').textContent = data.list_name||'Lista';
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
       // cover
