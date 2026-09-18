@@ -155,6 +155,13 @@ function kanpro_ensure_maintenance_tables() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_inventoried')) {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_inventoried` TINYINT(1) NOT NULL DEFAULT '0' AFTER `status`");
             }
+            // limpeza: Nome do Recebedor deve ficar vazio por padrão — remove preenchimento automático antigo em transferências pendentes do KanPro
+            try {
+                if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers') && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
+                    // limpa nome pré-preenchido em termos ainda não assinados pelo recebedor (imagem vazia)
+                    $DB->doQuery("UPDATE `glpi_plugin_assetmgrstatus_transfers` SET `assinatura_nome` = NULL WHERE (`assinatura_image` IS NULL OR `assinatura_image` = '') AND `assinatura_nome` IS NOT NULL AND `reason` LIKE '%KanPro%'");
+                }
+            } catch (Throwable $e) {}
         } catch (Throwable $e) {}
     }
     // garante colunas de card
@@ -1252,9 +1259,6 @@ switch ($action) {
             }catch(Throwable $e){}
             if($existing){
                 $transfer_id = (int)$existing['id'];
-                if (empty(trim($existing['assinatura_nome'] ?? '')) && !empty($card->fields['name']) && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
-                    try { $DB->update('glpi_plugin_assetmgrstatus_transfers', ['assinatura_nome' => mb_substr($card->fields['name'],0,255)], ['id' => $transfer_id]); } catch(Throwable $e) {}
-                }
                 try {
                     $firstIt = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfer_items','WHERE'=>['transfers_id'=>$transfer_id],'ORDER'=>'id ASC','LIMIT'=>1])->current();
                     if ($firstIt && trim($firstIt['origin_entity_name'] ?? '') !== trim($card->fields['name'] ?? '') && trim($card->fields['name'] ?? '') !== '') {
@@ -1331,7 +1335,7 @@ switch ($action) {
         $now = date('Y-m-d H:i:s');
         $uid = Session::getLoginUserID();
         $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
-        $kanpro_responsavel = trim($card->fields['name'] ?? '');
+        // Nome do Recebedor fica vazio por padrão — preenchido apenas no momento da assinatura via tablet/lote
         $transfer_data = [
             'entity_dest'      => $entity_dest,
             'reason'           => $reason,
@@ -1342,9 +1346,6 @@ switch ($action) {
             'date_creation'    => $now,
             'date_pronto'      => $now,
         ];
-        if ($kanpro_responsavel !== '' && $DB->fieldExists('glpi_plugin_assetmgrstatus_transfers', 'assinatura_nome')) {
-            $transfer_data['assinatura_nome'] = mb_substr($kanpro_responsavel, 0, 255);
-        }
         $DB->insert('glpi_plugin_assetmgrstatus_transfers', $transfer_data);
         $transfer_id = (int)$DB->insertId();
         if(!$transfer_id){
