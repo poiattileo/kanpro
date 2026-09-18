@@ -1935,12 +1935,218 @@
 
     async editCardTitle(){
       const cur = this.cards.find(c=> c.id==this.currentCardId);
+      const data = this._lastModalData;
+      const isMaint = data && data.is_maintenance==1;
+      if(isMaint){
+        this.editMaintenanceCardTitle();
+        return;
+      }
       const novo = await this.kpPrompt('Título do cartão:', cur.name);
       if(novo && novo!==cur.name){
         this.ajax('update_card', {id: this.currentCardId, name: novo}).then(res=>{
-          if(res.success){ cur.name=novo; $('#card-modal-title').textContent=novo; this.renderBoard(); }
+          if(res.success){
+            cur.name=novo;
+            $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${this.currentCardId}</span>${this.escape(novo)}`;
+            this.renderBoard();
+            this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+          }
         });
       }
+    },
+    editMaintenanceCardTitle(){
+      const cur = this.cards.find(c=> c.id==this.currentCardId);
+      if(!cur) return;
+      this.showPicker({title:"Alterar entidade — Manutenção", html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>Carregando entidades...</div>'});
+      const doShow = (entities)=>{
+        // filtra raiz e já sem prefixo
+        const filteredEntities = (entities||[]).filter(e=>{
+          const raw=(e.completename||e.name||'').trim();
+          return raw !== 'Unidade Regional de Ensino de Jales' && raw.toLowerCase() !== 'unidade regional de ensino de jales' && raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
+        });
+        this._renameEntities = filteredEntities;
+        const curName = this.escape(cur.name);
+        const html = `
+          <div style="display:grid;gap:10px">
+            <div style="background:#e6f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:6px;color:#003a8c;font-size:12px;line-height:1.3">
+              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade atual:</strong> ${curName}<br><small style="color:#595959">Selecione outra entidade abaixo para alterar o nome do card. O nome do card virará o nome curto da entidade (último nível).</small>
+            </div>
+            <div style="position:relative">
+              <input id="rename-entity-search" type="text" placeholder="Digite para buscar entidade... ex: Adelino, EE, Jales" autocomplete="off" style="width:100%;padding:10px 10px 10px 36px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;box-sizing:border-box" oninput="Kanpro.onRenameEntitySearch(this.value)" onfocus="Kanpro.showRenameEntityDropdown()" onkeydown="if(event.key==='Escape') Kanpro.hideRenameEntityDropdown()">
+              <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#8c8c8c;font-size:14px"></i>
+              <div id="rename-entity-dropdown" style="position:absolute;top:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:#fff;border:1px solid #91d5ff;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;z-index:20"></div>
+            </div>
+            <input type="hidden" id="rename-entity-select" value="">
+            <div id="rename-entity-selected" style="font-size:12px;color:#389e0d;display:none;background:#f6ffed;border:1px solid #b7eb8f;padding:6px 8px;border-radius:4px"><i class="ti ti-check"></i> Selecionado: <strong id="rename-entity-selected-name"></strong> <a href="#" onclick="Kanpro.clearRenameSelection();return false" style="margin-left:8px;color:#ff4d4f;font-size:11px">trocar</a></div>
+            <div id="rename-entity-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
+              <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+              <button id="rename-entity-save" onclick="Kanpro.confirmRenameEntity()" style="background:#1890ff;color:#fff;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Salvar</button>
+            </div>
+          </div>
+        `;
+        this.showPicker({title:"Alterar entidade — Manutenção", html});
+        setTimeout(()=>{
+          const picker = document.getElementById("kanpro-picker");
+          const body = document.getElementById("picker-body");
+          if(picker){
+            picker.style.maxHeight = "85vh";
+            picker.style.display = "flex";
+            picker.style.flexDirection = "column";
+          }
+          if(body){
+            body.style.maxHeight = "none";
+            body.style.overflowY = "visible";
+          }
+          const search=document.getElementById("rename-entity-search");
+          if(search) search.focus();
+          this.renderRenameEntityDropdown("");
+          if(search){
+            search.addEventListener("keydown", e=>{
+              if(e.key==="Enter"){
+                e.preventDefault();
+                const dd=document.getElementById("rename-entity-dropdown");
+                const first=dd?.querySelector(".rename-entity-item");
+                if(first) first.click();
+                else document.getElementById("rename-entity-save")?.click();
+              } else if(e.key==="Escape"){
+                this.hideRenameEntityDropdown();
+              }
+            });
+          }
+          const onDocClick=(ev)=>{
+            const wrap=document.getElementById("rename-entity-search")?.parentElement;
+            const dd=document.getElementById("rename-entity-dropdown");
+            if(wrap && dd && !wrap.contains(ev.target)){
+              this.hideRenameEntityDropdown();
+            }
+          };
+          if(this._renameDocClick) document.removeEventListener("click", this._renameDocClick);
+          this._renameDocClick=onDocClick;
+          document.addEventListener("click", onDocClick);
+        }, 30);
+      };
+      if(this._maintEntities && this._maintEntities.length){
+        doShow(this._maintEntities);
+      } else {
+        this.ajax("list_entities", {}).then(res=>{
+          let entities = (res && res.success && Array.isArray(res.entities)) ? res.entities : [];
+          this._maintEntities = entities;
+          doShow(entities);
+        }).catch(()=>{
+          doShow([]);
+        });
+      }
+    },
+    onRenameEntitySearch(q){ this.renderRenameEntityDropdown(q||""); this.showRenameEntityDropdown(); },
+    showRenameEntityDropdown(){
+      const dd=document.getElementById("rename-entity-dropdown");
+      if(dd) dd.style.display="block";
+    },
+    hideRenameEntityDropdown(){
+      const dd=document.getElementById("rename-entity-dropdown");
+      if(dd) dd.style.display="none";
+    },
+    renderRenameEntityDropdown(filter){
+      const dd=document.getElementById("rename-entity-dropdown");
+      if(!dd) return;
+      const norm=s=> s.normalize ? s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase() : s.toLowerCase();
+      const term=norm((filter||"").trim());
+      const entities=this._renameEntities||this._maintEntities||[];
+      const filtered=entities.filter(e=>{
+        const raw=(e.completename||e.name||'');
+        const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+        const hay=norm(short+" "+raw);
+        return !term || hay.includes(term);
+      }).slice(0,80);
+      if(!filtered.length){
+        dd.innerHTML='<div style="padding:10px;color:#8c8c8c;font-size:12px;text-align:center">Nenhuma entidade encontrada</div>';
+        dd.style.display="block";
+        return;
+      }
+      dd.innerHTML=filtered.map(e=>{
+        const raw=(e.completename||e.name||'');
+        const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+        const escShort=this.escape(short);
+        const escRaw=this.escape(raw);
+        const hint = raw!==short ? ` title="${escRaw}"` : "";
+        return `<div class="rename-entity-item" data-id="${e.id}" data-name="${escShort}"${hint} style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:12px;display:flex;justify-content:space-between;align-items:center"><span>${escShort}</span><small style="color:#8c8c8c;margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%">${escRaw!==short?escRaw:''}</small></div>`;
+      }).join("");
+      dd.querySelectorAll(".rename-entity-item").forEach(el=>{
+        el.addEventListener("click", ()=>{
+          const id=parseInt(el.dataset.id);
+          const name=el.dataset.name;
+          this.selectRenameEntity(id, name);
+        });
+        el.addEventListener("mouseenter", ()=> el.style.background="#e6f7ff");
+        el.addEventListener("mouseleave", ()=> el.style.background="#fff");
+      });
+      dd.style.display="block";
+    },
+    selectRenameEntity(id, name){
+      const hid=document.getElementById("rename-entity-select");
+      const search=document.getElementById("rename-entity-search");
+      const selBox=document.getElementById("rename-entity-selected");
+      const selName=document.getElementById("rename-entity-selected-name");
+      if(hid){ hid.value=String(id); hid.dataset.name=name; }
+      if(search) search.value=name;
+      if(selName) selName.textContent=name;
+      if(selBox) selBox.style.display="block";
+      this.hideRenameEntityDropdown();
+      const err=document.getElementById("rename-entity-error");
+      if(err) err.style.display="none";
+      const sI=document.getElementById("rename-entity-search");
+      if(sI) sI.style.borderColor="#52c41a";
+    },
+    clearRenameSelection(){
+      const hid=document.getElementById("rename-entity-select");
+      const search=document.getElementById("rename-entity-search");
+      const selBox=document.getElementById("rename-entity-selected");
+      if(hid){ hid.value=""; hid.dataset.name=""; }
+      if(search){ search.value=""; search.focus(); search.style.borderColor="#1890ff"; }
+      if(selBox) selBox.style.display="none";
+      this.renderRenameEntityDropdown("");
+      this.showRenameEntityDropdown();
+    },
+    confirmRenameEntity(){
+      const hid=document.getElementById("rename-entity-select");
+      const search=document.getElementById("rename-entity-search");
+      const err=document.getElementById("rename-entity-error");
+      const btn=document.getElementById("rename-entity-save");
+      const entities_id = hid ? parseInt(hid.value||"0") : 0;
+      const selectedName = hid ? (hid.dataset.name||"") : "";
+      if(!entities_id){
+        if(err){ err.textContent="Selecione a entidade."; err.style.display="block"; }
+        if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showRenameEntityDropdown(); }
+        return;
+      }
+      let newName = selectedName;
+      const ent = (this._renameEntities||this._maintEntities||[]).find(e=> String(e.id)===String(entities_id));
+      if(ent){
+        const raw=(ent.completename||ent.name||'');
+        const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+        const cleanShort = short.includes('Unidade Regional') ? (ent.name||short) : short;
+        newName = cleanShort;
+        if(!newName) newName=selectedName;
+      }
+      newName = newName.trim().substring(0,255);
+      if(!newName){
+        if(err){ err.textContent="Nome da entidade vazio."; err.style.display="block"; }
+        return;
+      }
+      if(btn){ btn.disabled=true; btn.textContent="Salvando..."; }
+      if(err) err.style.display="none";
+      this.ajax("update_card", {id: this.currentCardId, name: newName}).then(res=>{
+        if(btn){ btn.disabled=false; btn.textContent="Salvar"; }
+        if(!res.success){
+          if(err){ err.textContent=res.msg||"Falha ao renomear"; err.style.display="block"; }
+          return;
+        }
+        this.closePicker();
+        this.showToast("Nome alterado para: " + newName);
+        const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
+        if(c){ c.name=newName; this.renderBoard(); }
+        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+      });
     },
     editDescription(){
       $('#card-modal-desc').style.display='none';
