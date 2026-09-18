@@ -77,6 +77,9 @@ function plugin_kanpro_install(): bool {
                 `rank`                        DOUBLE       NOT NULL DEFAULT '0',
                 `is_archived`                 TINYINT(1)   NOT NULL DEFAULT '0',
                 `is_completed`                TINYINT(1)   NOT NULL DEFAULT '0',
+                `is_maintenance`              TINYINT(1)   NOT NULL DEFAULT '0',
+                `maintenance_date`            DATETIME     DEFAULT NULL,
+                `maintenance_by`              INT {$sign} NOT NULL DEFAULT '0',
                 `due_date`                    DATETIME     DEFAULT NULL,
                 `start_date`                  DATETIME     DEFAULT NULL,
                 `cover_color`                 VARCHAR(20)  DEFAULT NULL,
@@ -88,7 +91,8 @@ function plugin_kanpro_install(): bool {
                 KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`),
                 KEY `plugin_kanpro_lists_id` (`plugin_kanpro_lists_id`),
                 KEY `rank` (`rank`),
-                KEY `due_date` (`due_date`)
+                KEY `due_date` (`due_date`),
+                KEY `is_maintenance` (`is_maintenance`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
     } else {
@@ -97,6 +101,15 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_completed')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_completed` TINYINT(1) NOT NULL DEFAULT '0'");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_maintenance` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_completed`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_date')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `maintenance_date` DATETIME DEFAULT NULL AFTER `is_maintenance`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_by')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `maintenance_by` INT NOT NULL DEFAULT '0' AFTER `maintenance_date`");
         }
     }
 
@@ -256,6 +269,38 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- MAINTENANCE MACHINES (Modo Manutenção por Card) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_maintenance_machines` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `seq`                         INT          NOT NULL DEFAULT '0' COMMENT 'enumeração 1..N',
+                `model`                       VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'ex: Notebook Positivo',
+                `label`                       VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'ex: Máquina #1 - Notebook Positivo',
+                `diary`                       TEXT         DEFAULT NULL COMMENT 'diário do que foi feito',
+                `is_done`                     TINYINT(1)   NOT NULL DEFAULT '0',
+                `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=OK, 0=pendente/defeito',
+                `status`                      VARCHAR(20)  NOT NULL DEFAULT 'pending' COMMENT 'pending,ok,defect',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
+                KEY `seq` (`seq`),
+                KEY `is_done` (`is_done`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    } else {
+        // migrações leves
+        if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'status')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `status` VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER `is_ok`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'diary')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `diary` TEXT DEFAULT NULL AFTER `label`");
+        }
+    }
+
     PluginKanproProfile::install();
     return true;
 }
@@ -266,6 +311,7 @@ function plugin_kanpro_uninstall(): bool {
     PluginKanproProfile::uninstall();
 
     $tables = [
+        'glpi_plugin_kanpro_maintenance_machines',
         'glpi_plugin_kanpro_activities',
         'glpi_plugin_kanpro_attachments',
         'glpi_plugin_kanpro_comments',

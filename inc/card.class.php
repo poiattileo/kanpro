@@ -68,6 +68,10 @@ class PluginKanproCard extends CommonDBTM {
         }
         $DB->delete('glpi_plugin_kanpro_attachments', ['plugin_kanpro_cards_id' => $cid]);
         $DB->delete('glpi_plugin_kanpro_activities', ['plugin_kanpro_cards_id' => $cid]);
+        // manutenção
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id' => $cid]);
+        }
     }
 
     // Helpers
@@ -191,6 +195,31 @@ class PluginKanproCard extends CommonDBTM {
                 ]);
             }
         }
+        // copia manutenção se for card de manutenção
+        if (!empty($orig['is_maintenance']) && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $machines = $DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id], 'ORDER' => 'seq ASC']);
+            foreach ($machines as $m) {
+                $DB->insert('glpi_plugin_kanpro_maintenance_machines', [
+                    'plugin_kanpro_cards_id' => $new_id,
+                    'seq'                    => $m['seq'],
+                    'model'                  => $m['model'],
+                    'label'                  => $m['label'],
+                    'diary'                  => $m['diary'],
+                    'is_done'                => $m['is_done'],
+                    'is_ok'                  => $m['is_ok'],
+                    'status'                 => $m['status'],
+                    'users_id'               => $m['users_id'],
+                    'date_creation'          => date('Y-m-d H:i:s'),
+                    'date_mod'               => date('Y-m-d H:i:s'),
+                ]);
+            }
+            // marca novo card também como manutenção
+            $DB->update('glpi_plugin_kanpro_cards', [
+                'is_maintenance'   => 1,
+                'maintenance_date' => date('Y-m-d H:i:s'),
+                'maintenance_by'   => Session::getLoginUserID()
+            ], ['id' => $new_id]);
+        }
         PluginKanproBoard::logActivity($orig['plugin_kanpro_boards_id'], $new_id, $new_list, 'card_copy', "Cartão copiado de #{$cards_id}");
         return $new_id;
     }
@@ -270,6 +299,21 @@ class PluginKanproCard extends CommonDBTM {
         if ($board->getFromDB($data['plugin_kanpro_boards_id'])) {
             $data['board_name'] = $board->fields['name'];
             $data['board_color'] = $board->fields['color'];
+        }
+
+        // manutenção
+        $data['is_maintenance'] = !empty($data['is_maintenance']) ? 1 : 0;
+        $data['maintenance_date'] = $data['maintenance_date'] ?? null;
+        $data['maintenance_by'] = $data['maintenance_by'] ?? 0;
+        $data['maintenance_machines'] = [];
+        $data['maintenance_progress'] = ['total'=>0,'done'=>0,'percent'=>0];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $mm = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id],'ORDER'=>'seq ASC']);
+            foreach ($mm as $r) $data['maintenance_machines'][] = $r;
+            $total = count($data['maintenance_machines']);
+            $done = 0;
+            foreach ($data['maintenance_machines'] as $m) if (!empty($m['is_done'])) $done++;
+            $data['maintenance_progress'] = ['total'=>$total,'done'=>$done,'percent'=>$total? (int)round($done/$total*100):0];
         }
 
         return $data;

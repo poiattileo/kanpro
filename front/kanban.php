@@ -127,6 +127,29 @@ foreach ($check_ids_by_card as $cid => $cids) {
 }
 $check_progress_json = json_encode($check_progress, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
+// Manutenção progress
+$maintenance_progress = [];
+if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+    $__maint_ids = array_column($all_cards, 'id') ?: [0];
+    $maint_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $__maint_ids]]);
+    $maint_by_card = [];
+    foreach ($maint_iter as $mm) {
+        $maint_by_card[$mm['plugin_kanpro_cards_id']][] = $mm;
+    }
+    foreach ($maint_by_card as $cid => $machines) {
+        $total = count($machines);
+        $done = 0;
+        foreach ($machines as $mm) if (!empty($mm['is_done'])) $done++;
+        $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0];
+    }
+    foreach ($all_cards as $c) {
+        if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) {
+            $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0];
+        }
+    }
+}
+$maintenance_progress_json = json_encode($maintenance_progress, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
+
 // Comentários count e anexos count
 $comment_counts = [];
 $att_counts = [];
@@ -231,6 +254,9 @@ echo <<<HTML
           </div>
         </div>
 
+        <!-- Manutenção -->
+        <div id="card-modal-maintenance" style="display:none"></div>
+
         <!-- Checklists -->
         <div id="card-modal-checklists"></div>
         <button onclick="Kanpro.addChecklist()" style="background:#eaecf0;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;margin-bottom:16px"><i class="ti ti-plus"></i> Adicionar checklist</button>
@@ -278,6 +304,7 @@ echo <<<HTML
         <div>
           <div style="font-size:12px;font-weight:600;color:#5e6c84;margin-bottom:8px">AÇÕES</div>
           <div style="display:grid;gap:8px">
+            <button id="kp-maintenance-btn" class="kp-sidebar-btn" onclick="Kanpro.openMaintenanceFlow()" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d"><i class="ti ti-tool"></i> Manutenção</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.moveCardPicker()"><i class="ti ti-arrows-move"></i> Mover</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.copyCard()"><i class="ti ti-copy"></i> Copiar</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.archiveCard()"><i class="ti ti-archive"></i> Arquivar</button>
@@ -341,6 +368,7 @@ window.KANPRO = {
   cardLabels: {$card_labels_json},
   cardMembers: {$card_members_json},
   checkProgress: {$check_progress_json},
+  maintenanceProgress: {$maintenance_progress_json},
   commentCounts: {$comment_counts_json},
   attCounts: {$att_counts_json},
   members: {$members_json},

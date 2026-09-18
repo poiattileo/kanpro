@@ -361,6 +361,11 @@
 .kp-cal-daynum { font-size:12px; color:#5e6c84; margin-bottom:4px; }
 .kp-cal-card { background:#fff; border-left:4px solid var(--kp-blue); padding:4px 6px; border-radius:4px; font-size:12px; margin-bottom:4px; box-shadow:0 1px 1px rgba(0,0,0,.1); cursor:pointer }
 
+/* Manutenção */
+.kp-maint-machine { transition: box-shadow .15s, border-color .15s; }
+.kp-maint-machine textarea:focus { border-color: #ffab00 !important; outline: none; box-shadow: 0 0 0 2px rgba(255,171,0,.2); }
+#card-modal-maintenance { animation: kp-fadeIn .2s ease; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .kp-list { width: 260px; min-width: 260px; }

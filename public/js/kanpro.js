@@ -13,6 +13,7 @@
     cardLabels: K.cardLabels || {},
     cardMembers: K.cardMembers || {},
     checkProgress: K.checkProgress || {},
+    maintenanceProgress: K.maintenanceProgress || {},
     commentCounts: K.commentCounts || {},
     attCounts: K.attCounts || {},
     members: K.members || [],
@@ -117,7 +118,7 @@
       this._lastSnapshotJson = JSON.stringify({
         lists: this.lists, cards: this.cards, labels: this.labels,
         cardLabels: this.cardLabels, cardMembers: this.cardMembers,
-        checkProgress: this.checkProgress, commentCounts: this.commentCounts,
+        checkProgress: this.checkProgress, maintenanceProgress: this.maintenanceProgress, commentCounts: this.commentCounts,
         attCounts: this.attCounts, members: this.members
       });
       this.ajax('presence_heartbeat', {boards_id: this.board.id});
@@ -137,7 +138,7 @@
         const snapshot = {
           lists: res.lists, cards: res.cards, labels: res.labels,
           cardLabels: res.cardLabels, cardMembers: res.cardMembers,
-          checkProgress: res.checkProgress, commentCounts: res.commentCounts,
+          checkProgress: res.checkProgress, maintenanceProgress: res.maintenanceProgress, commentCounts: res.commentCounts,
           attCounts: res.attCounts, members: res.members
         };
         const snapshotJson = JSON.stringify(snapshot);
@@ -170,6 +171,7 @@
         this.cardLabels = res.cardLabels || {};
         this.cardMembers = res.cardMembers || {};
         this.checkProgress = res.checkProgress || {};
+        this.maintenanceProgress = res.maintenanceProgress || {};
         this.commentCounts = res.commentCounts || {};
         this.attCounts = res.attCounts || {};
         this.members = res.members || [];
@@ -328,6 +330,16 @@
 
       // badges
       let badges = [];
+      // Manutenção badge
+      if (card.is_maintenance == 1) {
+        const mProg = this.maintenanceProgress && this.maintenanceProgress[card.id];
+        if (mProg && mProg.total>0) {
+          const mDone = mProg.done===mProg.total ? "check-done" : "";
+          badges.push(`<span class="kp-badge" style="background:#ffab00;color:#172b4d;font-weight:700"><i class="ti ti-tool"></i> Manutenção ${mProg.done}/${mProg.total}</span>`);
+        } else {
+          badges.push(`<span class="kp-badge" style="background:#fffae6;color:#172b4d;border:1px solid #ffab00;font-weight:700"><i class="ti ti-tool"></i> Manutenção</span>`);
+        }
+      }
       if (card.due_date) {
         const due = new Date(card.due_date);
         const now = new Date();
@@ -750,6 +762,9 @@
         clContainer.appendChild(div);
       });
 
+      // manutenção - renderiza painel dedicado
+      this.renderMaintenanceInModal(data);
+
       // attachments
       const attContainer = $('#card-modal-attachments');
       if(data.attachments && data.attachments.length){
@@ -803,12 +818,495 @@
 
       // atualiza cache local
       const idx = this.cards.findIndex(x=> x.id==data.id);
-      if(idx>=0){ this.cards[idx].name=data.name; this.cards[idx].description=data.description; this.cards[idx].due_date=data.due_date; this.cards[idx].start_date=data.start_date; this.cards[idx].cover_color=data.cover_color; this.cards[idx].is_completed=data.is_completed; }
+      if(idx>=0){
+        this.cards[idx].name=data.name;
+        this.cards[idx].description=data.description;
+        this.cards[idx].due_date=data.due_date;
+        this.cards[idx].start_date=data.start_date;
+        this.cards[idx].cover_color=data.cover_color;
+        this.cards[idx].is_completed=data.is_completed;
+        this.cards[idx].is_maintenance=data.is_maintenance||0;
+      }
       // atualiza maps
       this.cardLabels[data.id] = data.labels||[];
-      this.cardMembers[data.id] = data.members?.map(m=>({users_id:m.id||m.users_id, name:m.realname||m.name, initials:(m.firstname?.[0]||'?').toUpperCase()})) || [];
+      this.cardMembers[data.id] = data.members?.map(m=>({users_id:m.id||m.users_id, name:m.realname||m.name, initials:(m.firstname?.[0]||"?").toUpperCase()})) || [];
+      // maintenance progress
+      if(data.maintenance_progress) this.maintenanceProgress[data.id] = data.maintenance_progress;
+      else if(data.is_maintenance && data.maintenance_machines){
+        const total = data.maintenance_machines.length;
+        const done = data.maintenance_machines.filter(m=> m.is_done==1).length;
+        this.maintenanceProgress[data.id] = {total, done, percent: total? Math.round(done/total*100):0};
+      }
+      // atualiza botão manutenção
+      const maintBtn = document.getElementById("kp-maintenance-btn");
+      if(maintBtn){
+        if(data.is_maintenance){
+          maintBtn.innerHTML = "<i class=\"ti ti-tool\"></i> Gerenciar Manutenção";
+          maintBtn.style.background = "#ffab00";
+          maintBtn.style.color = "#fff";
+          maintBtn.style.border = "1px solid #ff991f";
+        } else {
+          maintBtn.innerHTML = "<i class=\"ti ti-tool\"></i> Manutenção";
+          maintBtn.style.background = "#fffae6";
+          maintBtn.style.color = "#172b4d";
+          maintBtn.style.border = "1px solid #ffab00";
+        }
+      }
       // re-render board silencioso (mantém modal)
       this.renderBoardQuick();
+    },
+
+    // ==================== MANUTENÇÃO ====================
+    renderMaintenanceInModal(data){
+      const wrap = document.getElementById("card-modal-maintenance");
+      if(!wrap) return;
+      const isMaint = !!(data.is_maintenance && data.is_maintenance==1);
+      if(!isMaint){
+        wrap.style.display="none";
+        wrap.innerHTML="";
+        return;
+      }
+      wrap.style.display="block";
+      const machines = data.maintenance_machines || [];
+      const progress = data.maintenance_progress || {total:machines.length, done: machines.filter(m=>m.is_done==1).length, percent: 0};
+      if(progress.total && !progress.percent){
+        progress.percent = progress.total? Math.round(progress.done/progress.total*100):0;
+      }
+      const pct = progress.percent || 0;
+      const total = progress.total || 0;
+      const done = progress.done || 0;
+      const allDone = total>0 && done===total;
+      let html = `
+        <div style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);overflow:hidden;margin-bottom:16px;border-left:4px solid #ffab00">
+          <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:8px;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d">Manutenção — Checklist por Máquina</strong> <span style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${done}/${total} • ${pct}%</span></div>
+            <div style="display:flex;gap:6px">
+              <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
+              ${allDone ? `<button onclick="Kanpro.generateMaintenanceTerm()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-file-text"></i> Gerar Termo</button>` : `<button disabled title="Conclua 100% para gerar termo" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed"><i class="ti ti-file-text"></i> Gerar Termo (${pct}%)</button>`}
+            </div>
+          </div>
+          ${total? `<div style="padding:10px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:#5e6c84;min-width:36px">${pct}%</span><div class="kp-progress" style="flex:1;height:8px"><div class="kp-progress-bar" style="width:${pct}%;background:${allDone?"#61bd4f":"#ffab00"}"></div></div></div></div>` : ""}
+        </div>
+      `;
+      if(total===0){
+        html += `
+          <div style="background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 1px rgba(9,30,66,.13);text-align:center">
+            <div style="color:#5e6c84;font-size:14px;margin-bottom:8px"><i class="ti ti-info-circle"></i> Nenhuma máquina cadastrada ainda.</div>
+            <div style="color:#6b778c;font-size:13px;margin-bottom:12px">Informe a quantidade e modelo das máquinas para gerar a checklist enumerada.</div>
+            <div style="display:flex;gap:8px;justify-content:center">
+              <button onclick="Kanpro.openMaintenanceSetup()" style="background:#ffab00;color:#172b4d;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-weight:700"><i class="ti ti-plus"></i> Configurar Máquinas</button>
+            </div>
+            <div style="margin-top:12px;background:#f4f5f7;padding:10px;border-radius:6px;text-align:left;font-size:12px;color:#5e6c84">
+              <strong>Exemplos de entrada:</strong><br>
+              <code style="background:#fff;padding:2px 6px;border-radius:4px">10x Notebook Positivo</code> <code style="background:#fff;padding:2px 6px;border-radius:4px">5x Notebook Ultra</code> <code style="background:#fff;padding:2px 6px;border-radius:4px">10x Notebook Multilaser</code><br>
+              <span style="font-size:11px">Pode colar em uma linha: <em>10x Notebook Positivo, 10x Notebook Ultra, 10x Notebook Multilaser</em> — o sistema enumera de 1 em diante automaticamente.</span>
+            </div>
+          </div>
+        `;
+        html += `<div style="text-align:center;margin-top:10px"><a href="#" onclick="Kanpro.revertMaintenance();return false" style="color:#eb5a46;font-size:12px">Reverter para card normal</a></div>`;
+        wrap.innerHTML = html;
+        return;
+      }
+      html += `<div style="display:grid;gap:10px">`;
+      machines.forEach(m=>{
+        const isDone = m.is_done==1;
+        const status = (m.status||"pending");
+        const diary = m.diary||"";
+        const statusLabel = status==="ok" ? "✅ OK" : status==="defect" ? "❌ Com Defeito" : "⏳ Pendente";
+        const statusColor = status==="ok" ? "#61bd4f" : status==="defect" ? "#eb5a46" : "#dfe1e6";
+        const statusTextColor = status==="ok" || status==="defect" ? "#fff" : "#5e6c84";
+        const borderColor = isDone ? "#61bd4f" : "#ffab00";
+        html += `
+          <div class="kp-maint-machine" data-mid="${m.id}" style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
+            <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;background:${isDone?"#e3fcef":"#f4f5f7"}">
+              <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+                <span style="background:#091e42;color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small></div>
+                  <div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label)}</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+                <label style="display:flex;align-items:center;gap:4px;background:#fff;padding:4px 8px;border-radius:20px;border:1px solid #dfe1e6;cursor:pointer;font-size:12px">
+                  <input type="checkbox" ${isDone?"checked":""} onchange="Kanpro.toggleMaintenanceDone(${m.id}, this.checked)" style="accent-color:#61bd4f"> Feito
+                </label>
+                <select onchange="Kanpro.updateMaintenanceStatus(${m.id}, this.value)" style="padding:4px 8px;border-radius:20px;border:1px solid ${statusColor};background:${statusColor};color:${statusTextColor};font-size:11px;font-weight:700;cursor:pointer">
+                  <option value="pending" ${status==="pending"?"selected":""}>⏳ Pendente</option>
+                  <option value="ok" ${status==="ok"?"selected":""}>✅ OK</option>
+                  <option value="defect" ${status==="defect"?"selected":""}>❌ Defeito</option>
+                </select>
+                <button onclick="Kanpro.deleteMaintenanceMachine(${m.id})" title="Remover máquina" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-trash" style="font-size:14px"></i></button>
+              </div>
+            </div>
+            <div style="padding:10px 12px">
+              <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">DIÁRIO — o que foi feito nesta máquina</div>
+              <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box">${this.escape(diary)}</textarea>
+              <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                <button onclick="Kanpro.saveMaintenanceDiary(${m.id})" style="background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600"><i class="ti ti-device-floppy"></i> Salvar diário</button>
+                <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
+                <span style="margin-left:auto;font-size:11px;color:#97a0af">Status: ${statusLabel} • ${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+      html += `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+        <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
+        <button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>
+      </div>`;
+      wrap.innerHTML = html;
+    },
+
+    openMaintenanceFlow(){
+      const cardId = this.currentCardId;
+      if(!cardId) return;
+      this.ajax("get_maintenance", {cards_id: cardId}).then(res=>{
+        if(res.success && res.is_maintenance){
+          const panel = document.getElementById("card-modal-maintenance");
+          if(panel){ panel.scrollIntoView({behavior:"smooth", block:"start"}); panel.style.boxShadow="0 0 0 3px #ffab00"; setTimeout(()=> panel.style.boxShadow="", 1500); }
+          return;
+        }
+        this.showMaintenanceStep1();
+      });
+    },
+    showMaintenanceStep1(){
+      const html = `
+        <div style="display:grid;gap:12px">
+          <div style="background:#fffae6;border:1px solid #ffecb5;padding:10px;border-radius:6px;color:#172b4d;font-size:13px">
+            <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção — Ação irreversível</strong><br>
+            Este card será transformado em <strong>Card de Manutenção</strong> com checklist por máquina.<br>
+            Serão solicitadas <strong>quantidades e modelos</strong> e cada máquina será enumerada de <strong>1 em diante</strong> com diário individual.
+          </div>
+          <div style="font-size:13px;color:#172b4d">Etapa <strong>1/2</strong> — Confirmação textual<br><small style="color:#5e6c84">Digite <code style="background:#f4f5f7;padding:2px 6px;border-radius:4px;font-weight:700">MANUTENÇÃO</code> para confirmar:</small></div>
+          <input id="maint-confirm-input" type="text" placeholder="Digite MANUTENÇÃO" style="width:100%;padding:10px;border:2px solid #ffab00;border-radius:6px;font-size:14px;box-sizing:border-box;text-transform:uppercase">
+          <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
+            <button onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700">Continuar → Etapa 2/2</button>
+          </div>
+        </div>
+      `;
+      this.showPicker({title:"Manutenção — Etapa 1/2", html});
+      setTimeout(()=>{ const inp=document.getElementById("maint-confirm-input"); if(inp){ inp.focus(); inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); } }, 100);
+    },
+    confirmMaintenanceStep1(){
+      const inp = document.getElementById("maint-confirm-input");
+      const err = document.getElementById("maint-step1-error");
+      const val = (inp?.value||"").trim().toUpperCase();
+      const norm = val.normalize ? val.normalize("NFD").replace(/[̀-ͯ]/g,"") : val.replace("Ç","C").replace("Ã","A");
+      const ok = norm==="MANUTENCAO" || norm==="CONFIRMAR";
+      if(!ok){
+        if(err){ err.textContent="Digite exatamente MANUTENÇÃO para continuar."; err.style.display="block"; }
+        inp.style.borderColor="#eb5a46";
+        inp.focus();
+        return;
+      }
+      this._maintConfirmText = inp.value;
+      this.showMaintenanceStep2();
+    },
+    showMaintenanceStep2(){
+      const html = `
+        <div style="display:grid;gap:12px">
+          <div style="background:#e6fcff;border:1px solid #b3f0ff;padding:10px;border-radius:6px;color:#0052cc;font-size:13px">
+            <i class="ti ti-lock"></i> <strong>Etapa 2/2 — Autenticação</strong><br>Confirme sua identidade digitando sua <strong>senha do GLPI</strong>.
+          </div>
+          <div style="font-size:13px;color:#172b4d"><small style="color:#5e6c84">Esta é a 2ª etapa de verificação para garantir que a conversão é intencional.</small></div>
+          <input id="maint-password-input" type="password" placeholder="Sua senha do GLPI" style="width:100%;padding:10px;border:2px solid #0079bf;border-radius:6px;font-size:14px;box-sizing:border-box">
+          <div id="maint-step2-error" style="color:#eb5a46;font-size:12px;display:none"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="Kanpro.showMaintenanceStep1()" style="background:#f4f5f7;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">← Voltar</button>
+            <button id="maint-step2-btn" onclick="Kanpro.confirmMaintenanceStep2()" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700"><i class="ti ti-check"></i> Autenticar e Converter</button>
+          </div>
+        </div>
+      `;
+      this.showPicker({title:"Manutenção — Etapa 2/2", html});
+      setTimeout(()=>{ const inp=document.getElementById("maint-password-input"); if(inp){ inp.focus(); inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep2(); }); } }, 100);
+    },
+    confirmMaintenanceStep2(){
+      const pwdInp = document.getElementById("maint-password-input");
+      const err = document.getElementById("maint-step2-error");
+      const btn = document.getElementById("maint-step2-btn");
+      const pwd = pwdInp?.value||"";
+      if(!pwd){
+        if(err){ err.textContent="Informe sua senha."; err.style.display="block"; }
+        return;
+      }
+      if(btn){ btn.disabled=true; btn.textContent="Verificando..."; }
+      this.ajax("convert_to_maintenance", {cards_id: this.currentCardId, password: pwd, confirm_text: this._maintConfirmText||"MANUTENCAO"}).then(res=>{
+        if(btn){ btn.disabled=false; btn.textContent="Autenticar e Converter"; }
+        if(!res.success){
+          if(err){ err.textContent=res.msg||"Falha na autenticação"; err.style.display="block"; }
+          return;
+        }
+        this.closePicker();
+        this.showToast("Card convertido para Manutenção!");
+        const c = this.cards.find(x=> x.id==this.currentCardId);
+        if(c) c.is_maintenance=1;
+        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
+          if(r.success){
+            this.renderCardModal(r.data);
+            setTimeout(()=> this.openMaintenanceSetup(), 400);
+          } else location.reload();
+        });
+      });
+    },
+    openMaintenanceSetup(isAppend=false){
+      const isAppendMode = !!isAppend;
+      const title = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas — Manutenção";
+      const html = `
+        <div style="display:grid;gap:12px">
+          <div style="background:#f4f5f7;padding:10px;border-radius:6px;font-size:12px;color:#5e6c84">
+            <strong style="color:#172b4d">Como informar?</strong><br>
+            Digite cada tipo em uma linha no formato <code style="background:#fff;padding:1px 4px;border-radius:3px">QTD x Modelo</code>.<br>
+            Exemplos:<br>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;display:inline-block;margin:2px">10x Notebook Positivo</code>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;display:inline-block;margin:2px">5x Notebook Ultra</code>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;display:inline-block;margin:2px">10x Notebook Multilaser</code><br>
+            <small>Ou em uma linha separados por vírgula: <em>10x Notebook Positivo, 10x Notebook Ultra</em></small>
+          </div>
+          <textarea id="maint-setup-raw" placeholder="Ex:\n10x Notebook Positivo\n5x Notebook Ultra\n10x Notebook Multilaser\n\nou\n10x Notebook Positivo, 10x Notebook Ultra, 10x Notebook Multilaser" style="width:100%;min-height:110px;padding:10px;border:2px solid #ffab00;border-radius:6px;resize:vertical;box-sizing:border-box;font-size:13px"></textarea>
+          <div id="maint-setup-preview" style="background:#fff;border:1px dashed #dfe1e6;border-radius:6px;padding:8px;min-height:32px;font-size:12px;color:#5e6c84">Prévia aparecerá aqui ao digitar...</div>
+          <div id="maint-setup-error" style="color:#eb5a46;font-size:12px;display:none"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
+            <button id="maint-setup-btn" onclick="Kanpro.submitMaintenanceSetup(${isAppendMode?1:0})" style="background:#ffab00;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700"><i class="ti ti-tool"></i> ${isAppendMode?"Adicionar":"Gerar Checklist Enumerado"}</button>
+          </div>
+        </div>
+      `;
+      this.showPicker({title, html});
+      setTimeout(()=>{
+        const ta=document.getElementById("maint-setup-raw");
+        const prev=document.getElementById("maint-setup-preview");
+        if(ta && prev){
+          const updatePreview = ()=>{
+            const raw=ta.value.trim();
+            if(!raw){ prev.innerHTML="<span style=\"opacity:.6\">Prévia aparecerá aqui ao digitar...</span>"; return; }
+            const lines = raw.split(/[\n,;]+/).map(s=> s.trim()).filter(Boolean);
+            let total=0;
+            const parts=[];
+            lines.forEach(l=>{
+              const m=l.match(/(\d+)\s*[xX]\s*(.+)/);
+              if(m){ const qty=parseInt(m[1]); total+=qty; parts.push(qty+"x "+m[2].trim()); }
+              else { total+=1; parts.push("1x "+l); }
+            });
+            if(parts.length){ prev.innerHTML=parts.join(", ")+" → <strong>"+total+" máquinas</strong> (1…"+total+")"; }
+            else prev.innerHTML="Formato não reconhecido. Use: 10x Notebook Positivo";
+          };
+          ta.addEventListener("input", updatePreview);
+          ta.focus();
+        }
+      }, 100);
+    },
+    submitMaintenanceSetup(isAppend){
+      const ta=document.getElementById("maint-setup-raw");
+      const err=document.getElementById("maint-setup-error");
+      const btn=document.getElementById("maint-setup-btn");
+      const raw=(ta?.value||"").trim();
+      if(!raw){
+        if(err){ err.textContent="Informe as máquinas. Ex: 10x Notebook Positivo"; err.style.display="block"; }
+        return;
+      }
+      if(btn){ btn.disabled=true; btn.textContent="Processando..."; }
+      const action = isAppend ? "add_maintenance_machines" : "setup_maintenance_machines";
+      const payload = isAppend ? {cards_id: this.currentCardId, machines_raw: raw} : {cards_id: this.currentCardId, machines_raw: raw, replace: 0};
+      this.ajax(action, payload).then(res=>{
+        if(btn){ btn.disabled=false; btn.textContent= isAppend ? "Adicionar" : "Gerar Checklist Enumerado"; }
+        if(!res.success){
+          if(err){ err.textContent=res.msg||"Erro ao configurar"; err.style.display="block"; }
+          if(res.need_replace){
+            if(confirm("Já existem máquinas. Deseja SUBSTITUIR? Esta ação apagará o cadastro atual.")){
+              this.ajax("setup_maintenance_machines", {cards_id: this.currentCardId, machines_raw: raw, replace: 1}).then(r2=>{
+                if(!r2.success) alert(r2.msg||"Erro");
+                else { this.closePicker(); this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); }); this.renderBoard(); }
+              });
+            }
+          }
+          return;
+        }
+        this.closePicker();
+        this.showToast(isAppend ? "Máquinas adicionadas!" : "Checklist gerado: "+res.total+" máquinas enumeradas");
+        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+      });
+    },
+    toggleMaintenanceDone(mid, checked){
+      this.ajax("update_maintenance_machine", {id: mid, is_done: checked?1:0}).then(res=>{
+        if(res.success){
+          const cardId=this.currentCardId;
+          this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          this.showToast(checked?"Máquina marcada como feita":"Marca removida");
+        } else alert(res.msg||"Erro");
+      });
+    },
+    updateMaintenanceStatus(mid, status){
+      this.ajax("update_maintenance_machine", {id: mid, status}).then(res=>{
+        if(res.success){
+          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        }
+      });
+    },
+    saveMaintenanceDiary(mid){
+      const ta=document.getElementById("maint-diary-"+mid);
+      const status=document.getElementById("maint-save-status-"+mid);
+      if(!ta) return;
+      const diary=ta.value;
+      if(status) status.textContent=" Salvando...";
+      this.ajax("update_maintenance_machine", {id: mid, diary}).then(res=>{
+        if(res.success){
+          if(status){ status.textContent=" ✓ Salvo"; status.style.color="#61bd4f"; setTimeout(()=> status.textContent="", 2000); }
+        } else {
+          if(status){ status.textContent=" Erro ao salvar"; status.style.color="#eb5a46"; }
+        }
+      });
+    },
+    deleteMaintenanceMachine(mid){
+      this.kpConfirm("Remover esta máquina? A numeração será re-sequenciada (1…N).").then(ok=>{
+        if(!ok) return;
+        this.ajax("delete_maintenance_machine", {id: mid}).then(res=>{
+          if(res.success){
+            this.showToast("Máquina removida");
+            this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          } else alert(res.msg||"Erro");
+        });
+      });
+    },
+    revertMaintenance(){
+      this.kpConfirm("Reverter este card para modo normal? O histórico de máquinas será mantido, mas o modo manutenção será desativado.").then(async ok=>{
+        if(!ok) return;
+        const pwd = await this.kpPrompt("Confirme sua senha para reverter (digite sua senha do GLPI):", "");
+        if(pwd===null) return;
+        let password = pwd;
+        if(password===""){
+          const html = `
+            <div style="display:grid;gap:10px">
+              <div style="font-size:13px">Digite sua senha do GLPI para confirmar reversão:</div>
+              <input id="revert-pwd" type="password" style="width:100%;padding:10px;border:2px solid #eb5a46;border-radius:6px">
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 14px;border-radius:6px;cursor:pointer">Cancelar</button>
+                <button onclick="Kanpro.doRevertWithPwd()" style="background:#eb5a46;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer">Reverter</button>
+              </div>
+            </div>`;
+          this.showPicker({title:"Reverter Manutenção", html});
+          setTimeout(()=>{ const inp=document.getElementById("revert-pwd"); if(inp) inp.focus(); }, 100);
+          this._revertCardId = this.currentCardId;
+          return;
+        }
+        this.doRevertAjax(password);
+      });
+    },
+    doRevertWithPwd(){
+      const inp=document.getElementById("revert-pwd");
+      const pwd=inp?.value||"";
+      if(!pwd) return;
+      this.closePicker();
+      this.doRevertAjax(pwd);
+    },
+    doRevertAjax(password){
+      this.ajax("revert_maintenance", {cards_id: this.currentCardId, password}).then(res=>{
+        if(!res.success){ alert(res.msg||"Falha ao reverter"); return; }
+        this.showToast("Modo manutenção revertido");
+        const c=this.cards.find(x=> x.id==this.currentCardId);
+        if(c) c.is_maintenance=0;
+        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+      });
+    },
+    generateMaintenanceTerm(){
+      const cardId=this.currentCardId;
+      if(!cardId) return;
+      this.ajax("get_maintenance_term_data", {cards_id: cardId}).then(res=>{
+        if(!res.success){ alert(res.msg||"Erro ao buscar dados"); return; }
+        if(!res.is_maintenance){ alert("Card não é de manutenção"); return; }
+        const total=res.progress.total, done=res.progress.done;
+        if(done!==total){
+          const ok = confirm("Atenção: nem todas as máquinas estão marcadas como feitas ("+done+"/"+total+"). Deseja gerar o termo assim mesmo?");
+          if(!ok) return;
+        }
+        const html = this.buildTermHtml(res.card, res.machines, res.card.board_name, res.card.list_name);
+        const w = window.open("", "_blank");
+        if(!w){ alert("Pop-up bloqueado. Permita pop-ups para gerar termo."); return; }
+        w.document.write(html);
+        w.document.close();
+        this.showToast("Termo gerado");
+      });
+    },
+    buildTermHtml(card, machines, boardName, listName){
+      const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR");
+      const total = machines.length;
+      const okCount = machines.filter(m=> m.status==="ok" || m.is_ok==1).length;
+      const defectCount = machines.filter(m=> m.status==="defect").length;
+      const pendingCount = total - okCount - defectCount;
+      const esc = s=> this.escape(s||"");
+      const rows = machines.map(m=>{
+        const statusLabel = m.status==="ok" ? "OK" : m.status==="defect" ? "COM DEFEITO" : "PENDENTE";
+        const statusColor = m.status==="ok" ? "#61bd4f" : m.status==="defect" ? "#eb5a46" : "#ffab00";
+        const doneIcon = m.is_done==1 ? "✔" : "—";
+        return `
+          <tr>
+            <td style="text-align:center;font-weight:700">#${m.seq}</td>
+            <td>${esc(m.model)}</td>
+            <td style="font-size:11px">${esc(m.label)}</td>
+            <td style="text-align:center"><span style="background:${statusColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">${statusLabel}</span></td>
+            <td style="text-align:center">${doneIcon}</td>
+            <td style="font-size:11px;white-space:pre-wrap;max-width:280px">${esc(m.diary||"—")}</td>
+          </tr>`;
+      }).join("");
+      return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Termo de Manutenção — ${esc(card.name)}</title>
+<style>
+  @media print { .no-print{display:none} @page{margin:15mm} }
+  body{font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#172b4d;margin:0;padding:20px;background:#fff}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:14px;margin:16px 0 8px;color:#0052cc;border-bottom:2px solid #dfe1e6;padding-bottom:6px}
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+  th{background:#091e42;color:#fff;padding:8px;text-align:left;font-size:11px}
+  td{padding:6px 8px;border-bottom:1px solid #dfe1e6;vertical-align:top}
+  tr:nth-child(even) td{background:#f4f5f7}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid #0052cc;padding-bottom:12px;margin-bottom:16px}
+  .meta{font-size:12px;color:#5e6c84}
+  .summary{display:flex;gap:12px;margin:12px 0}
+  .summary div{background:#f4f5f7;padding:10px 14px;border-radius:8px;flex:1;text-align:center}
+  .summary strong{font-size:18px;display:block}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🔧 Termo de Manutenção</h1>
+      <div class="meta"><strong>Quadro:</strong> ${esc(boardName||"—")} &nbsp;|&nbsp; <strong>Lista:</strong> ${esc(listName||"—")} &nbsp;|&nbsp; <strong>Cartão:</strong> #${card.id} — ${esc(card.name)}</div>
+      <div class="meta">Gerado em: ${now} &nbsp;|&nbsp; Total de máquinas: ${total} &nbsp;|&nbsp; OK: ${okCount} &nbsp;|&nbsp; Defeito: ${defectCount} &nbsp;|&nbsp; Pendente: ${pendingCount}</div>
+    </div>
+    <div class="no-print" style="text-align:right">
+      <button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button><br>
+      <small style="color:#5e6c84">Use o navegador para salvar em PDF</small>
+    </div>
+  </div>
+  <h2>Resumo da Manutenção</h2>
+  <div class="summary">
+    <div><strong>${total}</strong><span>Total de Máquinas</span></div>
+    <div style="background:#e3fcef"><strong style="color:#006644">${okCount}</strong><span>OK</span></div>
+    <div style="background:#ffebe6"><strong style="color:#bf2600">${defectCount}</strong><span>Com Defeito</span></div>
+    <div><strong>${pendingCount}</strong><span>Pendentes</span></div>
+  </div>
+  <h2>Descrição do Card</h2>
+  <div style="background:#f4f5f7;padding:10px;border-radius:6px;white-space:pre-wrap">${esc(card.description||"—")}</div>
+  <h2>Checklist por Máquina — Diário</h2>
+  <table>
+    <thead>
+      <tr><th style="width:40px">#</th><th>Modelo</th><th>Etiqueta</th><th style="width:90px">Situação</th><th style="width:40px">Feito</th><th>Diário — O que foi feito</th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <h2>Assinaturas</h2>
+  <div style="display:flex;gap:40px;margin-top:30px">
+    <div style="flex:1;text-align:center;border-top:1px solid #172b4d;padding-top:8px;margin-top:40px">Responsável pela Manutenção<br><small style="color:#5e6c84">Nome / Assinatura / Data</small></div>
+    <div style="flex:1;text-align:center;border-top:1px solid #172b4d;padding-top:8px;margin-top:40px">Responsável pelo Recebimento<br><small style="color:#5e6c84">Nome / Assinatura / Data</small></div>
+  </div>
+  <div style="margin-top:20px;text-align:center;color:#97a0af;font-size:10px">Documento gerado automaticamente pelo KanPro — Quadros Kanban GLPI • ${esc(card.name)} • #${card.id}</div>
+</body>
+</html>`;
     },
 
     renderBoardQuick(){

@@ -38,6 +38,125 @@ function needEdit() {
     }
 }
 
+// ---------- Helpers Manutenção ----------
+function kanpro_verify_password($input) {
+    global $DB;
+    $uid = Session::getLoginUserID();
+    if (!$uid || $input === '' || $input === null) return false;
+    $row = $DB->request(['FROM' => 'glpi_users', 'WHERE' => ['id' => $uid]])->current();
+    if (!$row) return false;
+    $hash = $row['password'] ?? '';
+    if (!$hash) return false;
+    if (class_exists('Auth') && method_exists('Auth', 'checkPassword')) {
+        try {
+            if (Auth::checkPassword($input, $hash)) return true;
+        } catch (Throwable $e) {}
+    }
+    if (function_exists('password_verify') && password_verify($input, $hash)) return true;
+    if (md5($input) === $hash) return true;
+    // legacy GLPI sha1 with salt? try GLPI 9 style: sha1 with maybe prefix
+    return false;
+}
+
+function kanpro_normalize_confirm($t) {
+    $t = trim($t ?? '');
+    $t = mb_strtoupper($t, 'UTF-8');
+    // remove accents
+    $map = ['Á'=>'A','À'=>'A','Ã'=>'A','Â'=>'A','É'=>'E','Ê'=>'E','Í'=>'I','Ó'=>'O','Ô'=>'O','Õ'=>'O','Ú'=>'U','Ç'=>'C'];
+    $t = strtr($t, $map);
+    return $t;
+}
+
+function kanpro_parse_maintenance_raw($raw) {
+    $raw = trim($raw ?? '');
+    if ($raw === '') return [];
+    $defs = [];
+    // Normaliza separadores , e ; para quebra de linha
+    $normalized = str_replace([',',';'], "\n", $raw);
+    // Tenta regex global no texto normalizado (captura mesmo sem quebra de linha, ex: "10x A 10x B")
+    if (preg_match_all('/(\d+)\s*[xX]\s*([^\n]+?)(?=\s*\d+\s*[xX]\s*|$)/u', $normalized, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) {
+            $qty = (int)trim($match[1]);
+            $model = trim($match[2]);
+            $model = trim($model, " \t\n\r\0\x0B,;.-");
+            if ($qty > 0 && $qty <= 500 && $model !== '') {
+                $defs[] = ['qty' => $qty, 'model' => $model];
+            }
+        }
+        if (!empty($defs)) {
+            $out = [];
+            foreach ($defs as $d) {
+                $d['qty'] = max(1, min(500, (int)$d['qty']));
+                $d['model'] = trim($d['model']);
+                if ($d['model'] !== '') $out[] = $d;
+            }
+            if (!empty($out)) return $out;
+        }
+        $defs = [];
+    }
+    // Fallback: split por quebras
+    $parts = preg_split('/[\n]+/', $normalized);
+    foreach ($parts as $part) {
+        $part = trim($part);
+        if ($part === '') continue;
+        if (preg_match('/^(\d+)\s*[xX]\s*(.+)$/u', $part, $mm)) {
+            $defs[] = ['qty'=>(int)$mm[1], 'model'=>trim($mm[2], " \t,;.-")];
+        } else if (preg_match('/^(\d+)\s+(.+)$/u', $part, $mm)) {
+            $defs[] = ['qty'=>(int)$mm[1], 'model'=>trim($mm[2], " \t,;.-")];
+        } else {
+            $defs[] = ['qty'=>1, 'model'=>$part];
+        }
+    }
+    $out = [];
+    foreach ($defs as $d) {
+        $d['qty'] = max(1, min(500, (int)$d['qty']));
+        $d['model'] = trim($d['model']);
+        if ($d['model'] !== '') $out[] = $d;
+    }
+    return $out;
+}
+
+function kanpro_ensure_maintenance_tables() {
+    global $DB;
+    $charset = method_exists('DBConnection','getDefaultCharset') ? DBConnection::getDefaultCharset() : 'utf8mb4';
+    $collation = method_exists('DBConnection','getDefaultCollation') ? DBConnection::getDefaultCollation() : 'utf8mb4_unicode_ci';
+    $sign = method_exists('DBConnection','getDefaultPrimaryKeySignOption') ? DBConnection::getDefaultPrimaryKeySignOption() : 'unsigned';
+    if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_maintenance_machines` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `seq`                         INT          NOT NULL DEFAULT '0',
+                `model`                       VARCHAR(255) NOT NULL DEFAULT '',
+                `label`                       VARCHAR(255) NOT NULL DEFAULT '',
+                `diary`                       TEXT         DEFAULT NULL,
+                `is_done`                     TINYINT(1)   NOT NULL DEFAULT '0',
+                `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0',
+                `status`                      VARCHAR(20)  NOT NULL DEFAULT 'pending',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
+                KEY `seq` (`seq`),
+                KEY `is_done` (`is_done`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ");
+    }
+    // garante colunas de card
+    if ($DB->tableExists('glpi_plugin_kanpro_cards')) {
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_maintenance` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_completed`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_date')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `maintenance_date` DATETIME DEFAULT NULL AFTER `is_maintenance`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_by')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `maintenance_by` INT NOT NULL DEFAULT '0' AFTER `maintenance_date`");
+        }
+    }
+}
+
 switch ($action) {
 
     // --- BOARD ---
@@ -249,6 +368,23 @@ switch ($action) {
             $check_progress[$cid] = ['total' => $total, 'done' => $done];
         }
 
+        $maintenance_progress = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $maint_ids = array_column($all_cards, 'id') ?: [0];
+            $maint_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $maint_ids]]);
+            $maint_by_card = [];
+            foreach ($maint_iter as $mm) $maint_by_card[$mm['plugin_kanpro_cards_id']][] = $mm;
+            foreach ($maint_by_card as $cid => $machines) {
+                $total = count($machines);
+                $done = 0;
+                foreach ($machines as $mm) if (!empty($mm['is_done'])) $done++;
+                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0];
+            }
+            foreach ($all_cards as $c) {
+                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0];
+            }
+        }
+
         $comment_counts = [];
         $att_counts = [];
         foreach ($all_cards as $c) {
@@ -278,6 +414,7 @@ switch ($action) {
             'cardLabels' => $card_labels_map,
             'cardMembers' => $card_members_map,
             'checkProgress' => $check_progress,
+            'maintenanceProgress' => $maintenance_progress,
             'commentCounts' => $comment_counts,
             'attCounts' => $att_counts,
             'members' => $members_list,
@@ -629,6 +766,303 @@ switch ($action) {
         $ids = [];
         foreach ($iter as $r) $ids[] = $r['id'];
         jexit(['success'=>true,'ids'=>$ids]);
+
+    // ==================== MANUTENÇÃO (2FA + checklist por máquina) ====================
+    case 'convert_to_maintenance':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        $password = $_POST['password'] ?? '';
+        $confirm = $_POST['confirm_text'] ?? $_POST['confirm'] ?? '';
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (!empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão já é de manutenção']);
+        // 2 etapas: confirmação textual + senha
+        $norm = kanpro_normalize_confirm($confirm);
+        $allowed = ['MANUTENCAO','MANUTENÇÃO','CONFIRMAR','CONFIRM','MANUTENCAO CONFIRMADA'];
+        // aceita apenas variações que normalizam para MANUTENCAO
+        $norm_allowed = array_map('kanpro_normalize_confirm', $allowed);
+        if (!in_array($norm, $norm_allowed, true)) {
+            // tenta aceitar também "MANUTENCAO" mesmo se veio com acento
+            if ($norm !== 'MANUTENCAO' && $norm !== 'CONFIRMAR') {
+                jexit(['success'=>false,'msg'=>'Confirmação textual inválida. Digite MANUTENÇÃO para confirmar.','need_confirm'=>true]);
+            }
+        }
+        if (!kanpro_verify_password($password)) {
+            jexit(['success'=>false,'msg'=>'Senha incorreta (2ª etapa falhou). Verifique sua senha do GLPI.','need_password'=>true]);
+        }
+        $DB->update('glpi_plugin_kanpro_cards', [
+            'is_maintenance'   => 1,
+            'maintenance_date' => date('Y-m-d H:i:s'),
+            'maintenance_by'   => Session::getLoginUserID(),
+            'date_mod'         => date('Y-m-d H:i:s')
+        ], ['id' => $cid]);
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_maintenance_convert', "Cartão convertido para manutenção por ". Session::getLoginUserID());
+        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1]);
+
+    case 'verify_maintenance_password':
+        // endpoint auxiliar só para validar senha antes de converter (usado em fluxo 2 etapas separado)
+        $pwd = $_POST['password'] ?? '';
+        if (!kanpro_verify_password($pwd)) jexit(['success'=>false,'msg'=>'Senha incorreta']);
+        jexit(['success'=>true]);
+
+    case 'setup_maintenance_machines':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $machines_raw = $_POST['machines_raw'] ?? $_POST['raw'] ?? '';
+        $definitions_json = $_POST['definitions'] ?? '';
+        $replace = !empty($_POST['replace']) ? (int)$_POST['replace'] : 0;
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Cartão não é de manutenção. Converta primeiro.']);
+        // Parse definições
+        $defs = [];
+        if (!empty($definitions_json)) {
+            $decoded = json_decode($definitions_json, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $d) {
+                    $qty = (int)($d['qty'] ?? $d['quantity'] ?? 1);
+                    $model = trim($d['model'] ?? $d['name'] ?? '');
+                    if ($model !== '' && $qty>0) $defs[] = ['qty'=>$qty,'model'=>$model];
+                }
+            }
+        }
+        if (empty($defs) && $machines_raw !== '') {
+            $defs = kanpro_parse_maintenance_raw($machines_raw);
+        }
+        // fallback: tenta definitions como raw json string
+        if (empty($defs) && !empty($_POST['machines'])) {
+            $tmp = json_decode($_POST['machines'], true);
+            if (is_array($tmp) && isset($tmp[0]['model'])) {
+                foreach ($tmp as $d) {
+                    $qty = (int)($d['qty'] ?? 1);
+                    $model = trim($d['model'] ?? '');
+                    if ($model !== '' && $qty>0) $defs[] = ['qty'=>$qty,'model'=>$model];
+                }
+            }
+        }
+        if (empty($defs)) jexit(['success'=>false,'msg'=>'Informe pelo menos um modelo. Ex: 10x Notebook Positivo']);
+        // Valida total
+        $total = 0;
+        foreach ($defs as $d) $total += $d['qty'];
+        if ($total <=0 || $total > 500) jexit(['success'=>false,'msg'=>'Total de máquinas inválido (1-500). Informado: '.$total]);
+        // Se já existem máquinas e não é replace, bloqueia
+        $existing = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
+        if ($existing >0 && !$replace) {
+            jexit(['success'=>false,'msg'=>'Este cartão já possui máquinas cadastradas. Use replace=1 para substituir.','existing'=>$existing,'need_replace'=>true]);
+        }
+        if ($replace) {
+            $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
+        }
+        // Busca max seq atual (se não replace e existir, continua)
+        $maxSeq = 0;
+        if (!$replace && $existing>0) {
+            $row = $DB->request(['SELECT'=>['MAX'=>'seq AS m'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid]])->current();
+            $maxSeq = (int)($row['m'] ?? 0);
+        }
+        $seq = $maxSeq;
+        $now = date('Y-m-d H:i:s');
+        $uid = Session::getLoginUserID();
+        $created = [];
+        foreach ($defs as $def) {
+            $qty = (int)$def['qty'];
+            $model = trim($def['model']);
+            // Sanitiza modelo
+            $model = mb_substr($model, 0, 250);
+            for ($i=1; $i <= $qty; $i++) {
+                $seq++;
+                $label = "Máquina {$seq} - {$model}";
+                $mid = $DB->insert('glpi_plugin_kanpro_maintenance_machines', [
+                    'plugin_kanpro_cards_id' => $cid,
+                    'seq'                    => $seq,
+                    'model'                  => $model,
+                    'label'                  => $label,
+                    'diary'                  => '',
+                    'is_done'                => 0,
+                    'is_ok'                  => 0,
+                    'status'                 => 'pending',
+                    'users_id'               => $uid,
+                    'date_creation'          => $now,
+                    'date_mod'               => $now,
+                ]);
+                // Fallback se insert retorna false (algumas versões não retornam id, mas cria)
+                // Busca último id
+                if (!$mid) {
+                    $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid,'seq'=>$seq],'ORDER'=>'id DESC','LIMIT'=>1])->current();
+                    $mid = $last['id'] ?? 0;
+                }
+                $created[] = ['id'=>$mid,'seq'=>$seq,'model'=>$model,'label'=>$label];
+            }
+        }
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_setup', "Máquinas configuradas: {$total} ({$existing} existiam)");
+        // Retorna lista completa atualizada
+        $all = [];
+        $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+        foreach ($iter as $r) $all[] = $r;
+        $done = count(array_filter($all, fn($x)=> $x['is_done']==1));
+        jexit(['success'=>true,'total'=>$total,'created'=>count($created),'machines'=>$all,'progress'=>['total'=>count($all),'done'=>$done,'percent'=> count($all)? round($done/count($all)*100):0]]);
+
+    case 'get_maintenance':
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_REQUEST['cards_id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $isMaint = !empty($card->fields['is_maintenance']) ? 1 : 0;
+        $machines = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+            foreach ($iter as $r) $machines[] = $r;
+        }
+        $total = count($machines);
+        $done = 0; $ok = 0;
+        foreach ($machines as $m) { if ($m['is_done']) $done++; if ($m['is_ok'] || $m['status']==='ok') $ok++; }
+        jexit(['success'=>true,'is_maintenance'=>$isMaint,'card'=>$card->fields,'machines'=>$machines,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'ok'=>$ok]]);
+
+    case 'update_maintenance_machine':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $mid = (int)($_POST['id'] ?? 0);
+        if (!$mid) jexit(['success'=>false,'msg'=>'Máquina inválida']);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
+        $updates = [];
+        if (array_key_exists('diary', $_POST)) $updates['diary'] = $_POST['diary'];
+        if (array_key_exists('is_done', $_POST)) $updates['is_done'] = (int)$_POST['is_done'] ? 1:0;
+        if (array_key_exists('is_ok', $_POST)) $updates['is_ok'] = (int)$_POST['is_ok'] ? 1:0;
+        if (array_key_exists('status', $_POST)) {
+            $st = trim($_POST['status']);
+            if (!in_array($st, ['pending','ok','defect','nok'])) $st = 'pending';
+            // normaliza nok -> defect
+            if ($st==='nok') $st='defect';
+            $updates['status'] = $st;
+            // sincroniza is_ok para compat
+            $updates['is_ok'] = ($st==='ok'?1:0);
+            // se ok ou defect, considera terminado? Não automático, deixa usuário marcar done
+        }
+        if (array_key_exists('model', $_POST)) {
+            $model = trim($_POST['model']);
+            if ($model !== '') {
+                $updates['model'] = mb_substr($model,0,250);
+                // atualiza label para manter seq
+                $updates['label'] = "Máquina {$row['seq']} - {$updates['model']}";
+            }
+        }
+        if (empty($updates)) jexit(['success'=>false,'msg'=>'Nada para atualizar']);
+        $updates['date_mod'] = date('Y-m-d H:i:s');
+        $updates['users_id'] = Session::getLoginUserID();
+        $DB->update('glpi_plugin_kanpro_maintenance_machines', $updates, ['id'=>$mid]);
+        // log
+        $card = new PluginKanproCard();
+        if ($card->getFromDB($row['plugin_kanpro_cards_id'])) {
+            PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $card->getID(), $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Máquina #{$row['seq']} atualizada");
+        }
+        $newRow = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
+        jexit(['success'=>true,'machine'=>$newRow]);
+
+    case 'add_maintenance_machines':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $qty = (int)($_POST['qty'] ?? 1);
+        $model = trim($_POST['model'] ?? '');
+        $raw = $_POST['machines_raw'] ?? '';
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Não é manutenção']);
+        $defs = [];
+        if ($raw !== '') $defs = kanpro_parse_maintenance_raw($raw);
+        else if ($model !== '') $defs[] = ['qty'=>max(1,min(500,$qty)),'model'=>$model];
+        else jexit(['success'=>false,'msg'=>'Informe modelo ou raw']);
+        $row = $DB->request(['SELECT'=>['MAX'=>'seq AS m'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid]])->current();
+        $seq = (int)($row['m'] ?? 0);
+        $now = date('Y-m-d H:i:s');
+        $uid = Session::getLoginUserID();
+        foreach ($defs as $def) {
+            $q = (int)$def['qty'];
+            $mod = trim($def['model']);
+            for ($i=0;$i<$q;$i++) {
+                $seq++;
+                $DB->insert('glpi_plugin_kanpro_maintenance_machines', [
+                    'plugin_kanpro_cards_id'=>$cid,
+                    'seq'=>$seq,
+                    'model'=>$mod,
+                    'label'=>"Máquina {$seq} - {$mod}",
+                    'diary'=>'',
+                    'is_done'=>0,
+                    'is_ok'=>0,
+                    'status'=>'pending',
+                    'users_id'=>$uid,
+                    'date_creation'=>$now,
+                    'date_mod'=>$now
+                ]);
+            }
+        }
+        $all=[];
+        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+        foreach($iter as $r) $all[]=$r;
+        jexit(['success'=>true,'machines'=>$all]);
+
+    case 'delete_maintenance_machine':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $mid = (int)($_POST['id'] ?? 0);
+        if (!$mid) jexit(['success'=>false,'msg'=>'ID inválido']);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Não encontrado']);
+        $cid = $row['plugin_kanpro_cards_id'];
+        $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
+        // Re-sequenciar restantes para manter 1..N contínuo
+        $remaining=[];
+        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+        foreach($iter as $r) $remaining[]=$r;
+        $seq=1;
+        foreach($remaining as $r) {
+            $newLabel = "Máquina {$seq} - {$r['model']}";
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$r['id']]);
+            $seq++;
+        }
+        $all=[];
+        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+        foreach($iter as $r) $all[]=$r;
+        jexit(['success'=>true,'machines'=>$all]);
+
+    case 'revert_maintenance':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $password = $_POST['password'] ?? '';
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Não é manutenção']);
+        if (!kanpro_verify_password($password)) jexit(['success'=>false,'msg'=>'Senha incorreta']);
+        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>0,'maintenance_date'=>null,'maintenance_by'=>0], ['id'=>$cid]);
+        // opcional: manter máquinas para histórico, mas aqui mantém; se quiser apagar, descomente:
+        // $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_revert', "Manutenção revertida");
+        jexit(['success'=>true]);
+
+    case 'get_maintenance_term_data':
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_REQUEST['cards_id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $data = PluginKanproCard::getFullData($cid);
+        if (!$data) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        // inclui máquinas
+        $machines=[];
+        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+        foreach($iter as $r) $machines[]=$r;
+        $total=count($machines);
+        $done=0;
+        foreach($machines as $m) if($m['is_done']) $done++;
+        $percent=$total?round($done/$total*100):0;
+        $canGenerate = ($total>0 && $done===$total);
+        jexit(['success'=>true,'is_maintenance'=>!empty($data['is_maintenance'])?1:0,'card'=>$data,'machines'=>$machines,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent,'canGenerate'=>$canGenerate]]);
 
     default:
         jexit(['success'=>false,'msg'=>'Ação desconhecida: '.$action]);
