@@ -144,6 +144,7 @@ if (!empty($board->fields['generate_term'])) {
 
 $open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
 $open_card_id_json = json_encode($open_card_id ?: null);
+$current_user_id = (int) Session::getLoginUserID();
 
 echo <<<HTML
 <style>
@@ -161,6 +162,7 @@ echo <<<HTML
       <span style="background:rgba(255,255,255,.2);padding:4px 8px;border-radius:12px;font-size:12px"><i class="ti ti-lock"></i> {$board->fields['visibility']}</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
+      <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       <button onclick="Kanpro.openInvite()" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600"><i class="ti ti-user-plus"></i> Convidar</button>
       {$generate_term_btn}
@@ -347,7 +349,8 @@ window.KANPRO = {
   csrf_token: "{$csrf_token}",
   canEdit: {$canedit},
   boardColor: "{$board_color}",
-  openCardId: {$open_card_id_json}
+  openCardId: {$open_card_id_json},
+  currentUserId: {$current_user_id}
 };
 </script>
 HTML;

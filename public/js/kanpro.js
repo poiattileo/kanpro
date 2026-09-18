@@ -78,6 +78,7 @@
       this.renderBoardMenuDetails();
       this.updateStats();
       if(this.openCardId){ this.openCard(this.openCardId); }
+      this.startPolling();
       // clicar fora fecha picker, board-menu e card-modal
       document.addEventListener('click', e=>{
         const picker = document.getElementById('kanpro-picker');
@@ -109,6 +110,120 @@
           if(e.target.closest('button') && e.target.closest('button').onclick && String(e.target.closest('button').onclick).includes('Picker')) return;
         }
       });
+    },
+
+    // ---------- ATUALIZAÇÃO EM TEMPO REAL (polling) ----------
+    startPolling(){
+      this._lastSnapshotJson = JSON.stringify({
+        lists: this.lists, cards: this.cards, labels: this.labels,
+        cardLabels: this.cardLabels, cardMembers: this.cardMembers,
+        checkProgress: this.checkProgress, commentCounts: this.commentCounts,
+        attCounts: this.attCounts, members: this.members
+      });
+      this.ajax('presence_heartbeat', {boards_id: this.board.id});
+      if(this._pollTimer) clearInterval(this._pollTimer);
+      this._pollingStartedAt = Date.now();
+      this._pollTimer = setInterval(()=> this.pollBoardUpdates(), 2000);
+    },
+    pollBoardUpdates(){
+      if(document.hidden) return; // economiza requisição em aba não visível
+      this.ajax('presence_heartbeat', {boards_id: this.board.id});
+      if(this.dragCard || this.dragList) return; // não atrapalha um arraste em andamento
+      this.ajax('get_board_snapshot', {boards_id: this.board.id}).then(res=>{
+        if(!res || !res.success) return;
+
+        this.renderViewerAvatars(res.viewers || []);
+
+        const snapshot = {
+          lists: res.lists, cards: res.cards, labels: res.labels,
+          cardLabels: res.cardLabels, cardMembers: res.cardMembers,
+          checkProgress: res.checkProgress, commentCounts: res.commentCounts,
+          attCounts: res.attCounts, members: res.members
+        };
+        const snapshotJson = JSON.stringify(snapshot);
+        if(snapshotJson === this._lastSnapshotJson) return; // nada mudou no quadro em si
+        console.log('[KANPRO DEBUG] snapshot mudou, prosseguindo...');
+
+        const boardEl = document.getElementById('kanpro-board');
+        const activeInBoard = boardEl && document.activeElement && boardEl.contains(document.activeElement) &&
+          ['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
+        console.log('[KANPRO DEBUG] activeInBoard=', activeInBoard, 'activeElement=', document.activeElement);
+        if(activeInBoard) return;
+
+        const oldCards = this.cards || [];
+        const oldById = {};
+        oldCards.forEach(c=> oldById[c.id] = c);
+        const changedCardIds = [];
+        let newCount = 0;
+        (res.cards||[]).forEach(c=>{
+          const prev = oldById[c.id];
+          if(!prev){ newCount++; changedCardIds.push(c.id); }
+          else if(prev.plugin_kanpro_lists_id != c.plugin_kanpro_lists_id || prev.name !== c.name){ changedCardIds.push(c.id); }
+        });
+        const isFirstLoad = (Date.now() - (this._pollingStartedAt||0)) < 3000;
+        console.log('[KANPRO DEBUG] oldCards.length=', oldCards.length, 'newCards.length=', (res.cards||[]).length, 'changedCardIds=', changedCardIds, 'newCount=', newCount, 'isFirstLoad=', isFirstLoad);
+
+        this._lastSnapshotJson = snapshotJson;
+        this.lists = res.lists || [];
+        this.cards = res.cards || [];
+        this.labels = res.labels || [];
+        this.cardLabels = res.cardLabels || {};
+        this.cardMembers = res.cardMembers || {};
+        this.checkProgress = res.checkProgress || {};
+        this.commentCounts = res.commentCounts || {};
+        this.attCounts = res.attCounts || {};
+        this.members = res.members || [];
+
+        this.renderBoard();
+        this.renderMemberAvatars();
+
+        if(!isFirstLoad && changedCardIds.length){
+          this.showToast(newCount>0 ? 'Quadro atualizado — novo cartão adicionado' : 'Quadro atualizado');
+          changedCardIds.forEach(id=>{
+            const el = document.querySelector(`.kp-card[data-card-id="${id}"]`);
+            if(el){
+              el.classList.add('kp-card-updated');
+              setTimeout(()=> el.classList.remove('kp-card-updated'), 2200);
+            }
+          });
+        }
+
+        if(this.currentCardId){
+          const focused = document.activeElement;
+          const isTyping = focused && (focused.tagName==='TEXTAREA' || focused.tagName==='INPUT');
+          if(!isTyping){
+            this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{
+              if(r.success) this.renderCardModal(r.data);
+            });
+          }
+        }
+      }).catch(()=>{});
+    },
+    renderViewerAvatars(viewers){
+      const wrap = document.getElementById('board-viewers-avatars');
+      if(!wrap) return;
+      const myId = K.currentUserId;
+      const others = viewers.filter(v=> v.users_id != myId);
+      wrap.innerHTML = others.slice(0,5).map(v=> `<span class="kp-avatar kp-avatar-online" style="margin-left:-6px" title="${this.escape(v.name)} — vendo agora">${this.escape(v.initials)}</span>`).join('');
+    },
+    showToast(message){
+      let box = document.getElementById('kp-toast-box');
+      if(!box){
+        box = document.createElement('div');
+        box.id = 'kp-toast-box';
+        box.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:25000;display:flex;flex-direction:column;gap:8px;align-items:center';
+        document.body.appendChild(box);
+      }
+      const toast = document.createElement('div');
+      toast.style.cssText = 'background:#172b4d;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.25);opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;display:flex;align-items:center;gap:8px';
+      toast.innerHTML = `<i class="ti ti-refresh"></i> ${this.escape(message)}`;
+      box.appendChild(toast);
+      requestAnimationFrame(()=>{ toast.style.opacity='1'; toast.style.transform='translateY(0)'; });
+      setTimeout(()=>{
+        toast.style.opacity='0';
+        toast.style.transform='translateY(8px)';
+        setTimeout(()=> toast.remove(), 250);
+      }, 3000);
     },
 
     // ---------- BOARD ----------
@@ -256,8 +371,6 @@
         div.classList.add('dragging');
         e.dataTransfer.effectAllowed='move';
         e.dataTransfer.setData('text/plain', card.id);
-        // necessário para firefox
-        setTimeout(()=> div.style.display='none', 0);
       });
       div.addEventListener('dragend', e=>{
         e.stopPropagation();
@@ -278,8 +391,13 @@
           const dragging = $('.kp-card.dragging');
           if (!dragging) return;
           const after = this.getDragAfterElement(container, e.clientY);
-          if (!after) container.appendChild(dragging);
-          else container.insertBefore(dragging, after);
+          // só mexe no DOM se a posição realmente mudou (evita piscar)
+          const currentNext = dragging.nextElementSibling;
+          if (!after){
+            if (dragging.parentElement !== container || currentNext !== null) container.appendChild(dragging);
+          } else if (after !== dragging && currentNext !== after) {
+            container.insertBefore(dragging, after);
+          }
         });
         container.addEventListener('dragleave', e=>{
           if (!container.contains(e.relatedTarget)) container.classList.remove('drag-over');
@@ -305,8 +423,13 @@
         if(!this.dragList) return;
         e.preventDefault();
         const after = this.getDragAfterElementBoard(board, e.clientX);
-        if (!after) board.insertBefore(this.dragList, board.querySelector('.kp-add-list'));
-        else board.insertBefore(this.dragList, after);
+        const currentNext = this.dragList.nextElementSibling;
+        if (!after){
+          const addListBtn = board.querySelector('.kp-add-list');
+          if (currentNext !== addListBtn) board.insertBefore(this.dragList, addListBtn);
+        } else if (after !== this.dragList && currentNext !== after) {
+          board.insertBefore(this.dragList, after);
+        }
       });
       board.addEventListener('drop', e=>{
         if(!this.dragList) return;
@@ -633,9 +756,16 @@
         attContainer.innerHTML = data.attachments.map(a=>{
           const url = K.ajax_url.replace('ajax.php','attachment.php?id='+a.id);
           const isImage = a.mime && a.mime.indexOf('image/')===0;
-          const thumb = isImage
-            ? `<img src="${url}" alt="${this.escape(a.name)}" onclick="Kanpro.previewImage('${url}', '${this.escape(a.name).replace(/'/g,"\\'")}')" style="width:44px;height:44px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0">`
-            : `<div style="width:44px;height:44px;background:#dfe1e6;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file"></i></div>`;
+          const isPdf = a.mime === 'application/pdf';
+          const escapedName = this.escape(a.name).replace(/'/g,"\\'");
+          let thumb;
+          if(isImage){
+            thumb = `<img src="${url}" alt="${this.escape(a.name)}" onclick="Kanpro.previewImage('${url}', '${escapedName}')" style="width:44px;height:44px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0">`;
+          } else if(isPdf){
+            thumb = `<div onclick="Kanpro.previewPdf('${url}', '${escapedName}')" style="width:44px;height:44px;background:#eb5a46;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;color:#fff"><i class="ti ti-file-type-pdf" style="font-size:20px"></i></div>`;
+          } else {
+            thumb = `<div style="width:44px;height:44px;background:#dfe1e6;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file"></i></div>`;
+          }
           return `
           <div style="display:flex;gap:10px;padding:8px;background:#fff;border-radius:4px;align-items:center;box-shadow:0 1px 1px rgba(9,30,66,.13)">
             ${thumb}
@@ -938,6 +1068,22 @@
         ${name ? `<div style="color:#fff;margin-top:12px;font-size:13px;opacity:.8">${this.escape(name)}</div>` : ''}
       `;
       overlay.addEventListener('click', ()=> overlay.remove());
+      const onKey = e=>{ if(e.key==='Escape'){ overlay.remove(); document.removeEventListener('keydown', onKey); } };
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+    },
+    previewPdf(url, name){
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:30000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px';
+      overlay.innerHTML = `
+        <div style="position:absolute;top:16px;right:20px;display:flex;gap:12px;align-items:center">
+          <a href="${url}" target="_blank" style="color:#fff;text-decoration:none;font-size:13px;background:rgba(255,255,255,.15);padding:6px 12px;border-radius:6px"><i class="ti ti-download"></i> Abrir original</a>
+          <button data-a="close" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px">✕</button>
+        </div>
+        <iframe src="${url}" style="width:min(900px, 90vw);height:82vh;border:none;border-radius:4px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5)"></iframe>
+        ${name ? `<div style="color:#fff;margin-top:12px;font-size:13px;opacity:.8">${this.escape(name)}</div>` : ''}
+      `;
+      overlay.querySelector('[data-a="close"]').onclick = ()=> overlay.remove();
       const onKey = e=>{ if(e.key==='Escape'){ overlay.remove(); document.removeEventListener('keydown', onKey); } };
       document.addEventListener('keydown', onKey);
       document.body.appendChild(overlay);

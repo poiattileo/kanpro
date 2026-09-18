@@ -175,6 +175,115 @@ switch ($action) {
         $l->delete(['id'=>$id], true);
         jexit(['success'=>true]);
 
+    case 'presence_heartbeat':
+        $boards_id = (int) ($_POST['boards_id'] ?? 0);
+        if (!$boards_id) jexit(['success' => false]);
+        $uid = Session::getLoginUserID();
+        $existing = $DB->request(['FROM' => 'glpi_plugin_kanpro_presence', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $uid]])->current();
+        if ($existing) {
+            $DB->update('glpi_plugin_kanpro_presence', ['last_seen' => date('Y-m-d H:i:s')], ['id' => $existing['id']]);
+        } else {
+            $DB->insert('glpi_plugin_kanpro_presence', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $uid, 'last_seen' => date('Y-m-d H:i:s')]);
+        }
+        jexit(['success' => true]);
+
+    case 'get_board_snapshot':
+        $boards_id = (int) ($_POST['boards_id'] ?? 0);
+        if (!$boards_id) jexit(['success' => false]);
+        $board_chk = new PluginKanproBoard();
+        if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
+
+        $lists = PluginKanproList::getListsForBoard($boards_id);
+        $labels = PluginKanproLabel::getForBoard($boards_id);
+
+        $members_raw = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]);
+        $members_list = [];
+        foreach ($members_raw as $m) {
+            $u = new User();
+            $uname = 'Usuário #' . $m['users_id'];
+            $initials = '?';
+            if ($u->getFromDB($m['users_id'])) {
+                $uname = $u->getFriendlyName();
+                $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1) . substr($u->fields['realname'] ?? '', 0, 1));
+                if (trim($initials) === '') $initials = strtoupper(substr($uname, 0, 2));
+            }
+            $members_list[] = ['users_id' => $m['users_id'], 'role' => $m['role'], 'name' => $uname, 'initials' => $initials];
+        }
+
+        $all_cards = [];
+        $cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0], 'ORDER' => 'rank ASC']);
+        foreach ($cards_iter as $c) $all_cards[] = $c;
+
+        $card_labels_map = [];
+        $cl_iter = $DB->request([
+            'SELECT' => ['cl.plugin_kanpro_cards_id', 'l.id', 'l.name', 'l.color'],
+            'FROM'   => 'glpi_plugin_kanpro_cards_labels AS cl',
+            'LEFT JOIN' => ['glpi_plugin_kanpro_labels AS l' => ['ON' => ['l' => 'id', 'cl' => 'plugin_kanpro_labels_id']]],
+            'WHERE'  => ['l.plugin_kanpro_boards_id' => $boards_id],
+        ]);
+        foreach ($cl_iter as $r) {
+            $card_labels_map[$r['plugin_kanpro_cards_id']][] = ['id' => $r['id'], 'name' => $r['name'], 'color' => $r['color']];
+        }
+
+        $card_members_map = [];
+        $cm_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => array_column($all_cards, 'id') ?: [0]]]);
+        foreach ($cm_iter as $r) {
+            $u = new User();
+            $initials = '?';
+            $uname = '#' . $r['users_id'];
+            if ($u->getFromDB($r['users_id'])) {
+                $uname = $u->getFriendlyName();
+                $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1));
+            }
+            $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $r['users_id'], 'name' => $uname, 'initials' => $initials];
+        }
+
+        $check_progress = [];
+        $__cp_ids = array_column($all_cards, 'id') ?: [0];
+        $check_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $__cp_ids]]);
+        $check_ids_by_card = [];
+        foreach ($check_iter as $cl) $check_ids_by_card[$cl['plugin_kanpro_cards_id']][] = $cl['id'];
+        foreach ($check_ids_by_card as $cid => $cids) {
+            $total = countElementsInTable('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id' => $cids]);
+            $done  = countElementsInTable('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id' => $cids, 'is_checked' => 1]);
+            $check_progress[$cid] = ['total' => $total, 'done' => $done];
+        }
+
+        $comment_counts = [];
+        $att_counts = [];
+        foreach ($all_cards as $c) {
+            $comment_counts[$c['id']] = countElementsInTable('glpi_plugin_kanpro_comments', ['plugin_kanpro_cards_id' => $c['id']]);
+            $att_counts[$c['id']] = countElementsInTable('glpi_plugin_kanpro_attachments', ['plugin_kanpro_cards_id' => $c['id']]);
+        }
+
+        $viewers = [];
+        $cutoff = date('Y-m-d H:i:s', time() - 15);
+        $viewers_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_presence', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'last_seen' => ['>', $cutoff]]]);
+        foreach ($viewers_iter as $v) {
+            $u = new User();
+            $uname = '#' . $v['users_id'];
+            $initials = '?';
+            if ($u->getFromDB($v['users_id'])) {
+                $uname = $u->getFriendlyName();
+                $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1));
+            }
+            $viewers[] = ['users_id' => (int) $v['users_id'], 'name' => $uname, 'initials' => $initials];
+        }
+
+        jexit([
+            'success' => true,
+            'lists' => $lists,
+            'labels' => $labels,
+            'cards' => $all_cards,
+            'cardLabels' => $card_labels_map,
+            'cardMembers' => $card_members_map,
+            'checkProgress' => $check_progress,
+            'commentCounts' => $comment_counts,
+            'attCounts' => $att_counts,
+            'members' => $members_list,
+            'viewers' => $viewers,
+        ]);
+
     case 'global_search_cards':
         $q = trim($_POST['q'] ?? '');
         if (mb_strlen($q) < 2) jexit(['success' => true, 'results' => []]);
