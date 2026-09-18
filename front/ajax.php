@@ -1158,7 +1158,7 @@ switch ($action) {
                 'origin_entity_name' => $origin_entity_name,
                 'final_status'       => $status_final,
                 'final_reason'       => $m['diary'] ?? '',
-                'final_components'   => json_encode(['kanpro_seq'=>$m['seq'],'kanpro_model'=>$m['model']], JSON_UNESCAPED_UNICODE),
+                'final_components'   => json_encode(['diario' => $m['diary'] ?? '', 'kanpro_model' => $m['model'], 'kanpro_seq' => $m['seq']], JSON_UNESCAPED_UNICODE),
                 'work_log'           => $m['diary'] ?? '',
                 'work_components'    => json_encode(['kanpro'=>true], JSON_UNESCAPED_UNICODE),
                 'work_status'        => $work_status,
