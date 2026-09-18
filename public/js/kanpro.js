@@ -1019,7 +1019,11 @@
           challenge = others[Math.floor(Math.random()*others.length)];
         }
         this._maintChallenge = challenge;
-        const options = entities.map(e=> `<option value="${e.id}">${this.escape(e.completename||e.name)}</option>`).join("");
+        const options = entities.map(e=>{
+          const raw=(e.completename||e.name||'');
+          const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+          return `<option value="${e.id}">${this.escape(short)}</option>`;
+        }).join("");
         const html = `
           <div style="display:grid;gap:10px">
             <div style="background:#e6f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:6px;color:#003a8c;font-size:12px;line-height:1.3">

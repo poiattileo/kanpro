@@ -784,6 +784,10 @@ switch ($action) {
         } catch (Throwable $e) {
             jexit(['success'=>false,'msg'=>'Erro ao listar entidades: '.$e->getMessage()]);
         }
+        // limpeza retroativa: remove prefixo "Unidade Regional de Ensino de Jales > " de cards já convertidos
+        try {
+            $DB->doQuery("UPDATE `glpi_plugin_kanpro_cards` SET `name` = TRIM(SUBSTRING_INDEX(`name`, ' > ', -1)) WHERE `is_maintenance` = 1 AND `name` LIKE 'Unidade Regional de Ensino%' AND `name` LIKE '% > %'");
+        } catch (Throwable $e) {}
         jexit(['success'=>true,'entities'=>$entities]);
 
     // ==================== MANUTENÇÃO (2FA + checklist por máquina) ====================
@@ -815,11 +819,26 @@ switch ($action) {
         if ($entities_id > 0) {
             $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$entities_id]])->current();
             if (!$entRow) jexit(['success'=>false,'msg'=>'Entidade não encontrada']);
-            $newName = trim($entRow['completename'] ?? $entRow['name'] ?? '');
+            $rawName = trim($entRow['completename'] ?? $entRow['name'] ?? '');
+            // remove prefixo "Unidade Regional de Ensino de Jales > " — usa apenas último nível
+            if (strpos($rawName, ' > ') !== false) {
+                $parts = explode(' > ', $rawName);
+                $rawName = trim(end($parts));
+            }
+            // fallback: se ainda contiver "Unidade Regional", usa name direto
+            if (stripos($rawName, 'Unidade Regional de Ensino') !== false) {
+                $rawName = trim($entRow['name'] ?? $rawName);
+            }
+            $newName = $rawName;
             if ($newName === '') jexit(['success'=>false,'msg'=>'Nome da entidade vazio']);
             $newName = mb_substr($newName, 0, 255);
         } elseif ($entity_name_input !== '') {
-            $newName = mb_substr($entity_name_input, 0, 255);
+            $rawInput = $entity_name_input;
+            if (strpos($rawInput, ' > ') !== false) {
+                $parts = explode(' > ', $rawInput);
+                $rawInput = trim(end($parts));
+            }
+            $newName = mb_substr($rawInput, 0, 255);
         } else {
             jexit(['success'=>false,'msg'=>'Selecione a entidade. O nome do card virará o nome da entidade.','need_entity'=>true]);
         }
