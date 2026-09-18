@@ -2584,15 +2584,130 @@
     openBoardMenu(){
       $('#kanpro-board-menu').style.display='block';
       this.loadBoardActivity();
+      // renderiza paleta de cores/temas dentro do menu
+      this.renderBoardMenuColors();
     },
     closeBoardMenu(){ $('#kanpro-board-menu').style.display='none'; },
+    // --- NOVO: paleta de cores/temas dentro do quadro ---
+    getBoardThemes(){
+      // vem do PHP via K.themes, fallback para paleta padrão
+      const src = (window.KANPRO && window.KANPRO.themes) || (K && K.themes);
+      if (src && src.solids) return src;
+      const solids = {
+        '#0079bf':'Azul Clássico','#00aecc':'Ciano','#0091a8':'Teal','#00875a':'Verde Esmeralda','#4bbf6b':'Verde Claro','#61bd4f':'Verde Trello','#519839':'Verde Escuro','#7bc86c':'Menta','#d29034':'Laranja Queimado','#ff9f1a':'Laranja Vivo','#ff7a3d':'Laranja Avermelhado','#f2d600':'Amarelo Sol','#ffcc02':'Amarelo Ouro','#ff7452':'Coral','#eb5a46':'Vermelho Claro','#b04632':'Vermelho Tijolo','#c377e0':'Roxo Lavanda','#9c6ade':'Roxo Médio','#6554c0':'Roxo Profundo','#ff78cb':'Rosa Chiclete','#e1316f':'Rosa Forte','#344563':'Grafite','#172b4d':'Azul Marinho','#091e42':'Azul Noite','#6b778c':'Cinza Neutro','#2c3e50':'Cinza Azulado'
+      };
+      const gradients = {
+        'linear-gradient(135deg, #0079bf 0%, #00d2ff 100%)':'Oceano','linear-gradient(135deg, #61bd4f 0%, #00aecc 100%)':'Floresta Tropical','linear-gradient(135deg, #ff9f1a 0%, #eb5a46 100%)':'Pôr do Sol','linear-gradient(135deg, #6554c0 0%, #ff78cb 100%)':'Aurora Roxa','linear-gradient(135deg, #344563 0%, #091e42 100%)':'Noite Profunda','linear-gradient(135deg, #b04632 0%, #ffab00 100%)':'Vulcão','linear-gradient(135deg, #006064 0%, #00b8d9 100%)':'Ártico','linear-gradient(135deg, #d29034 0%, #f2d600 100%)':'Deserto Dourado','linear-gradient(135deg, #00875a 0%, #57d9a3 100%)':'Selva','linear-gradient(135deg, #e1316f 0%, #ff7452 100%)':'Magenta Flame','linear-gradient(135deg, #091e42 0%, #6554c0 100%)':'Galáxia','linear-gradient(135deg, #172b4d 0%, #00aecc 100%)':'Boreal'
+      };
+      return {solids, gradients};
+    },
+    renderBoardMenuColors(){
+      const wrap = document.getElementById('board-menu-colors');
+      const gradWrap = document.getElementById('board-menu-gradients');
+      const preview = document.getElementById('board-menu-color-preview');
+      const labelEl = document.getElementById('board-menu-color-label');
+      const customInput = document.getElementById('board-menu-custom');
+      if(!wrap || !gradWrap) return;
+      const themes = this.getBoardThemes();
+      const current = this.board.color || '#0079bf';
+      // tenta achar label
+      const allLabels = {...themes.solids, ...themes.gradients};
+      const currentLabel = allLabels[current] || (current.includes('gradient') ? 'Degradê' : current);
+      if(labelEl) labelEl.textContent = currentLabel;
+      if(preview) preview.style.background = current;
+      if(customInput && /^#[0-9a-fA-F]{6}$/.test(current)) customInput.value = current;
+      // render sólidos
+      wrap.innerHTML = Object.entries(themes.solids).map(([hex,label])=>{
+        const isSel = hex === current;
+        const border = isSel ? '3px solid #172b4d' : '2px solid transparent';
+        const shadow = isSel ? '0 3px 10px rgba(9,30,66,.25)' : '0 1px 3px rgba(0,0,0,.15)';
+        const check = isSel ? '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:'+ (hex.toLowerCase()==='#f2d600' || hex.toLowerCase()==='#ffcc02' ? '#172b4d':'#fff') +';font-weight:900;font-size:13px;text-shadow:0 1px 2px rgba(0,0,0,.4)">✓</span>' : '';
+        return `<span title="${this.escape(label)}" onclick="Kanpro.setBoardColor('${this.escape(hex)}')" style="width:34px;height:34px;border-radius:6px;background:${this.escape(hex)};border:${border};box-shadow:${shadow};cursor:pointer;display:inline-block;position:relative;flex-shrink:0;transform:${isSel?'scale(1.06)':'scale(1)'}">${check}</span>`;
+      }).join('');
+      // render gradients
+      gradWrap.innerHTML = Object.entries(themes.gradients).map(([grad,label])=>{
+        const isSel = grad === current;
+        const border = isSel ? '3px solid #172b4d' : '2px solid transparent';
+        const shadow = isSel ? '0 3px 10px rgba(9,30,66,.25)' : '0 1px 3px rgba(0,0,0,.15)';
+        const escGrad = grad.replace(/'/g, "\\'");
+        const check = isSel ? '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.5)">✓</span>' : '';
+        return `<span title="${this.escape(label)}" onclick="Kanpro.setBoardColor('${escGrad}')" style="width:74px;height:34px;border-radius:6px;background:${grad};border:${border};box-shadow:${shadow};cursor:pointer;display:inline-block;position:relative;flex-shrink:0;transform:${isSel?'scale(1.04)':'scale(1)'}">${check}</span>`;
+      }).join('');
+    },
+    setBoardColor(color){
+      if(!color) return;
+      // validação básica
+      const isHex = /^#[0-9a-fA-F]{6}$/.test(color);
+      const isGrad = color.startsWith('linear-gradient');
+      if(!isHex && !isGrad){ alert('Cor inválida'); return; }
+      // feedback otimista
+      const old = this.board.color;
+      this.board.color = color;
+      const app = document.getElementById('kanpro-app');
+      if(app) app.style.background = color;
+      this.renderBoardMenuColors();
+      // preview picker genérico também
+      this.ajax('update_board_color', {boards_id: this.board.id, color}).then(res=>{
+        if(res.success){
+          this.showToast('Tema atualizado!');
+        } else {
+          this.board.color = old;
+          if(app) app.style.background = old;
+          this.renderBoardMenuColors();
+          alert(res.msg||'Erro ao salvar cor');
+        }
+      });
+    },
     async openBoardSettings(){
-      const novo = await this.kpPrompt('Cor do quadro (hex):', this.board.color);
-      if(novo && /^#[0-9a-fA-F]{6}$/.test(novo)){
-        this.ajax('update_board_color', {boards_id: this.board.id, color: novo}).then(res=>{
-          if(res.success){ this.board.color=novo; $('#kanpro-app').style.background=novo; this.closeBoardMenu(); }
-        });
-      }
+      // abre picker centralizado com paleta completa (alternativa ao menu lateral)
+      const themes = this.getBoardThemes();
+      const current = this.board.color || '#0079bf';
+      let solidsHtml = Object.entries(themes.solids).map(([hex,label])=>{
+        const isSel = hex === current;
+        const border = isSel ? '3px solid #172b4d' : '2px solid #dfe1e6';
+        const check = isSel ? '✓' : '';
+        return `<button onclick="Kanpro.setBoardColor('${this.escape(hex)}');Kanpro.closePicker()" title="${this.escape(label)}" style="width:38px;height:38px;border-radius:8px;background:${this.escape(hex)};border:${border};cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;text-shadow:0 1px 2px rgba(0,0,0,.4)">${check}</button>`;
+      }).join('');
+      let gradsHtml = Object.entries(themes.gradients).map(([grad,label])=>{
+        const isSel = grad === current;
+        const escGrad = grad.replace(/'/g, "\\'");
+        const border = isSel ? '3px solid #172b4d' : '2px solid #dfe1e6';
+        return `<button onclick="Kanpro.setBoardColor('${escGrad}');Kanpro.closePicker()" title="${this.escape(label)}" style="width:86px;height:38px;border-radius:8px;background:${grad};border:${border};cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;text-shadow:0 1px 2px rgba(0,0,0,.4)">${isSel?'✓':''}</button>`;
+      }).join('');
+      const html = `
+        <div style="display:grid;gap:14px">
+          <div style="height:42px;border-radius:8px;border:1px solid #dfe1e6;background:${current};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.4)" id="picker-preview">Prévia: ${this.escape(current)}</div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">CORES SÓLIDAS</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${solidsHtml}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">DEGRADÊS — TEMAS</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${gradsHtml}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:10px;background:#f4f5f7;border-radius:8px;border:1px solid #dfe1e6">
+            <input type="color" id="picker-custom-color" value="${/^#[0-9a-fA-F]{6}$/.test(current)?current:'#0079bf'}" style="width:44px;height:36px;border:none;padding:0;border-radius:6px;cursor:pointer">
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:700">Cor personalizada</div>
+              <small style="color:#6b778c">Escolha e clique em Aplicar</small>
+            </div>
+            <button onclick="Kanpro.setBoardColor(document.getElementById('picker-custom-color').value);Kanpro.closePicker()" style="background:#0079bf;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700">Aplicar</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" style="flex:1;background:#f4f5f7;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:600">Fechar</button>
+          </div>
+        </div>`;
+      this.showPicker({title:'🎨 Alterar Cor / Tema do Quadro', html});
+      // picker maior para caber paleta
+      setTimeout(()=>{
+        const p=document.getElementById('kanpro-picker');
+        if(p){ p.style.minWidth='520px'; p.style.maxWidth='560px'; p.style.width='540px'; }
+        const custom=document.getElementById('picker-custom-color');
+        const prev=document.getElementById('picker-preview');
+        if(custom && prev){
+          custom.addEventListener('input', ()=>{ prev.style.background=custom.value; prev.textContent='Prévia: '+custom.value; });
+        }
+      }, 30);
     },
     async archiveBoard(){
       if(!await this.kpConfirm('Arquivar quadro?')) return;

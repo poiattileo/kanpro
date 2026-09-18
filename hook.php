@@ -19,7 +19,7 @@ function plugin_kanpro_install(): bool {
                 `entities_id`     INT {$sign} NOT NULL DEFAULT '0',
                 `is_recursive`    TINYINT(1)   NOT NULL DEFAULT '0',
                 `comment`         TEXT         DEFAULT NULL,
-                `color`           VARCHAR(20)  NOT NULL DEFAULT '#0079bf',
+                `color`           VARCHAR(255) NOT NULL DEFAULT '#0079bf',
                 `background`      VARCHAR(255) DEFAULT NULL COMMENT 'cor ou url imagem',
                 `is_archived`     TINYINT(1)   NOT NULL DEFAULT '0',
                 `is_starred`      TINYINT(1)   NOT NULL DEFAULT '0',
@@ -36,7 +36,7 @@ function plugin_kanpro_install(): bool {
     } else {
         // migrações leves
         if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `color` VARCHAR(20) NOT NULL DEFAULT '#0079bf' AFTER `comment`");
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf' AFTER `comment`");
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'is_starred')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `is_starred` TINYINT(1) NOT NULL DEFAULT '0'");
@@ -44,7 +44,17 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'generate_term')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `generate_term` TINYINT(1) NOT NULL DEFAULT '0'");
         }
+        // garante background existe (tema degradê)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
+        }
     }
+    // Migração: amplia color para suportar degradês (linear-gradient) — 255 chars
+    try {
+        if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
+        }
+    } catch (Throwable $e) {}
 
     // --- LISTS (Colunas) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_lists')) {

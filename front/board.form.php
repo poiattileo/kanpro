@@ -3,8 +3,42 @@ include('../../../inc/includes.php');
 
 $board = new PluginKanproBoard();
 
+// Normaliza cor/tema vinda do picker (hex ou linear-gradient). Aceita sólidos e degradês.
+function kanpro_normalize_board_color_input(array &$input): void {
+    $color = trim($input['color'] ?? '');
+    $custom = trim($input['color_custom'] ?? '');
+    // fallback: se color vazio mas custom tem hex válido, usa custom (compatibilidade picker antigo)
+    if ($color === '' && preg_match('/^#[0-9a-fA-F]{6}$/', $custom)) {
+        $color = $custom;
+    }
+    $isHex = (bool)preg_match('/^#[0-9a-fA-F]{6}$/', $color);
+    $isGradient = (strpos($color, 'linear-gradient') === 0);
+    // Se não é hex nem gradient, tenta custom
+    if (!$isHex && !$isGradient) {
+        if (preg_match('/^#[0-9a-fA-F]{6}$/', $custom)) {
+            $color = $custom;
+            $isHex = true;
+            $isGradient = false;
+        } else {
+            // em criação: fallback para azul padrão; em edição: mantém existente (remove do input para não sobrescrever com vazio)
+            if (empty($input['id'])) {
+                $color = '#0079bf';
+                $isHex = true;
+            } else {
+                unset($input['color']);
+                unset($input['color_custom']);
+                return;
+            }
+        }
+    }
+    if (strlen($color) > 255) $color = substr($color, 0, 255);
+    $input['color'] = $color;
+    unset($input['color_custom']);
+}
+
 if (isset($_POST['add'])) {
     Session::checkRight('plugin_kanpro', CREATE);
+    kanpro_normalize_board_color_input($_POST);
     $board->check(-1, CREATE, $_POST);
     $newID = $board->add($_POST);
     if ($newID) {
@@ -14,17 +48,8 @@ if (isset($_POST['add'])) {
     }
 } else if (isset($_POST['update'])) {
     Session::checkRight('plugin_kanpro', UPDATE);
+    kanpro_normalize_board_color_input($_POST);
     $board->check($_POST['id'], UPDATE);
-    // trata color_custom
-    if (!empty($_POST['color_custom']) && preg_match('/^#[0-9a-fA-F]{6}$/', $_POST['color_custom'])) {
-        // se não tem radio marcado ou custom diferente, usa custom
-        $has_radio = false;
-        foreach (PluginKanproBoard::getBackgroundColors() as $hex => $v) {
-            if (($_POST['color'] ?? '') === $hex) { $has_radio = true; break; }
-        }
-        if (!$has_radio) $_POST['color'] = $_POST['color_custom'];
-    }
-    unset($_POST['color_custom']);
     $board->update($_POST);
     Html::back();
 } else if (isset($_POST['delete'])) {

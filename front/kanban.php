@@ -75,6 +75,8 @@ $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_Q
 $ajax_url = Plugin::getWebDir('kanpro') . '/front/ajax.php';
 $board_color = htmlspecialchars($board->fields['color'] ?? '#0079bf');
 $csrf_token = Session::getNewCSRFToken();
+$themes = PluginKanproBoard::getBoardThemes();
+$themes_json = json_encode($themes, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
 // Busca cartões por lista para render inicial (evita N+1 via JS)
 $all_cards = [];
@@ -358,6 +360,24 @@ echo <<<HTML
         <button onclick="Kanpro.archiveBoard()" style="background:#fff3cd;border:1px solid #ffc107;padding:6px 10px;border-radius:4px;cursor:pointer">Arquivar quadro</button>
       </div>
     </div>
+    <!-- 🎨 Troca de cor/tema dentro do quadro -->
+    <div style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px">
+      <div style="font-weight:700;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span><i class="ti ti-palette" style="color:#6554c0"></i> Cor / Tema do Quadro</span>
+        <span id="board-menu-color-label" style="font-size:11px;font-weight:400;color:#5e6c84;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      </div>
+      <div style="font-size:10px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">CORES SÓLIDAS</div>
+      <div id="board-menu-colors" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div style="font-size:10px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin:10px 0 6px">DEGRADÊS — TEMAS</div>
+      <div id="board-menu-gradients" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px;padding:8px;background:#f4f5f7;border-radius:6px;border:1px solid #eaecf0">
+        <input type="color" id="board-menu-custom" value="#0079bf" style="width:36px;height:28px;border:none;padding:0;border-radius:4px;cursor:pointer;flex-shrink:0">
+        <span style="font-size:12px;color:#5e6c84;flex:1">Cor personalizada</span>
+        <button onclick="Kanpro.setBoardColor(document.getElementById('board-menu-custom').value)" style="background:#0079bf;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">Aplicar</button>
+      </div>
+      <div id="board-menu-color-preview" style="margin-top:8px;height:32px;border-radius:6px;border:1px solid #dfe1e6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)"></div>
+      <div style="margin-top:6px;font-size:11px;color:#5e6c84;text-align:center">Clique numa cor para trocar instantaneamente</div>
+    </div>
     <div>
       <div style="font-weight:600;margin-bottom:8px">Etiquetas</div>
       <div id="board-menu-labels" style="display:grid;gap:6px"></div>
@@ -407,7 +427,8 @@ window.KANPRO = {
   canEdit: {$canedit},
   boardColor: "{$board_color}",
   openCardId: {$open_card_id_json},
-  currentUserId: {$current_user_id}
+  currentUserId: {$current_user_id},
+  themes: {$themes_json}
 };
 </script>
 HTML;
