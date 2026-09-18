@@ -1067,15 +1067,36 @@ switch ($action) {
         $cid = (int)($_POST['cards_id'] ?? 0);
         $qty = (int)($_POST['qty'] ?? 1);
         $model = trim($_POST['model'] ?? '');
-        $raw = $_POST['machines_raw'] ?? '';
+        $raw = $_POST['machines_raw'] ?? $_POST['raw'] ?? '';
+        $definitions_json = $_POST['definitions'] ?? '';
         if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Não é manutenção']);
         $defs = [];
-        if ($raw !== '') $defs = kanpro_parse_maintenance_raw($raw);
-        else if ($model !== '') $defs[] = ['qty'=>max(1,min(500,$qty)),'model'=>$model];
-        else jexit(['success'=>false,'msg'=>'Informe modelo ou raw']);
+        if (!empty($definitions_json)) {
+            $decoded = json_decode($definitions_json, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $d) {
+                    $qtyD = (int)($d['qty'] ?? $d['quantity'] ?? 1);
+                    $modelD = trim($d['model'] ?? $d['name'] ?? '');
+                    if ($modelD !== '' && $qtyD>0) $defs[] = ['qty'=>$qtyD,'model'=>$modelD];
+                }
+            }
+        }
+        if (empty($defs) && $raw !== '') $defs = kanpro_parse_maintenance_raw($raw);
+        else if (empty($defs) && $model !== '') $defs[] = ['qty'=>max(1,min(500,$qty)),'model'=>$model];
+        else if (empty($defs) && !empty($_POST['machines'])) {
+            $tmp = json_decode($_POST['machines'], true);
+            if (is_array($tmp) && isset($tmp[0]['model'])) {
+                foreach ($tmp as $d) {
+                    $qtyT = (int)($d['qty'] ?? 1);
+                    $modelT = trim($d['model'] ?? '');
+                    if ($modelT !== '' && $qtyT>0) $defs[] = ['qty'=>$qtyT,'model'=>$modelT];
+                }
+            }
+        }
+        if (empty($defs)) jexit(['success'=>false,'msg'=>'Informe modelo ou raw']);
         $row = $DB->request(['SELECT'=>['MAX'=>'seq AS m'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid]])->current();
         $seq = (int)($row['m'] ?? 0);
         $now = date('Y-m-d H:i:s');
