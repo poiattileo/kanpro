@@ -883,7 +883,7 @@
             <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d">Manutenção — Checklist por Máquina</strong> <span style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${done}/${total} • ${pct}%</span></div>
             <div style="display:flex;gap:6px">
               <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
-              ${allDone ? `<button onclick="Kanpro.generateMaintenanceTerm()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-file-text"></i> Gerar Termo</button>` : `<button disabled title="Conclua 100% para gerar termo" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed"><i class="ti ti-file-text"></i> Gerar Termo (${pct}%)</button>`}
+              ${allDone ? `<button onclick="Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-check"></i> FINALIZAR</button>` : `<button disabled title="Conclua 100% para finalizar" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed"><i class="ti ti-check"></i> FINALIZAR (${pct}%)</button>`}
             </div>
           </div>
           ${total? `<div style="padding:10px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:#5e6c84;min-width:36px">${pct}%</span><div class="kp-progress" style="flex:1;height:8px"><div class="kp-progress-bar" style="width:${pct}%;background:${allDone?"#61bd4f":"#ffab00"}"></div></div></div></div>` : ""}
@@ -1444,6 +1444,53 @@
         w.document.write(html);
         w.document.close();
         this.showToast("Termo gerado");
+      });
+    },
+    finalizeMaintenance(){
+      const cardId=this.currentCardId;
+      if(!cardId) return;
+      // verifica progresso local antes de chamar backend (evita chamada desnecessaria)
+      const prog = this.maintenanceProgress[cardId];
+      let force = 0;
+      if(prog && prog.total>0 && prog.done!==prog.total){
+        const ok = confirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`);
+        if(!ok) return;
+        force = 1;
+      }
+      const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
+      if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
+      this.ajax("finalize_maintenance", {cards_id: cardId, force}).then(res=>{
+        if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
+        if(!res.success){
+          if(res.need_100){
+            const goLocal = confirm((res.msg||"Conclua 100%") + "\nDeseja gerar termo local (fallback) em vez de enviar para Assinatura?");
+            if(goLocal) this.generateMaintenanceTerm();
+            return;
+          }
+          alert(res.msg||"Erro ao finalizar");
+          return;
+        }
+        this.showToast("Enviado para Assinatura!");
+        // marca local como finalizado visualmente
+        this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        // redireciona para assetmgrstatus Assinatura mantendo padrão de termos de lá
+        let assinaturaUrl = res.assinatura_url;
+        if(!assinaturaUrl){
+          // fallback: tenta construir URL relativa a partir do ajax_url
+          try{
+            const base = this.ajax_url.replace("/plugins/kanpro/front/ajax.php","");
+            assinaturaUrl = base + "/plugins/assetmgrstatus/front/assinatura.php?f=pendente&highlight=" + (res.transfer_id||"");
+          }catch(e){
+            assinaturaUrl = "/plugins/assetmgrstatus/front/assinatura.php?f=pendente";
+          }
+        }
+        // abre em nova aba para manter KanPro aberto, e também tenta abrir PDF se houver
+        window.open(assinaturaUrl, "_blank");
+        if(res.pdf_url) setTimeout(()=> window.open(res.pdf_url, "_blank"), 900);
+        this.closeCardModal();
+      }).catch(e=>{
+        if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
+        alert("Erro: "+(e.message||e));
       });
     },
     buildTermHtml(card, machines, boardName, listName){

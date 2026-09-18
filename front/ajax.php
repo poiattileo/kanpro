@@ -1061,6 +1061,118 @@ switch ($action) {
         $canGenerate = ($total>0 && $done===$total);
         jexit(['success'=>true,'is_maintenance'=>!empty($data['is_maintenance'])?1:0,'card'=>$data,'machines'=>$machines,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent,'canGenerate'=>$canGenerate]]);
 
+    case 'finalize_maintenance':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        $force = !empty($_POST['force']);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão não é de manutenção']);
+        // verifica progresso 100% (mantém padrão do termo)
+        $machines = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+            foreach ($iter as $r) $machines[] = $r;
+        }
+        $total = count($machines);
+        if ($total===0) jexit(['success'=>false,'msg'=>'Nenhuma máquina cadastrada. Configure as máquinas antes de finalizar.']);
+        $done = 0; $okCount=0;
+        foreach ($machines as $m){ if(!empty($m['is_done'])) $done++; if(($m['status']??'')==='ok' || !empty($m['is_ok'])) $okCount++; }
+        $percent = $total? round($done/$total*100):0;
+        if (!$force && $done!==$total) {
+            jexit(['success'=>false,'msg'=>"Conclua 100% antes de finalizar ({$done}/{$total} • {$percent}%).",'need_100'=>true,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
+        }
+        // verifica se assetmgrstatus está disponível (tabelas)
+        if (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers') || !$DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items')) {
+            // fallback: gera termo local (mantém compat)
+            jexit(['success'=>false,'msg'=>'Plugin Assinatura (assetmgrstatus) não encontrado. Use Gerar Termo local.','need_fallback'=>true,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
+        }
+        // evita duplicidade: se já existe transferência KanPro para este card, reutiliza
+        $existing = null;
+        try{
+            $like = "%[KanPro #{$cid}]%";
+            $iter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
+            if($iter->count()>0) $existing = $iter->current();
+        }catch(Throwable $e){}
+        if($existing){
+            $transfer_id = (int)$existing['id'];
+            $base = Plugin::getWebDir('assetmgrstatus');
+            if(!$base) $base = '/plugins/assetmgrstatus';
+            $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
+            $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
+            jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true]);
+        }
+        // dados do quadro/lista para razão e entidade
+        $board = new PluginKanproBoard();
+        $board->getFromDB($card->fields['plugin_kanpro_boards_id']);
+        $list = new PluginKanproList();
+        $list->getFromDB($card->fields['plugin_kanpro_lists_id']);
+        $board_name = $board->fields['name'] ?? 'Quadro';
+        $list_name  = $list->fields['name'] ?? 'Lista';
+        $entity_dest = (int)($board->fields['entities_id'] ?? $_SESSION['glpiactive_entity'] ?? 0);
+        $reason = "[KanPro #{$cid}] Quadro: {$board_name} | Lista: {$list_name} | Card: {$card->fields['name']} | Manutenção: {$total} máquinas ({$done} concluídas, {$okCount} OK) | Gerado em ".date('d/m/Y H:i');
+        if(!empty($card->fields['description'])) $reason .= " | Desc: ".mb_substr($card->fields['description'],0,300);
+        // resumo das máquinas para razão (primeiras 5)
+        $summary = [];
+        foreach(array_slice($machines,0,5) as $m){ $summary[] = "#{$m['seq']} {$m['model']}: ".mb_substr($m['diary']??'',0,60); }
+        if(count($machines)>5) $summary[] = "... e mais ".(count($machines)-5)." máquinas";
+        if($summary) $reason .= " | Máquinas: ".implode("; ", $summary);
+        $now = date('Y-m-d H:i:s');
+        $uid = Session::getLoginUserID();
+        $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
+        // cria transferência em status pronto (já vai para Assinatura)
+        $DB->insert('glpi_plugin_assetmgrstatus_transfers', [
+            'entity_dest'      => $entity_dest,
+            'reason'           => $reason,
+            'status'           => 'pronto',
+            'users_id_created' => $uid,
+            'users_id_tech'    => $tech_id,
+            'date_pending'     => $now,
+            'date_creation'    => $now,
+            'date_pronto'      => $now,
+        ]);
+        $transfer_id = (int)$DB->insertId();
+        if(!$transfer_id){
+            // tenta buscar último inserido
+            $row = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>$reason],'ORDER'=>'id DESC','LIMIT'=>1])->current();
+            $transfer_id = (int)($row['id']??0);
+        }
+        if(!$transfer_id) jexit(['success'=>false,'msg'=>'Falha ao criar transferência no Assinatura']);
+        // itens da transferência = cada máquina
+        $origin_entity_id = $entity_dest;
+        $origin_entity_name = $board_name;
+        foreach($machines as $m){
+            $status_final = 'pendente';
+            if(($m['status']??'')==='ok') $status_final = 'ok';
+            elseif(($m['status']??'')==='defect') $status_final = 'defeito';
+            elseif(!empty($m['is_ok'])) $status_final = 'ok';
+            $work_status = !empty($m['is_done']) ? 'done' : 'pending';
+            $DB->insert('glpi_plugin_assetmgrstatus_transfer_items', [
+                'transfers_id'       => $transfer_id,
+                'items_id'           => (int)$m['id'],
+                'itemtype'           => 'KanPro',
+                'item_name'          => $m['label'] . ' - ' . $m['model'],
+                'origin_entity_id'   => $origin_entity_id,
+                'origin_entity_name' => $origin_entity_name,
+                'final_status'       => $status_final,
+                'final_reason'       => $m['diary'] ?? '',
+                'final_components'   => json_encode(['kanpro_seq'=>$m['seq'],'kanpro_model'=>$m['model']], JSON_UNESCAPED_UNICODE),
+                'work_log'           => $m['diary'] ?? '',
+                'work_components'    => json_encode(['kanpro'=>true], JSON_UNESCAPED_UNICODE),
+                'work_status'        => $work_status,
+            ]);
+        }
+        // timeline
+        try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Finalizado: Card #{$cid} '{$card->fields['name']}' — {$total} máquinas"); }catch(Throwable $e){}
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_finalize', "Manutenção finalizada e enviada para Assinatura #{$transfer_id}");
+        $base = Plugin::getWebDir('assetmgrstatus');
+        if(!$base) $base = '/plugins/assetmgrstatus';
+        $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
+        $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
+        jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
+
     default:
         jexit(['success'=>false,'msg'=>'Ação desconhecida: '.$action]);
 }
