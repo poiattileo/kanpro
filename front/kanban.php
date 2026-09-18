@@ -150,6 +150,29 @@ if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
 }
 $maintenance_progress_json = json_encode($maintenance_progress, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
+// Transfer status para badge Retirada/Concluído (KanPro → assetmgrstatus)
+$transfer_status = [];
+if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
+    foreach ($all_cards as $c) {
+        if (empty($c['is_maintenance'])) continue;
+        $like = "%[KanPro #{$c['id']}]%";
+        $trIter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
+        if ($trIter->count()===0) continue;
+        $tr = $trIter->current();
+        if (!$tr) continue;
+        $hasRec = !empty($tr['assinatura_image']);
+        $hasTec = !empty($tr['assinatura_tecnico_image']);
+        $isAssinado = $hasRec && $hasTec;
+        if ($isAssinado) {
+            $transfer_status[$c['id']] = ['label'=>'Concluído','status'=>'concluido'];
+        } elseif (!empty($tr['id'])) {
+            // tem transferência mas falta assinatura → Retirada (amarelo)
+            $transfer_status[$c['id']] = ['label'=>'Retirada','status'=>'retirada'];
+        }
+    }
+}
+$transfer_status_json = json_encode($transfer_status, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
+
 // Comentários count e anexos count
 $comment_counts = [];
 $att_counts = [];
@@ -378,6 +401,7 @@ window.KANPRO = {
   attCounts: {$att_counts_json},
   members: {$members_json},
   allUsers: {$all_users_json},
+  transferStatus: {$transfer_status_json},
   ajax_url: "{$ajax_url}",
   csrf_token: "{$csrf_token}",
   canEdit: {$canedit},

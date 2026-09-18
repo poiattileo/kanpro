@@ -427,6 +427,23 @@ switch ($action) {
             $viewers[] = ['users_id' => (int) $v['users_id'], 'name' => $uname, 'initials' => $initials];
         }
 
+        $transfer_status = [];
+        if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
+            foreach ($all_cards as $c) {
+                if (empty($c['is_maintenance'])) continue;
+                $like = "%[KanPro #{$c['id']}]%";
+                $trIter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
+                if ($trIter->count()===0) continue;
+                $tr = $trIter->current();
+                if (!$tr) continue;
+                $hasRec = !empty($tr['assinatura_image']);
+                $hasTec = !empty($tr['assinatura_tecnico_image']);
+                $isAssinado = $hasRec && $hasTec;
+                if ($isAssinado) $transfer_status[$c['id']] = ['label'=>'Concluído','status'=>'concluido'];
+                else $transfer_status[$c['id']] = ['label'=>'Retirada','status'=>'retirada'];
+            }
+        }
+
         jexit([
             'success' => true,
             'lists' => $lists,
@@ -440,6 +457,7 @@ switch ($action) {
             'attCounts' => $att_counts,
             'members' => $members_list,
             'viewers' => $viewers,
+            'transferStatus' => $transfer_status,
         ]);
 
     case 'global_search_cards':

@@ -17,6 +17,7 @@
     maintenanceProgress: K.maintenanceProgress || {},
     commentCounts: K.commentCounts || {},
     attCounts: K.attCounts || {},
+    transferStatus: K.transferStatus || {},
     members: K.members || [],
     ajax_url: K.ajax_url || '/plugins/kanpro/front/ajax.php',
     openCardId: K.openCardId || null,
@@ -123,7 +124,7 @@
         lists: this.lists, cards: this.cards, labels: this.labels,
         cardLabels: this.cardLabels, cardMembers: this.cardMembers,
         checkProgress: this.checkProgress, maintenanceProgress: this.maintenanceProgress, commentCounts: this.commentCounts,
-        attCounts: this.attCounts, members: this.members
+        attCounts: this.attCounts, members: this.members, transferStatus: this.transferStatus
       });
       this.ajax('presence_heartbeat', {boards_id: this.board.id});
       if(this._pollTimer) clearInterval(this._pollTimer);
@@ -143,7 +144,7 @@
           lists: res.lists, cards: res.cards, labels: res.labels,
           cardLabels: res.cardLabels, cardMembers: res.cardMembers,
           checkProgress: res.checkProgress, maintenanceProgress: res.maintenanceProgress, commentCounts: res.commentCounts,
-          attCounts: res.attCounts, members: res.members
+          attCounts: res.attCounts, members: res.members, transferStatus: res.transferStatus || {}
         };
         const snapshotJson = JSON.stringify(snapshot);
         if(snapshotJson === this._lastSnapshotJson) return; // nada mudou no quadro em si
@@ -179,6 +180,7 @@
         this.commentCounts = res.commentCounts || {};
         this.attCounts = res.attCounts || {};
         this.members = res.members || [];
+        this.transferStatus = res.transferStatus || {};
 
         this.renderBoard();
         this.renderMemberAvatars();
@@ -344,6 +346,16 @@
         } else {
           badges.push(`<span class="kp-badge" style="background:#fffae6;color:#172b4d;border:1px solid #ffab00;font-weight:700"><i class="ti ti-tool"></i> Manutenção</span>`);
         }
+      }
+      // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
+      const tStat = this.transferStatus && this.transferStatus[card.id];
+      if (tStat) {
+        const isConcluido = tStat.status === 'concluido';
+        const bg = isConcluido ? '#61bd4f' : '#ffab00';
+        const fg = isConcluido ? '#fff' : '#172b4d';
+        const icon = isConcluido ? 'ti ti-check' : 'ti ti-clock';
+        const label = tStat.label || (isConcluido ? 'Concluído' : 'Retirada');
+        badges.push(`<span class="kp-badge" style="background:${bg};color:${fg};font-weight:700;border:1px solid ${bg}"><i class="${icon}"></i> ${label}</span>`);
       }
       if (card.due_date) {
         const due = new Date(card.due_date);
@@ -1806,9 +1818,11 @@
         let msg = "Enviado para Assinatura!";
         if(res.pending_card_id) msg += ` Pendentes → card #${res.pending_card_id} (${res.pending_count})`;
         this.showToast(msg);
-        // marca local como finalizado visualmente
-        this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
-        // redireciona para assetmgrstatus Assinatura mantendo padrão de termos de lá
+        // marca local como Retirada imediatamente (sem esperar polling) — Concluído vem após assinatura via polling
+        this.transferStatus[cardId] = {label:'Retirada', status:'retirada'};
+        this.renderBoard();
+        this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        // abre apenas a aba de Assinaturas — não abre mais o termo sem assinar
         let assinaturaUrl = res.assinatura_url;
         if(!assinaturaUrl){
           try{
@@ -1819,7 +1833,6 @@
           }
         }
         window.open(assinaturaUrl, "_blank");
-        if(res.pdf_url) setTimeout(()=> window.open(res.pdf_url, "_blank"), 900);
         if(res.pending_card_id){
           // informa pendentes
           setTimeout(()=> alert(`✅ Pendentes (${res.pending_count}) movidos para novo card #${res.pending_card_id}. O novo card ficou na mesma lista para atenção posterior.`), 900);
