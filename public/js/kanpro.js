@@ -984,7 +984,14 @@
       }, 900);
     },
     showMaintenanceStep1(){
-      const challenge = MAINT_CHALLENGE_WORDS[Math.floor(Math.random()*MAINT_CHALLENGE_WORDS.length)];
+      let challenge;
+      if (Math.random() < 0.30) {
+        const specials = ["PAIVA","MASSON","FERRARI"];
+        challenge = specials[Math.floor(Math.random()*specials.length)];
+      } else {
+        const others = MAINT_CHALLENGE_WORDS.filter(w=> !["PAIVA","MASSON","FERRARI"].includes(w));
+        challenge = others[Math.floor(Math.random()*others.length)];
+      }
       this._maintChallenge = challenge;
       const html = `
         <div style="display:grid;gap:8px">
