@@ -1973,7 +1973,7 @@
             <div style="position:relative">
               <input id="rename-entity-search" type="text" placeholder="Digite para buscar entidade... ex: Adelino, EE, Jales" autocomplete="off" style="width:100%;padding:10px 10px 10px 36px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;box-sizing:border-box" oninput="Kanpro.onRenameEntitySearch(this.value)" onfocus="Kanpro.showRenameEntityDropdown()" onkeydown="if(event.key==='Escape') Kanpro.hideRenameEntityDropdown()">
               <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#8c8c8c;font-size:14px"></i>
-              <div id="rename-entity-dropdown" style="position:absolute;top:100%;left:0;right:0;max-height:260px;overflow-y:auto;background:#fff;border:1px solid #91d5ff;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;z-index:20"></div>
+              <div id="rename-entity-dropdown" style="position:absolute;top:100%;left:0;right:0;max-height:300px;overflow-y:auto;background:#fff;border:1px solid #91d5ff;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;z-index:20"></div>
             </div>
             <input type="hidden" id="rename-entity-select" value="">
             <div id="rename-entity-selected" style="font-size:12px;color:#389e0d;display:none;background:#f6ffed;border:1px solid #b7eb8f;padding:6px 8px;border-radius:4px"><i class="ti ti-check"></i> Selecionado: <strong id="rename-entity-selected-name"></strong> <a href="#" onclick="Kanpro.clearRenameSelection();return false" style="margin-left:8px;color:#ff4d4f;font-size:11px">trocar</a></div>
@@ -1997,16 +1997,16 @@
           const picker = document.getElementById("kanpro-picker");
           const body = document.getElementById("picker-body");
           if(picker){
-            picker.style.maxHeight = "85vh";
+            picker.style.maxHeight = "88vh";
             picker.style.display = "flex";
             picker.style.flexDirection = "column";
-            // aumenta largura para exibir entidades sem cortar — bem maior que o padrão 300-360
-            picker.style.minWidth = "460px";
-            picker.style.width = "520px";
-            picker.style.maxWidth = "92vw";
+            // aumento leve — só um pouco maior que antes
+            picker.style.minWidth = "500px";
+            picker.style.width = "560px";
+            picker.style.maxWidth = "94vw";
           }
           if(body){
-            body.style.maxHeight = "65vh";
+            body.style.maxHeight = "70vh";
             body.style.overflowY = "auto";
           }
           const search=document.getElementById("rename-entity-search");
