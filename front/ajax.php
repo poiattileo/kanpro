@@ -133,13 +133,15 @@ function kanpro_ensure_maintenance_tables() {
                 `is_done`                     TINYINT(1)   NOT NULL DEFAULT '0',
                 `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0',
                 `status`                      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente',
+                `is_inventoried`              TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao,1=inventariado',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
                 KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
                 KEY `seq` (`seq`),
-                KEY `is_done` (`is_done`)
+                KEY `is_done` (`is_done`),
+                KEY `is_inventoried` (`is_inventoried`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ");
     } else {
@@ -149,6 +151,9 @@ function kanpro_ensure_maintenance_tables() {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` MODIFY `status` VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente'");
                 $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='pendente' WHERE `status`='pending'");
                 $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='inservivel' WHERE `status`='defect' OR `status`='nok'");
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_inventoried')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_inventoried` TINYINT(1) NOT NULL DEFAULT '0' AFTER `status`");
             }
         } catch (Throwable $e) {}
     }
@@ -950,6 +955,7 @@ switch ($action) {
                     'is_done'                => 0,
                     'is_ok'                  => 0,
                     'status'                 => '',
+                    'is_inventoried'         => 0,
                     'users_id'               => $uid,
                     'date_creation'          => $now,
                     'date_mod'               => $now,
@@ -1034,6 +1040,8 @@ switch ($action) {
                 $updates['label'] = "Máquina {$row['seq']} - {$updates['model']}";
             }
         }
+        if (array_key_exists('is_inventoried', $_POST)) $updates['is_inventoried'] = (int)$_POST['is_inventoried'] ? 1:0;
+        if (array_key_exists('inventoried', $_POST)) $updates['is_inventoried'] = (int)$_POST['inventoried'] ? 1:0;
         if (empty($updates)) jexit(['success'=>false,'msg'=>'Nada para atualizar']);
         $updates['date_mod'] = date('Y-m-d H:i:s');
         $updates['users_id'] = Session::getLoginUserID();
@@ -1079,6 +1087,7 @@ switch ($action) {
                     'is_done'=>0,
                     'is_ok'=>0,
                     'status'=>'',
+                    'is_inventoried'=>0,
                     'users_id'=>$uid,
                     'date_creation'=>$now,
                     'date_mod'=>$now

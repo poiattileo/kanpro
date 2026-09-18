@@ -208,6 +208,7 @@ class PluginKanproCard extends CommonDBTM {
                     'is_done'                => $m['is_done'],
                     'is_ok'                  => $m['is_ok'],
                     'status'                 => $m['status'],
+                    'is_inventoried'         => $m['is_inventoried'] ?? 0,
                     'users_id'               => $m['users_id'],
                     'date_creation'          => date('Y-m-d H:i:s'),
                     'date_mod'               => date('Y-m-d H:i:s'),
