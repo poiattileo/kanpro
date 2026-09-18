@@ -50,9 +50,17 @@ function kanpro_normalize_board_color_input(array &$input): void {
 if (isset($_POST['add'])) {
     Session::checkRight('plugin_kanpro', CREATE);
     kanpro_normalize_board_color_input($_POST);
+    // garante que background não vá via add (será tratado após criar ID)
+    $bgFile = $_FILES['background_image'] ?? null;
+    $tmpBg = $_POST['background'] ?? null;
+    unset($_POST['background']);
     $board->check(-1, CREATE, $_POST);
     $newID = $board->add($_POST);
     if ($newID) {
+        // upload de imagem de fundo (tema)
+        if (!empty($bgFile) && ($bgFile['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            PluginKanproBoard::handleBackgroundUpload((int)$newID, $bgFile);
+        }
         Html::redirect($CFG_GLPI['root_doc'] . "/plugins/kanpro/front/kanban.php?boards_id={$newID}");
     } else {
         Html::back();
@@ -60,8 +68,22 @@ if (isset($_POST['add'])) {
 } else if (isset($_POST['update'])) {
     Session::checkRight('plugin_kanpro', UPDATE);
     kanpro_normalize_board_color_input($_POST);
+    $bid = (int)($_POST['id'] ?? 0);
+    // remove imagem se marcado
+    $removeBg = !empty($_POST['remove_background']);
+    unset($_POST['remove_background']);
+    $bgFile = $_FILES['background_image'] ?? null;
+    unset($_POST['background']);
     $board->check($_POST['id'], UPDATE);
     $board->update($_POST);
+    if ($bid) {
+        if ($removeBg) {
+            PluginKanproBoard::deleteBackgroundFile($bid);
+        }
+        if (!empty($bgFile) && ($bgFile['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            PluginKanproBoard::handleBackgroundUpload($bid, $bgFile);
+        }
+    }
     Html::back();
 } else if (isset($_POST['delete'])) {
     Session::checkRight('plugin_kanpro', DELETE);

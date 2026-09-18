@@ -115,6 +115,18 @@ class PluginKanproBoard extends CommonDBTM {
     function cleanDBonPurge() {
         global $DB;
         $bid = $this->getID();
+        // remove imagem de fundo do quadro
+        $bg = $this->fields['background'] ?? null;
+        if (empty($bg)) {
+            $row = $DB->request(['SELECT'=>['background'],'FROM'=>'glpi_plugin_kanpro_boards','WHERE'=>['id'=>$bid]])->current();
+            $bg = $row['background'] ?? null;
+        }
+        if (!empty($bg)) {
+            $path = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $bg;
+            if (is_file($path)) @unlink($path);
+            $dir = dirname($path);
+            if (is_dir($dir) && count(glob($dir.'/*'))===0) @rmdir($dir);
+        }
         // cascata: listas -> cartões -> tudo
         $lists = $DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $bid]]);
         foreach ($lists as $l) {
@@ -196,6 +208,110 @@ class PluginKanproBoard extends CommonDBTM {
             'solids'    => self::getBackgroundColors(),
             'gradients' => self::getBackgroundGradients(),
         ];
+    }
+
+    // === Background por imagem ===
+    static function getBackgroundImageUrl(int $boards_id, ?string $background = null): string {
+        if (empty($background)) return '';
+        // background armazena caminho relativo tipo boards/12/bg_xxx.jpg
+        // servido via front/background.php com cache-bust via hash
+        return Plugin::getWebDir('kanpro') . '/front/background.php?boards_id=' . $boards_id . '&v=' . substr(md5($background), 0, 6);
+    }
+
+    static function getBackgroundStyle(array $board): string {
+        $color = $board['color'] ?? '#0079bf';
+        $bg = $board['background'] ?? null;
+        if (!empty($bg)) {
+            $bid = (int)($board['id'] ?? 0);
+            if ($bid) {
+                $url = self::getBackgroundImageUrl($bid, $bg);
+                // imagem com fallback da cor; cover centralizado
+                return "url('" . $url . "') center / cover no-repeat, " . $color;
+            }
+        }
+        return $color;
+    }
+
+    static function handleBackgroundUpload(int $boards_id, array $file): ?string {
+        if (empty($boards_id) || empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
+        $allowedMimes = ['image/jpeg','image/png','image/webp','image/gif'];
+        $allowedExts = ['jpg','jpeg','png','webp','gif'];
+        $maxBytes = 5 * 1024 * 1024; // 5MB
+        if (($file['size'] ?? 0) > $maxBytes) {
+            Session::addMessageAfterRedirect(__('Imagem muito grande — máximo 5MB', 'kanpro'), false, ERROR);
+            return null;
+        }
+        $mime = $file['type'] ?? '';
+        $ext = strtolower(pathinfo($file['name'] ?? '', PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExts, true) || (!empty($mime) && !in_array($mime, $allowedMimes, true) && strpos($mime, 'image/') !== 0)) {
+            Session::addMessageAfterRedirect(__('Formato inválido — use JPG, PNG, WebP ou GIF', 'kanpro'), false, ERROR);
+            return null;
+        }
+        // valida dimensões mínimas se possível (opcional)
+        $tmp = $file['tmp_name'] ?? '';
+        if ($tmp && function_exists('getimagesize')) {
+            $info = @getimagesize($tmp);
+            if ($info) {
+                [$w,$h] = $info;
+                if ($w < 800 || $h < 450) {
+                    Session::addMessageAfterRedirect(__('Imagem muito pequena — recomendado mínimo 1280×720', 'kanpro'), false, WARNING);
+                }
+            }
+        }
+        $dir = GLPI_PLUGIN_DOC_DIR . '/kanpro/boards/' . $boards_id . '/';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            Session::addMessageAfterRedirect(__('Falha ao criar diretório de upload', 'kanpro'), false, ERROR);
+            return null;
+        }
+        // remove imagem antiga do mesmo quadro (evita acúmulo)
+        $old = null;
+        global $DB;
+        if ($DB->tableExists('glpi_plugin_kanpro_boards')) {
+            $row = $DB->request(['SELECT'=>['background'],'FROM'=>'glpi_plugin_kanpro_boards','WHERE'=>['id'=>$boards_id]])->current();
+            $old = $row['background'] ?? null;
+            if (!empty($old)) {
+                $oldPath = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $old;
+                if (is_file($oldPath)) @unlink($oldPath);
+            }
+        }
+        $safeExt = in_array($ext, $allowedExts, true) ? $ext : 'jpg';
+        $filename = 'bg_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $safeExt;
+        $dest = $dir . $filename;
+        $moved = false;
+        if (is_uploaded_file($tmp)) {
+            $moved = @move_uploaded_file($tmp, $dest);
+        }
+        if (!$moved) {
+            $moved = @copy($tmp, $dest);
+        }
+        if (!$moved || !is_file($dest)) {
+            Session::addMessageAfterRedirect(__('Falha ao salvar imagem', 'kanpro'), false, ERROR);
+            return null;
+        }
+        $relative = 'boards/' . $boards_id . '/' . $filename;
+        // salva no DB
+        if ($DB->tableExists('glpi_plugin_kanpro_boards')) {
+            $DB->update('glpi_plugin_kanpro_boards', ['background'=>$relative,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$boards_id]);
+        }
+        return $relative;
+    }
+
+    static function deleteBackgroundFile(int $boards_id, ?string $old = null): void {
+        global $DB;
+        if (empty($old) && $DB->tableExists('glpi_plugin_kanpro_boards')) {
+            $row = $DB->request(['SELECT'=>['background'],'FROM'=>'glpi_plugin_kanpro_boards','WHERE'=>['id'=>$boards_id]])->current();
+            $old = $row['background'] ?? null;
+        }
+        if (!empty($old)) {
+            $path = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $old;
+            if (is_file($path)) @unlink($path);
+            // limpa diretório se vazio
+            $dir = dirname($path);
+            if (is_dir($dir) && count(glob($dir.'/*'))===0) @rmdir($dir);
+        }
+        if ($DB->tableExists('glpi_plugin_kanpro_boards')) {
+            $DB->update('glpi_plugin_kanpro_boards', ['background'=>null,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$boards_id]);
+        }
     }
 
     function showForm($ID, array $options = []) {
@@ -320,6 +436,31 @@ class PluginKanproBoard extends CommonDBTM {
           updateSelection(initVal, initLabel);
         })();
         </script>";
+        echo "</td></tr>";
+
+        // === Imagem de fundo ===
+        $bg = $this->fields['background'] ?? '';
+        $bgUrl = '';
+        $bgPreview = '';
+        if (!empty($bg) && $ID > 0) {
+            $bgUrl = self::getBackgroundImageUrl($ID, $bg);
+            $bgPreview = "<div style='margin-bottom:10px;display:flex;align-items:center;gap:12px'><img src='" . htmlspecialchars($bgUrl, ENT_QUOTES) . "' style='width:180px;height:100px;object-fit:cover;border-radius:8px;border:1px solid #dfe1e6;box-shadow:0 1px 4px rgba(0,0,0,.15)'><div style='flex:1'><div style='font-size:12px;font-weight:700;color:#172b4d'>Imagem atual</div><div style='font-size:11px;color:#5e6c84;word-break:break-all'>" . htmlspecialchars($bg, ENT_QUOTES) . "</div><label style='display:flex;align-items:center;gap:6px;margin-top:6px;cursor:pointer;color:#bf2600;font-size:12px'><input type='checkbox' name='remove_background' value='1'> Remover imagem (volta para cor/degradê)</label></div></div>";
+        }
+        echo "<tr class='tab_bg_1'>";
+        echo "<td>Imagem de Fundo<br><small style='color:#6b778c'>Tema com foto</small></td>";
+        echo "<td colspan='3'>";
+        echo $bgPreview;
+        echo "<div style='display:flex;flex-direction:column;gap:8px'>";
+        echo "<label style='display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid #dfe1e6;padding:8px 12px;border-radius:6px;cursor:pointer;width:fit-content'><i class='ti ti-photo' style='color:#6554c0'></i> Escolher imagem <input type='file' name='background_image' accept='image/jpeg,image/png,image/webp,image/gif' style='display:none' onchange=\"const f=this.files[0]; const p=document.getElementById('kanpro-bg-file-preview'); const n=document.getElementById('kanpro-bg-file-name'); if(f){ n.textContent=f.name+' ('+(f.size/1024/1024).toFixed(2)+' MB)'; if(p){ p.style.display='block'; p.src=URL.createObjectURL(f); } }\"> </label>";
+        echo "<span id='kanpro-bg-file-name' style='font-size:11px;color:#5e6c84'></span>";
+        echo "<img id='kanpro-bg-file-preview' style='display:none;width:320px;max-width:100%;height:180px;object-fit:cover;border-radius:8px;border:1px solid #dfe1e6'>";
+        echo "<div style='background:#f4f5f7;border:1px solid #dfe1e6;border-radius:6px;padding:10px;font-size:11px;color:#5e6c84;line-height:1.5'>";
+        echo "<strong style='color:#172b4d'><i class='ti ti-info-circle'></i> Resolução recomendada:</strong> <strong>1920×1080 (Full HD, 16:9)</strong> — mínimo <strong>1280×720</strong>. Ideal para 4K: <strong>2560×1440</strong>.<br>";
+        echo "Formatos: <strong>JPG, PNG, WebP, GIF</strong> • Tamanho máx: <strong>5 MB</strong> (ideal &lt; 2 MB).<br>";
+        echo "Exibição: <code style='background:#fff;padding:1px 4px;border-radius:4px;border:1px solid #dfe1e6'>background-size: cover</code> centralizada (<code>center / cover no-repeat</code>) — a imagem preenche todo o fundo e corta bordas se necessário, sem distorcer.<br>";
+        echo "<span style='color:#6b778c'>Dica: use imagem horizontal com ponto focal no centro. Evite textos nas bordas.</span>";
+        echo "</div>";
+        echo "</div>";
         echo "</td></tr>";
 
         echo "<tr class='tab_bg_1'>";

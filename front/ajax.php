@@ -247,6 +247,33 @@ switch ($action) {
         }
         jexit(['success'=>true]);
 
+    case 'upload_board_background':
+        needEdit();
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $board = new PluginKanproBoard();
+        if (!$board->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) jexit(['success'=>false,'msg'=>'Nenhum arquivo enviado']);
+        // garante coluna background existe (migração automática)
+        try {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
+            }
+        } catch (Throwable $e) {}
+        $rel = PluginKanproBoard::handleBackgroundUpload($bid, $_FILES['file']);
+        if (!$rel) jexit(['success'=>false,'msg'=>'Falha ao salvar imagem — verifique formato (JPG/PNG/WebP/GIF) e tamanho máximo 5MB. Resolução recomendada 1920×1080 (16:9)']);
+        $board->getFromDB($bid);
+        jexit(['success'=>true,'background'=>$rel,'url'=>PluginKanproBoard::getBackgroundImageUrl($bid, $rel)]);
+
+    case 'remove_board_background':
+        needEdit();
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $board = new PluginKanproBoard();
+        if (!$board->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        PluginKanproBoard::deleteBackgroundFile($bid);
+        jexit(['success'=>true]);
+
     case 'invite_member':
         needEdit();
         $bid = (int)($_POST['boards_id'] ?? 0);

@@ -79,6 +79,7 @@
     },
 
     init(){
+      this.applyBoardBackground();
       this.renderBoard();
       this.renderMemberAvatars();
       this.renderBoardMenuDetails();
@@ -2584,8 +2585,8 @@
     openBoardMenu(){
       $('#kanpro-board-menu').style.display='block';
       this.loadBoardActivity();
-      // renderiza paleta de cores/temas dentro do menu
       this.renderBoardMenuColors();
+      this.renderBoardMenuBackground();
     },
     closeBoardMenu(){ $('#kanpro-board-menu').style.display='none'; },
     // --- NOVO: paleta de cores/temas dentro do quadro ---
@@ -2634,25 +2635,109 @@
         return `<span title="${this.escape(label)}" onclick="Kanpro.setBoardColor('${escGrad}')" style="width:74px;height:34px;border-radius:6px;background:${grad};border:${border};box-shadow:${shadow};cursor:pointer;display:inline-block;position:relative;flex-shrink:0;transform:${isSel?'scale(1.04)':'scale(1)'}">${check}</span>`;
       }).join('');
     },
+    getBoardBackgroundUrl(){
+      const bg = this.board.background;
+      if(!bg) return '';
+      const base = this.ajax_url.replace('/ajax.php','/background.php');
+      const v = String(bg).split('').reduce((a,c)=>a+c.charCodeAt(0),0) % 9973;
+      return base + '?boards_id=' + this.board.id + '&v=' + v;
+    },
+    renderBoardMenuBackground(){
+      const preview = document.getElementById('board-menu-bg-preview');
+      const empty = document.getElementById('board-menu-bg-empty');
+      const label = document.getElementById('board-menu-bg-label');
+      const removeBtn = document.getElementById('board-menu-bg-remove');
+      if(!preview) return;
+      const bg = this.board.background;
+      if(bg){
+        const url = this.getBoardBackgroundUrl();
+        preview.style.backgroundImage = "url('" + url + "')";
+        preview.style.backgroundSize = 'cover';
+        preview.style.backgroundPosition = 'center';
+        preview.style.display = 'block';
+        if(empty) empty.style.display = 'none';
+        if(label) label.textContent = 'Imagem ativa';
+        if(removeBtn) removeBtn.style.display = 'inline-flex';
+      } else {
+        preview.style.backgroundImage = 'none';
+        preview.style.display = 'none';
+        if(empty) empty.style.display = 'flex';
+        if(label) label.textContent = 'Sem imagem';
+        if(removeBtn) removeBtn.style.display = 'none';
+      }
+    },
+    applyBoardBackground(){
+      const app = document.getElementById('kanpro-app');
+      if(!app) return;
+      const color = this.board.color || '#0079bf';
+      const bg = this.board.background;
+      if(bg){
+        const url = this.getBoardBackgroundUrl();
+        app.style.background = "url('" + url + "') center / cover no-repeat, " + color;
+        app.style.backgroundSize = 'cover';
+        app.style.backgroundPosition = 'center';
+      } else {
+        app.style.background = color;
+      }
+    },
+    uploadBoardBackground(input){
+      const file = input.files[0];
+      if(!file) return;
+      if(file.size > 5*1024*1024){ alert('Imagem muito grande — máximo 5MB'); input.value=''; return; }
+      if(!file.type.startsWith('image/')){ alert('Formato inválido — use JPG, PNG, WebP ou GIF'); input.value=''; return; }
+      const preview = document.getElementById('board-menu-bg-preview');
+      const empty = document.getElementById('board-menu-bg-empty');
+      if(preview){
+        preview.style.backgroundImage = "url('" + URL.createObjectURL(file) + "')";
+        preview.style.display = 'block';
+        preview.style.backgroundSize = 'cover';
+        preview.style.backgroundPosition = 'center';
+        if(empty) empty.style.display='none';
+      }
+      this.showToast('Enviando imagem...');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('boards_id', this.board.id);
+      this.ajax('upload_board_background', fd, true).then(res=>{
+        input.value='';
+        if(res.success){
+          this.board.background = res.background;
+          this.applyBoardBackground();
+          this.renderBoardMenuBackground();
+          this.showToast('Imagem de fundo atualizada! Recomendado 1920×1080');
+        } else {
+          alert(res.msg||'Erro ao enviar imagem');
+          this.renderBoardMenuBackground();
+        }
+      });
+    },
+    removeBoardBackground(){
+      if(!this.board.background) return;
+      if(!confirm('Remover imagem de fundo? O quadro voltará para a cor/degradê.')) return;
+      this.ajax('remove_board_background', {boards_id: this.board.id}).then(res=>{
+        if(res.success){
+          this.board.background = null;
+          this.applyBoardBackground();
+          this.renderBoardMenuBackground();
+          this.showToast('Imagem removida');
+        } else alert(res.msg||'Erro ao remover');
+      });
+    },
     setBoardColor(color){
       if(!color) return;
-      // validação básica
       const isHex = /^#[0-9a-fA-F]{6}$/.test(color);
       const isGrad = color.startsWith('linear-gradient');
       if(!isHex && !isGrad){ alert('Cor inválida'); return; }
-      // feedback otimista
       const old = this.board.color;
       this.board.color = color;
-      const app = document.getElementById('kanpro-app');
-      if(app) app.style.background = color;
+      this.applyBoardBackground();
       this.renderBoardMenuColors();
-      // preview picker genérico também
       this.ajax('update_board_color', {boards_id: this.board.id, color}).then(res=>{
         if(res.success){
           this.showToast('Tema atualizado!');
         } else {
           this.board.color = old;
-          if(app) app.style.background = old;
+          this.applyBoardBackground();
           this.renderBoardMenuColors();
           alert(res.msg||'Erro ao salvar cor');
         }

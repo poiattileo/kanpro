@@ -83,6 +83,9 @@ try {
     if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
         $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
     }
+    if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
+        $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
+    }
 } catch (Throwable $e) {}
 if (method_exists('PluginKanproBoard', 'getBoardThemes')) {
     $themes = PluginKanproBoard::getBoardThemes();
@@ -92,6 +95,14 @@ if (method_exists('PluginKanproBoard', 'getBoardThemes')) {
     $themes = ['solids' => ['#0079bf'=>'Azul','#00aecc'=>'Ciano','#4bbf6b'=>'Verde'], 'gradients' => []];
 }
 $themes_json = json_encode($themes, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
+// estilo de fundo do quadro: imagem com cover se existir, senão cor/degradê
+$board_bg_raw = $board->fields['background'] ?? '';
+$board_bg_style = $board_color;
+if (!empty($board_bg_raw)) {
+    $bgUrl = PluginKanproBoard::getBackgroundImageUrl((int)$board->fields['id'], $board_bg_raw);
+    $bgUrlEsc = htmlspecialchars($bgUrl, ENT_QUOTES);
+    $board_bg_style = "url('{$bgUrlEsc}') center / cover no-repeat, {$board_color}";
+}
 
 // Busca cartões por lista para render inicial (evita N+1 via JS)
 $all_cards = [];
@@ -218,7 +229,7 @@ echo <<<HTML
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
 #page { padding:0 !important; }
 </style>
-<div id="kanpro-app" style="display:flex;flex-direction:column;height:calc(100vh - 80px);background: {$board_color};margin:-15px -15px 0 -15px;position:relative">
+<div id="kanpro-app" style="display:flex;flex-direction:column;height:calc(100vh - 80px);background: {$board_bg_style};margin:-15px -15px 0 -15px;position:relative;background-size:cover;background-position:center">
 
   <!-- Topbar do quadro -->
   <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(0,0,0,.15);backdrop-filter:blur(6px);color:#fff;gap:12px;flex-wrap:wrap">
@@ -392,6 +403,27 @@ echo <<<HTML
       </div>
       <div id="board-menu-color-preview" style="margin-top:8px;height:32px;border-radius:6px;border:1px solid #dfe1e6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)"></div>
       <div style="margin-top:6px;font-size:11px;color:#5e6c84;text-align:center">Clique numa cor para trocar instantaneamente</div>
+    </div>
+    <!-- 🖼️ Imagem de fundo — tema com foto -->
+    <div style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px">
+      <div style="font-weight:700;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span><i class="ti ti-photo" style="color:#0079bf"></i> Imagem de Fundo</span>
+        <span id="board-menu-bg-label" style="font-size:11px;font-weight:400;color:#5e6c84"></span>
+      </div>
+      <div id="board-menu-bg-preview" style="display:none;height:90px;border-radius:6px;border:1px solid #dfe1e6;background:#f4f5f7;background-size:cover;background-position:center"></div>
+      <div id="board-menu-bg-empty" style="display:none;height:90px;border-radius:6px;border:1px dashed #dfe1e6;background:#f4f5f7;display:flex;align-items:center;justify-content:center;color:#6b778c;font-size:12px"><i class="ti ti-photo-off" style="font-size:20px;margin-right:6px"></i> Nenhuma imagem</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <label style="flex:1;background:#0079bf;color:#fff;border:none;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">
+          <i class="ti ti-upload"></i> Enviar imagem
+          <input type="file" id="board-menu-bg-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" onchange="Kanpro.uploadBoardBackground(this)">
+        </label>
+        <button onclick="Kanpro.removeBoardBackground()" id="board-menu-bg-remove" style="display:none;background:#ffebe6;color:#bf2600;border:1px solid #ffbdad;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600"><i class="ti ti-trash"></i></button>
+      </div>
+      <div style="margin-top:8px;background:#f4f5f7;border:1px solid #dfe1e6;border-radius:6px;padding:8px;font-size:11px;color:#5e6c84;line-height:1.5">
+        <strong style="color:#172b4d">Resolução recomendada:</strong> <strong>1920×1080 (Full HD, 16:9)</strong> — mínimo <strong>1280×720</strong>. Para 4K: <strong>2560×1440</strong>.<br>
+        Formatos: <strong>JPG, PNG, WebP, GIF</strong> • Máx <strong>5 MB</strong> (ideal &lt; 2 MB).<br>
+        Exibição: <code style="background:#fff;padding:1px 4px;border-radius:4px;border:1px solid #dfe1e6">cover center</code> — preenche todo o fundo, corta bordas se necessário.
+      </div>
     </div>
     <div>
       <div style="font-weight:600;margin-bottom:8px">Etiquetas</div>
