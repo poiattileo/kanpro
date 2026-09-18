@@ -778,16 +778,12 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (!empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão já é de manutenção']);
-        // 2 etapas: confirmação textual + senha
+        // 2 etapas: confirmação textual (palavra aleatória sem acento/ç) + senha
         $norm = kanpro_normalize_confirm($confirm);
-        $allowed = ['MANUTENCAO','MANUTENÇÃO','CONFIRMAR','CONFIRM','MANUTENCAO CONFIRMADA'];
-        // aceita apenas variações que normalizam para MANUTENCAO
-        $norm_allowed = array_map('kanpro_normalize_confirm', $allowed);
+        $challenge_words = ["PAIVA","MASSON","FERRARI","TECNICO","SUPORTE","MANUTENCAO","REPARO","DIAGNOSTICO","HARDWARE","SOFTWARE","NOTEBOOK","DESKTOP","MONITOR","TECLADO","MOUSE","IMPRESSORA","REDE","SERVIDOR","BACKUP","SEGURANCA","ATUALIZACAO","LIMPEZA","FORMATACAO","INSTALACAO","CONFIGURACAO","ATENDIMENTO","CHAMADO","TICKET","PROTOCOLO","SISTEMA","PROCESSADOR","MEMORIA","SSD","HD","PLACA","FONTE","COOLER","GABINETE","BATERIA","CARREGADOR","CABO","CONECTOR","DRIVER","FIRMWARE","BIOS","WINDOWS","LINUX","OFFICE","ANTIVIRUS","FIREWALL","VPN","WIFI","ETHERNET","SWITCH","ROTEADOR","PATCH","CABEAMENTO","ESTRUTURADO","VOIP","TELEFONIA","RAMAL","NOBREAK","ESTABILIZADOR","PROJETOR","WEBCAM","HEADSET","SCANNER","PLOTTER","TABLET","CELULAR","SMARTPHONE","CHIP","BROWSER","NAVEGADOR","EMAIL","SENHA","LOGIN","USUARIO","PERFIL","PERMISSAO","BANCO","DADOS","RELATORIO","INVENTARIO","PATRIMONIO","ATIVO","GARANTIA","CONTRATO","FORNECEDOR","CLIENTE","DEPARTAMENTO","SETOR","ALMOXARIFADO","ESTOQUE","COMPRA","LICENCA","ATIVACAO","VALIDACAO","AUTENTICACAO","CONFIRMACAO"];
+        $norm_allowed = array_map('kanpro_normalize_confirm', $challenge_words);
         if (!in_array($norm, $norm_allowed, true)) {
-            // tenta aceitar também "MANUTENCAO" mesmo se veio com acento
-            if ($norm !== 'MANUTENCAO' && $norm !== 'CONFIRMAR') {
-                jexit(['success'=>false,'msg'=>'Confirmação textual inválida. Digite MANUTENÇÃO para confirmar.','need_confirm'=>true]);
-            }
+            jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida (sem acento).','need_confirm'=>true]);
         }
         if (!kanpro_verify_password($password)) {
             jexit(['success'=>false,'msg'=>'Senha incorreta (2ª etapa falhou). Verifique sua senha do GLPI.','need_password'=>true]);

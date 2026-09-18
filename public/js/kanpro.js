@@ -4,6 +4,7 @@
   const K = window.KANPRO;
   const $ = (s, el=document) => el.querySelector(s);
   const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+  const MAINT_CHALLENGE_WORDS = ["PAIVA","MASSON","FERRARI","TECNICO","SUPORTE","MANUTENCAO","REPARO","DIAGNOSTICO","HARDWARE","SOFTWARE","NOTEBOOK","DESKTOP","MONITOR","TECLADO","MOUSE","IMPRESSORA","REDE","SERVIDOR","BACKUP","SEGURANCA","ATUALIZACAO","LIMPEZA","FORMATACAO","INSTALACAO","CONFIGURACAO","ATENDIMENTO","CHAMADO","TICKET","PROTOCOLO","SISTEMA","PROCESSADOR","MEMORIA","SSD","HD","PLACA","FONTE","COOLER","GABINETE","BATERIA","CARREGADOR","CABO","CONECTOR","DRIVER","FIRMWARE","BIOS","WINDOWS","LINUX","OFFICE","ANTIVIRUS","FIREWALL","VPN","WIFI","ETHERNET","SWITCH","ROTEADOR","PATCH","CABEAMENTO","ESTRUTURADO","VOIP","TELEFONIA","RAMAL","NOBREAK","ESTABILIZADOR","PROJETOR","WEBCAM","HEADSET","SCANNER","PLOTTER","TABLET","CELULAR","SMARTPHONE","CHIP","BROWSER","NAVEGADOR","EMAIL","SENHA","LOGIN","USUARIO","PERFIL","PERMISSAO","BANCO","DADOS","RELATORIO","INVENTARIO","PATRIMONIO","ATIVO","GARANTIA","CONTRATO","FORNECEDOR","CLIENTE","DEPARTAMENTO","SETOR","ALMOXARIFADO","ESTOQUE","COMPRA","LICENCA","ATIVACAO","VALIDACAO","AUTENTICACAO","CONFIRMACAO"];
 
   const Kanpro = {
     board: K.board,
@@ -961,16 +962,30 @@
     openMaintenanceFlow(){
       const cardId = this.currentCardId;
       if(!cardId) return;
+      const localCard = this.cards.find(c=> String(c.id)===String(cardId));
+      if(localCard && localCard.is_maintenance==1){
+        const panel = document.getElementById("card-modal-maintenance");
+        if(panel){ panel.scrollIntoView({behavior:"smooth", block:"start"}); panel.style.boxShadow="0 0 0 3px #ffab00"; setTimeout(()=> panel.style.boxShadow="", 1500); return; }
+      }
       this.ajax("get_maintenance", {cards_id: cardId}).then(res=>{
-        if(res.success && res.is_maintenance){
+        if(res && res.success && res.is_maintenance){
           const panel = document.getElementById("card-modal-maintenance");
-          if(panel){ panel.scrollIntoView({behavior:"smooth", block:"start"}); panel.style.boxShadow="0 0 0 3px #ffab00"; setTimeout(()=> panel.style.boxShadow="", 1500); }
-          return;
+          if(panel){ panel.scrollIntoView({behavior:"smooth", block:"start"}); panel.style.boxShadow="0 0 0 3px #ffab00"; setTimeout(()=> panel.style.boxShadow="", 1500); return; }
         }
         this.showMaintenanceStep1();
-      });
+      }).catch(()=> this.showMaintenanceStep1());
+      setTimeout(()=>{
+        const picker = document.getElementById("kanpro-picker");
+        if(!picker || picker.style.display==="none"){
+          const panel = document.getElementById("card-modal-maintenance");
+          const isVisible = panel && panel.style.display!=="none" && panel.innerHTML.trim()!=="";
+          if(!isVisible) this.showMaintenanceStep1();
+        }
+      }, 900);
     },
     showMaintenanceStep1(){
+      const challenge = MAINT_CHALLENGE_WORDS[Math.floor(Math.random()*MAINT_CHALLENGE_WORDS.length)];
+      this._maintChallenge = challenge;
       const html = `
         <div style="display:grid;gap:12px">
           <div style="background:#fffae6;border:1px solid #ffecb5;padding:10px;border-radius:6px;color:#172b4d;font-size:13px">
@@ -978,13 +993,19 @@
             Este card será transformado em <strong>Card de Manutenção</strong> com checklist por máquina.<br>
             Serão solicitadas <strong>quantidades e modelos</strong> e cada máquina será enumerada de <strong>1 em diante</strong> com diário individual.
           </div>
-          <div style="font-size:13px;color:#172b4d">Etapa <strong>1/2</strong> — Confirmação textual<br><small style="color:#5e6c84">Digite <code style="background:#f4f5f7;padding:2px 6px;border-radius:4px;font-weight:700">MANUTENÇÃO</code> para confirmar:</small></div>
-          <input id="maint-confirm-input" type="text" placeholder="Digite MANUTENÇÃO" style="width:100%;padding:10px;border:2px solid #ffab00;border-radius:6px;font-size:14px;box-sizing:border-box;text-transform:uppercase">
+          <div style="font-size:13px;color:#172b4d">Etapa <strong>1/2</strong> — Confirmação textual<br><small style="color:#5e6c84">Digite exatamente a palavra abaixo para confirmar:</small></div>
+          <div style="background:#091e42;color:#fff;padding:14px;border-radius:8px;text-align:center;letter-spacing:0.12em">
+            <div style="font-size:11px;opacity:.7;letter-spacing:0.04em">PALAVRA DESAFIO</div>
+            <div style="font-size:26px;font-weight:800;margin-top:4px">${challenge}</div>
+            <div style="font-size:11px;opacity:.6;margin-top:4px">sem acento, sem ç — igual como aparece acima</div>
+          </div>
+          <input id="maint-confirm-input" type="text" placeholder="Digite ${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:10px;border:2px solid #ffab00;border-radius:6px;font-size:16px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.08em;text-align:center;font-weight:700">
           <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
             <button onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700">Continuar → Etapa 2/2</button>
           </div>
+          <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
         </div>
       `;
       this.showPicker({title:"Manutenção — Etapa 1/2", html});
@@ -994,15 +1015,17 @@
       const inp = document.getElementById("maint-confirm-input");
       const err = document.getElementById("maint-step1-error");
       const val = (inp?.value||"").trim().toUpperCase();
-      const norm = val.normalize ? val.normalize("NFD").replace(/[̀-ͯ]/g,"") : val.replace("Ç","C").replace("Ã","A");
-      const ok = norm==="MANUTENCAO" || norm==="CONFIRMAR";
-      if(!ok){
-        if(err){ err.textContent="Digite exatamente MANUTENÇÃO para continuar."; err.style.display="block"; }
+      const challenge = (this._maintChallenge||"").toUpperCase();
+      const normVal = val.normalize ? val.normalize("NFD").replace(/[̀-ͯ]/g,"") : val;
+      const normChallenge = challenge.normalize ? challenge.normalize("NFD").replace(/[̀-ͯ]/g,"") : challenge;
+      if(!val || normVal !== normChallenge){
+        if(err){ err.textContent=`Digite exatamente "${challenge}" para continuar.`; err.style.display="block"; }
         inp.style.borderColor="#eb5a46";
         inp.focus();
+        inp.select();
         return;
       }
-      this._maintConfirmText = inp.value;
+      this._maintConfirmText = challenge;
       this.showMaintenanceStep2();
     },
     showMaintenanceStep2(){
