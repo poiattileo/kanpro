@@ -1,6 +1,9 @@
 <?php
 file_put_contents('/tmp/kanpro_kanban_top.log', date('Y-m-d H:i:s')." TOPO EXECUTADO GET=".json_encode($_GET)."\n", FILE_APPEND);
-if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
+if (function_exists('opcache_invalidate')) {
+    @opcache_invalidate(__FILE__, true);
+    @opcache_invalidate(GLPI_ROOT . '/plugins/kanpro/inc/board.class.php', true);
+}
 include('../../../inc/includes.php');
 Session::checkRight('plugin_kanpro', READ);
 
@@ -75,7 +78,19 @@ $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_Q
 $ajax_url = Plugin::getWebDir('kanpro') . '/front/ajax.php';
 $board_color = htmlspecialchars($board->fields['color'] ?? '#0079bf');
 $csrf_token = Session::getNewCSRFToken();
-$themes = PluginKanproBoard::getBoardThemes();
+// garante coluna color suporta degradês (migração automática sem reinstalar) — evita 500 em installs antigos
+try {
+    if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
+        $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
+    }
+} catch (Throwable $e) {}
+if (method_exists('PluginKanproBoard', 'getBoardThemes')) {
+    $themes = PluginKanproBoard::getBoardThemes();
+} elseif (method_exists('PluginKanproBoard', 'getBackgroundColors')) {
+    $themes = ['solids' => PluginKanproBoard::getBackgroundColors(), 'gradients' => method_exists('PluginKanproBoard','getBackgroundGradients') ? PluginKanproBoard::getBackgroundGradients() : []];
+} else {
+    $themes = ['solids' => ['#0079bf'=>'Azul','#00aecc'=>'Ciano','#4bbf6b'=>'Verde'], 'gradients' => []];
+}
 $themes_json = json_encode($themes, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
 // Busca cartões por lista para render inicial (evita N+1 via JS)

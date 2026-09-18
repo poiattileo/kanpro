@@ -1,8 +1,18 @@
 <?php
+if (function_exists('opcache_invalidate')) @opcache_invalidate(GLPI_ROOT . '/plugins/kanpro/inc/board.class.php', true);
 include('../../../inc/includes.php');
 
 $board = new PluginKanproBoard();
 
+// migração silenciosa para quem atualizou via git sem reinstalar
+try {
+    global $DB;
+    if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
+        $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
+    }
+} catch (Throwable $e) {}
+
+if (!function_exists('kanpro_normalize_board_color_input')) {
 // Normaliza cor/tema vinda do picker (hex ou linear-gradient). Aceita sólidos e degradês.
 function kanpro_normalize_board_color_input(array &$input): void {
     $color = trim($input['color'] ?? '');
@@ -34,6 +44,7 @@ function kanpro_normalize_board_color_input(array &$input): void {
     if (strlen($color) > 255) $color = substr($color, 0, 255);
     $input['color'] = $color;
     unset($input['color_custom']);
+}
 }
 
 if (isset($_POST['add'])) {

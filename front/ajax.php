@@ -219,8 +219,32 @@ switch ($action) {
     case 'update_board_color':
         needEdit();
         $id = (int)($_POST['boards_id'] ?? 0);
-        $color = $_POST['color'] ?? '#0079bf';
-        $DB->update('glpi_plugin_kanpro_boards', ['color'=>$color], ['id'=>$id]);
+        $color = trim($_POST['color'] ?? '#0079bf');
+        $isHex = (bool)preg_match('/^#[0-9a-fA-F]{6}$/', $color);
+        $isGrad = (strpos($color, 'linear-gradient') === 0);
+        if (!$isHex && !$isGrad) {
+            jexit(['success'=>false,'msg'=>'Cor inválida — use hex #rrggbb ou degradê']);
+        }
+        if (strlen($color) > 255) $color = substr($color, 0, 255);
+        // migração automática: garante VARCHAR(255) para degradês (evita 500 Data too long)
+        try {
+            if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
+            }
+        } catch (Throwable $e) {}
+        try {
+            $DB->update('glpi_plugin_kanpro_boards', ['color'=>$color], ['id'=>$id]);
+            if ($DB->error() && stripos($DB->error(), 'Data too long') !== false) {
+                // fallback: trunca para 20 e tenta novamente (evita 500 em installs antigos sem permissão ALTER)
+                $color = substr($color, 0, 20);
+                $DB->update('glpi_plugin_kanpro_boards', ['color'=>$color], ['id'=>$id]);
+                if ($DB->error()) jexit(['success'=>false,'msg'=>'Erro ao salvar: '.$DB->error()]);
+            } elseif ($DB->error()) {
+                jexit(['success'=>false,'msg'=>'Erro ao salvar: '.$DB->error()]);
+            }
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao salvar: '.$e->getMessage()]);
+        }
         jexit(['success'=>true]);
 
     case 'invite_member':
