@@ -785,8 +785,9 @@ switch ($action) {
         if (!in_array($norm, $norm_allowed, true)) {
             jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida (sem acento).','need_confirm'=>true]);
         }
-        if (!kanpro_verify_password($password)) {
-            jexit(['success'=>false,'msg'=>'Senha incorreta (2ª etapa falhou). Verifique sua senha do GLPI.','need_password'=>true]);
+        // senha opcional - fluxo atual só pede palavra (sem senha)
+        if ($password !== '' && $password !== null && !kanpro_verify_password($password)) {
+            jexit(['success'=>false,'msg'=>'Senha incorreta. Verifique sua senha do GLPI.','need_password'=>true]);
         }
         $DB->update('glpi_plugin_kanpro_cards', [
             'is_maintenance'   => 1,

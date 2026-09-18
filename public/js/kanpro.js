@@ -987,33 +987,45 @@
       const challenge = MAINT_CHALLENGE_WORDS[Math.floor(Math.random()*MAINT_CHALLENGE_WORDS.length)];
       this._maintChallenge = challenge;
       const html = `
-        <div style="display:grid;gap:12px">
-          <div style="background:#fffae6;border:1px solid #ffecb5;padding:10px;border-radius:6px;color:#172b4d;font-size:13px">
-            <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção — Ação irreversível</strong><br>
-            Este card será transformado em <strong>Card de Manutenção</strong> com checklist por máquina.<br>
-            Serão solicitadas <strong>quantidades e modelos</strong> e cada máquina será enumerada de <strong>1 em diante</strong> com diário individual.
+        <div style="display:grid;gap:8px">
+          <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:6px;color:#172b4d;font-size:12px;line-height:1.3">
+            <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).
           </div>
-          <div style="font-size:13px;color:#172b4d">Etapa <strong>1/2</strong> — Confirmação textual<br><small style="color:#5e6c84">Digite exatamente a palavra abaixo para confirmar:</small></div>
-          <div style="background:#091e42;color:#fff;padding:14px;border-radius:8px;text-align:center;letter-spacing:0.12em">
-            <div style="font-size:11px;opacity:.7;letter-spacing:0.04em">PALAVRA DESAFIO</div>
-            <div style="font-size:26px;font-weight:800;margin-top:4px">${challenge}</div>
-            <div style="font-size:11px;opacity:.6;margin-top:4px">sem acento, sem ç — igual como aparece acima</div>
+          <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
+            <div style="font-size:10px;opacity:.7;letter-spacing:0.04em">DIGITE A PALAVRA ABAIXO</div>
+            <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
           </div>
-          <input id="maint-confirm-input" type="text" placeholder="Digite ${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:10px;border:2px solid #ffab00;border-radius:6px;font-size:16px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.08em;text-align:center;font-weight:700">
-          <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none"></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Cancelar</button>
-            <button onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700">Continuar → Etapa 2/2</button>
+          <input id="maint-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:8px;border:2px solid #ffab00;border-radius:6px;font-size:15px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.06em;text-align:center;font-weight:700">
+          <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
+            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
+            <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Confirmar e Converter</button>
           </div>
           <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
         </div>
       `;
-      this.showPicker({title:"Manutenção — Etapa 1/2", html});
-      setTimeout(()=>{ const inp=document.getElementById("maint-confirm-input"); if(inp){ inp.focus(); inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); } }, 100);
+      this.showPicker({title:"Confirmação — Manutenção", html});
+      // garante picker compacto sem scroll desnecessário
+      setTimeout(()=>{
+        const picker = document.getElementById("kanpro-picker");
+        const body = document.getElementById("picker-body");
+        if(picker){
+          picker.style.maxHeight = "85vh";
+          picker.style.display = "flex";
+          picker.style.flexDirection = "column";
+        }
+        if(body){
+          body.style.maxHeight = "none";
+          body.style.overflowY = "visible";
+        }
+        const inp=document.getElementById("maint-confirm-input");
+        if(inp){ inp.focus(); inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); }
+      }, 30);
     },
     confirmMaintenanceStep1(){
       const inp = document.getElementById("maint-confirm-input");
       const err = document.getElementById("maint-step1-error");
+      const btn = document.getElementById("maint-step1-btn");
       const val = (inp?.value||"").trim().toUpperCase();
       const challenge = (this._maintChallenge||"").toUpperCase();
       const normVal = val.normalize ? val.normalize("NFD").replace(/[̀-ͯ]/g,"") : val;
@@ -1025,8 +1037,26 @@
         inp.select();
         return;
       }
+      if(btn){ btn.disabled=true; btn.textContent="Convertendo..."; }
+      if(err){ err.style.display="none"; }
       this._maintConfirmText = challenge;
-      this.showMaintenanceStep2();
+      this.ajax("convert_to_maintenance", {cards_id: this.currentCardId, confirm_text: challenge}).then(res=>{
+        if(btn){ btn.disabled=false; btn.textContent="Confirmar e Converter"; }
+        if(!res.success){
+          if(err){ err.textContent=res.msg||"Falha ao converter"; err.style.display="block"; }
+          return;
+        }
+        this.closePicker();
+        this.showToast("Card convertido para Manutenção!");
+        const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
+        if(c) c.is_maintenance=1;
+        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
+          if(r.success){
+            this.renderCardModal(r.data);
+            setTimeout(()=> this.openMaintenanceSetup(), 400);
+          } else location.reload();
+        });
+      });
     },
     showMaintenanceStep2(){
       const html = `
