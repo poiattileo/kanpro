@@ -1238,9 +1238,9 @@ switch ($action) {
         $percentNon = $nonCount? round($doneNon/$nonCount*100):0;
         // Se existem pendentes e nenhum item finalizável, apenas cria card de pendentes
         if ($pendingCount>0 && $nonCount===0) {
-            // Cria novo card com todos os pendentes (move)
-            $origName = $card->fields['name'];
-            $newName = mb_substr($origName . ' — Pendentes ('.$pendingCount.' máq.)', 0, 255);
+            // Cria novo card com todos os pendentes (nome igual à entidade, sem sufixo)
+            $origName = trim($card->fields['name']);
+            $newName = mb_substr($origName, 0, 255);
             $newCard = new PluginKanproCard();
             $newId = $newCard->add([
                 'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
@@ -1251,11 +1251,21 @@ switch ($action) {
             if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
             // garante que novo card também é manutenção
             $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
-            // move pendentes para novo card com seq 1..N
+            // move pendentes para novo card com seq 1..N e zera Feito/Status/Diário/Inventário
             $seq=1;
             foreach ($pendingMachines as $pm) {
                 $newLabel = "Máquina {$seq} - {$pm['model']}";
-                $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
+                $DB->update('glpi_plugin_kanpro_maintenance_machines', [
+                    'plugin_kanpro_cards_id'=>$newId,
+                    'seq'=>$seq,
+                    'label'=>$newLabel,
+                    'is_done'=>0,
+                    'is_ok'=>0,
+                    'status'=>'',
+                    'diary'=>'',
+                    'is_inventoried'=>0,
+                    'date_mod'=>date('Y-m-d H:i:s')
+                ], ['id'=>$pm['id']]);
                 $seq++;
             }
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes criado a partir de #{$cid} com {$pendingCount} máquinas");
@@ -1293,11 +1303,11 @@ switch ($action) {
                 jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true]);
             }
         }
-        // Se há pendentes, cria novo card com pendentes ANTES de gerar termo
+        // Se há pendentes, cria novo card com pendentes ANTES de gerar termo (nome igual, campos zerados)
         $pendingCardId = null;
         if ($pendingCount>0) {
-            $origName = $card->fields['name'];
-            $newName = mb_substr($origName . ' — Pendentes ('.$pendingCount.' máq.)', 0, 255);
+            $origName = trim($card->fields['name']);
+            $newName = mb_substr($origName, 0, 255);
             $newCard = new PluginKanproCard();
             $newId = $newCard->add([
                 'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
@@ -1310,7 +1320,17 @@ switch ($action) {
                 $seq=1;
                 foreach ($pendingMachines as $pm) {
                     $newLabel = "Máquina {$seq} - {$pm['model']}";
-                    $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
+                    $DB->update('glpi_plugin_kanpro_maintenance_machines', [
+                        'plugin_kanpro_cards_id'=>$newId,
+                        'seq'=>$seq,
+                        'label'=>$newLabel,
+                        'is_done'=>0,
+                        'is_ok'=>0,
+                        'status'=>'',
+                        'diary'=>'',
+                        'is_inventoried'=>0,
+                        'date_mod'=>date('Y-m-d H:i:s')
+                    ], ['id'=>$pm['id']]);
                     $seq++;
                 }
                 $pendingCardId = $newId;
