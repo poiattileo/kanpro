@@ -351,7 +351,7 @@
       const tStat = this.transferStatus && this.transferStatus[card.id];
       if (tStat) {
         const isConcluido = tStat.status === 'concluido';
-        const bg = isConcluido ? '#61bd4f' : '#ffab00';
+        const bg = isConcluido ? '#61bd4f' : '#f2d600';
         const fg = isConcluido ? '#fff' : '#172b4d';
         const icon = isConcluido ? 'ti ti-check' : 'ti ti-clock';
         const label = tStat.label || (isConcluido ? 'Concluído' : 'Retirada');
