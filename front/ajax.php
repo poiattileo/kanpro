@@ -276,9 +276,12 @@ function kanpro_create_ticket_from_card(int $cards_id): array {
     $list->getFromDB((int)$card->fields['plugin_kanpro_lists_id']);
     $entities_id = (int)($board->fields['entities_id'] ?? 0);
     if ($entities_id <= 0) $entities_id = (int)($_SESSION['glpiactive_entity'] ?? 0);
-    $content = 'Criado automaticamente pelo KanPro a partir do cartão #' . $cards_id
-        . ' (' . ($board->fields['name'] ?? 'Quadro') . ' / ' . ($list->fields['name'] ?? 'Lista') . ').';
-    if (!empty($card->fields['description'])) $content .= "\n\nDescrição do cartão:\n" . $card->fields['description'];
+    $content = "Chamado aberto automaticamente pelo KanPro.\n\n"
+        . 'Quadro: ' . ($board->fields['name'] ?? '-') . "\n"
+        . 'Lista: ' . ($list->fields['name'] ?? '-') . "\n"
+        . 'Cartão: #' . $cards_id . ' ' . (trim($card->fields['name'] ?? '') ?: ('Cartão #' . $cards_id)) . "\n";
+    if (!empty($card->fields['description'])) $content .= "\nDescrição do cartão:\n" . $card->fields['description'] . "\n";
+    $content .= "\nAs atualizações da manutenção serão registradas como acompanhamentos neste chamado.";
     $tk = new Ticket();
     $tid = $tk->add([
         'name' => mb_substr(trim($card->fields['name'] ?? ('Cartão #' . $cards_id)), 0, 255),
@@ -386,10 +389,10 @@ function kanpro_card_machines_report(int $cards_id): string {
             if (!empty($m['is_inventoried'])) $bits[] = 'Inventariada';
             $diary = trim($m['diary'] ?? '');
             if ($diary !== '') $bits[] = 'Diário: ' . mb_substr($diary, 0, 150) . (mb_strlen($diary) > 150 ? '…' : '');
-            $lines[] = '#' . $m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' — ' . implode(' | ', $bits);
+            $lines[] = '• #' . $m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' — ' . implode(' | ', $bits);
         }
         if (empty($lines)) return '';
-        return 'Máquinas do card (' . count($lines) . "):\n\n" . implode("\n", $lines);
+        return 'Situação atual das máquinas do cartão (' . count($lines) . "):\n\n" . implode("\n", $lines);
     } catch (Throwable $e) { return ''; }
 }
 
@@ -1321,8 +1324,8 @@ switch ($action) {
         $tid = kanpro_card_ticket_id($cid);
         if ($tid && !empty($created)) {
             $lst = [];
-            foreach ($created as $mc) $lst[] = '#' . $mc['seq'] . ' ' . $mc['model'];
-            kanpro_ticket_followup($tid, '⚙ [KanPro] Máquinas configuradas (' . count($created) . ' novas): ' . implode('; ', array_slice($lst, 0, 20)) . (count($lst) > 20 ? ' ... (+' . (count($lst) - 20) . ')' : ''));
+            foreach ($created as $mc) $lst[] = '• #' . $mc['seq'] . ' ' . $mc['model'];
+            kanpro_ticket_followup($tid, "⚙ [KanPro] Máquinas configuradas\n\n" . count($created) . " nova(s) máquina(s) adicionada(s) a este atendimento:\n\n" . implode("\n", array_slice($lst, 0, 20)) . (count($lst) > 20 ? "\n... (+" . (count($lst) - 20) . " máquinas)" : ''));
         }
         // Retorna lista completa atualizada
         $all = [];
@@ -1429,7 +1432,7 @@ switch ($action) {
             $cidM = (int)$row['plugin_kanpro_cards_id'];
             $tid = kanpro_card_ticket_id($cidM);
             if ($tid) {
-                $msg = "⚙ [KanPro] Máquina #{$row['seq']} '" . ($row['model'] ?? '') . "' — " . implode(' | ', $chg);
+                $msg = "⚙ [KanPro] Atualização de máquina\n\nMáquina #{$row['seq']} '" . ($row['model'] ?? '') . "'\n\nAlterações: " . implode(' | ', $chg);
                 $rep = kanpro_card_machines_report($cidM);
                 if ($rep !== '') $msg .= "\n" . $rep;
                 kanpro_ticket_followup($tid, $msg);
@@ -1515,8 +1518,8 @@ switch ($action) {
         $tid = kanpro_card_ticket_id($cid);
         if ($tid && !empty($defs)) {
             $lst = [];
-            foreach ($defs as $def) $lst[] = $def['qty'] . 'x ' . $def['model'];
-            kanpro_ticket_followup($tid, '⚙ [KanPro] Máquinas adicionadas: ' . implode('; ', array_slice($lst, 0, 20)));
+            foreach ($defs as $def) $lst[] = '• ' . $def['qty'] . 'x ' . $def['model'];
+            kanpro_ticket_followup($tid, "⚙ [KanPro] Máquinas adicionadas\n\nForam incluídas as seguintes máquinas neste atendimento:\n\n" . implode("\n", array_slice($lst, 0, 20)));
         }
         jexit(['success'=>true,'machines'=>$all]);
 
@@ -1531,7 +1534,7 @@ switch ($action) {
         $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
         $tid = kanpro_card_ticket_id((int)$cid);
         if ($tid) {
-            kanpro_ticket_followup($tid, "⚙ [KanPro] Máquina #{$row['seq']} '" . ($row['model'] ?? '') . "' removida do card");
+            kanpro_ticket_followup($tid, "⚙ [KanPro] Remoção de máquina\n\nA máquina #{$row['seq']} '" . ($row['model'] ?? '') . "' foi removida deste atendimento.");
         }
         // apaga anotações da máquina
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
@@ -1831,7 +1834,7 @@ switch ($action) {
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes criado a partir de #{$cid} com {$pendingCount} máquinas");
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Máquinas pendentes movidas para #{$newId} ({$pendingCount}) — card original ficou vazio");
             $splitTid = kanpro_card_ticket_id($cid);
-            if ($splitTid) kanpro_ticket_followup($splitTid, "⚙ [KanPro] Todas as máquinas estavam pendentes — movidas para o card #{$newId} ({$pendingCount}). Nenhum termo gerado.");
+            if ($splitTid) kanpro_ticket_followup($splitTid, "⚙ [KanPro] Máquinas pendentes\n\nTodas as máquinas estavam com status Pendente e foram movidas para o cartão #{$newId} ({$pendingCount} máquinas).\n\nNenhum termo foi gerado.");
             jexit(['success'=>true,'pending_only'=>true,'pending_card_id'=>$newId,'pending_count'=>$pendingCount,'msg'=>"Todas as máquinas estavam como Pendente. Novo card #{$newId} criado com {$pendingCount} pendentes. Nenhum termo gerado para levar.",'progress'=>['total'=>$total,'pending'=>$pendingCount]]);
         }
         // Valida progresso 100% apenas para itens que vão para o termo (não pendentes)
@@ -1916,7 +1919,7 @@ switch ($action) {
         // Se após split não há itens para termo (caso já tratado all-pendente), sai
         if (empty($machines) || $nonCount===0) {
             $splitTid2 = kanpro_card_ticket_id($cid);
-            if ($splitTid2) kanpro_ticket_followup($splitTid2, "⚙ [KanPro] Pendentes movidos para card #{$pendingCardId} ({$pendingCount}). Nenhum termo gerado.");
+            if ($splitTid2) kanpro_ticket_followup($splitTid2, "⚙ [KanPro] Máquinas pendentes\n\nOs itens pendentes foram movidos para o cartão #{$pendingCardId} ({$pendingCount} máquinas).\n\nNenhum termo foi gerado.");
             jexit(['success'=>true,'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'msg'=>"Pendentes movidos para card #{$pendingCardId}. Nenhum termo gerado.","pending_only"=>true]);
         }
         // se há pendentes, cria novo card com eles antes de finalizar o atual
@@ -2066,17 +2069,19 @@ switch ($action) {
             try { $fu = new User(); if ($fu->getFromDB($finUid)) $finName = $fu->getFriendlyName(); } catch (Throwable $e) {}
             $techName = '';
             try { $tu = new User(); if ($tu->getFromDB($tech_id)) $techName = $tu->getFriendlyName(); } catch (Throwable $e) {}
-            $finMsg = "✅ [KanPro] Manutenção finalizada\n"
-                . "Card #{$cid} '" . ($card->fields['name'] ?? '') . "' (" . $board_name . ' / ' . $list_name . ")\n"
-                . ($techName !== '' ? 'Técnico: ' . $techName . "\n" : '')
+            $finMsg = "✅ [KanPro] Manutenção finalizada\n\n"
+                . "Cartão #{$cid} '" . ($card->fields['name'] ?? '') . "'\n"
+                . 'Quadro: ' . $board_name . "\n"
+                . 'Lista: ' . $list_name . "\n"
+                . ($techName !== '' ? 'Técnico responsável: ' . $techName . "\n" : '')
                 . ($finName !== '' ? 'Finalizado por: ' . $finName . "\n" : '')
-                . "{$total} máquinas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm})"
-                . ($pendingCount > 0 ? " | {$pendingCount} pendente(s) → card #{$pendingCardId}" : "")
-                . " | Termo de assinatura #{$transfer_id} gerado.";
+                . "\nResumo do atendimento: {$total} máquinas (Garantia: {$cntGarantiaTerm} | OK: {$cntOkTerm} | Inservível: {$cntInservivelTerm})\n"
+                . ($pendingCount > 0 ? "{$pendingCount} item(ns) pendente(s) transferido(s) para o cartão #{$pendingCardId}.\n" : '')
+                . "Termo de assinatura #{$transfer_id} gerado para coleta na escola.";
             $finRep = kanpro_card_machines_report($cid);
-            if ($finRep !== '') $finMsg .= "\n" . $finRep;
+            if ($finRep !== '') $finMsg .= "\n\n" . $finRep;
             kanpro_ticket_followup($finTid, $finMsg);
-            kanpro_ticket_solve($finTid, "Manutenção concluída pelo KanPro" . ($finName !== '' ? ' por ' . $finName : '') . " — {$total} máquinas verificadas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm}). Termo de assinatura #{$transfer_id} gerado para coleta na escola.");
+            kanpro_ticket_solve($finTid, "Manutenção concluída pelo KanPro" . ($finName !== '' ? ' (finalizado por ' . $finName . ')' : '') . " — {$total} máquinas verificadas (Garantia: {$cntGarantiaTerm} | OK: {$cntOkTerm} | Inservível: {$cntInservivelTerm}). Termo de assinatura #{$transfer_id} gerado para coleta na escola.");
         }
         $base = Plugin::getWebDir('assetmgrstatus');
         if(!$base) $base = '/plugins/assetmgrstatus';
