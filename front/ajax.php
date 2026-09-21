@@ -1323,7 +1323,6 @@ switch ($action) {
             $lst = [];
             foreach ($created as $mc) $lst[] = '#' . $mc['seq'] . ' ' . $mc['model'];
             kanpro_ticket_followup($tid, '⚙ [KanPro] Máquinas configuradas (' . count($created) . ' novas): ' . implode('; ', array_slice($lst, 0, 20)) . (count($lst) > 20 ? ' ... (+' . (count($lst) - 20) . ')' : ''));
-            kanpro_ticket_set_attending($tid);
         }
         // Retorna lista completa atualizada
         $all = [];
@@ -1518,7 +1517,6 @@ switch ($action) {
             $lst = [];
             foreach ($defs as $def) $lst[] = $def['qty'] . 'x ' . $def['model'];
             kanpro_ticket_followup($tid, '⚙ [KanPro] Máquinas adicionadas: ' . implode('; ', array_slice($lst, 0, 20)));
-            kanpro_ticket_set_attending($tid);
         }
         jexit(['success'=>true,'machines'=>$all]);
 
@@ -1534,7 +1532,6 @@ switch ($action) {
         $tid = kanpro_card_ticket_id((int)$cid);
         if ($tid) {
             kanpro_ticket_followup($tid, "⚙ [KanPro] Máquina #{$row['seq']} '" . ($row['model'] ?? '') . "' removida do card");
-            kanpro_ticket_set_attending($tid);
         }
         // apaga anotações da máquina
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
@@ -1599,8 +1596,6 @@ switch ($action) {
         ]);
         if (!$nid) jexit(['success'=>false,'msg'=>'Falha ao salvar anotação']);
         kanpro_touch_member((int)$mrow['plugin_kanpro_cards_id']);
-        $tidNote = kanpro_card_ticket_id((int)$mrow['plugin_kanpro_cards_id']);
-        if ($tidNote) kanpro_ticket_set_attending($tidNote);
         $cnt = countElementsInTable('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]);
         jexit(['success'=>true,'id'=>$nid,'count'=>$cnt]);
 
