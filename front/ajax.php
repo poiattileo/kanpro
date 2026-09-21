@@ -169,6 +169,24 @@ function kanpro_ensure_maintenance_tables() {
             } catch (Throwable $e) {}
         } catch (Throwable $e) {}
     }
+    // Anotações por máquina — cria se não existir (dispensa reinstalar o plugin)
+    if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+        try {
+            $DB->doQuery("
+                CREATE TABLE `glpi_plugin_kanpro_maintenance_notes` (
+                    `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                    `machine_id`                  INT {$sign} NOT NULL DEFAULT '0',
+                    `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                    `note`                        TEXT         DEFAULT NULL,
+                    `date_creation`               DATETIME     DEFAULT NULL,
+                    `date_mod`                    DATETIME     DEFAULT NULL,
+                    PRIMARY KEY (`id`),
+                    KEY `machine_id` (`machine_id`),
+                    KEY `date_creation` (`date_creation`)
+                ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+            ");
+        } catch (Throwable $e) {}
+    }
     // garante colunas de card
     if ($DB->tableExists('glpi_plugin_kanpro_cards')) {
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) {
@@ -1223,6 +1241,10 @@ switch ($action) {
         if (!$row) jexit(['success'=>false,'msg'=>'Não encontrado']);
         $cid = $row['plugin_kanpro_cards_id'];
         $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
+        // apaga anotações da máquina
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+            $DB->delete('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]);
+        }
         // Re-sequenciar restantes para manter 1..N contínuo
         $remaining=[];
         $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
@@ -1237,6 +1259,64 @@ switch ($action) {
         $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
         foreach($iter as $r) $all[]=$r;
         jexit(['success'=>true,'machines'=>$all]);
+
+    case 'get_machine_notes':
+        kanpro_ensure_maintenance_tables();
+        $mid = (int)($_REQUEST['machine_id'] ?? $_REQUEST['id'] ?? 0);
+        if (!$mid) jexit(['success'=>false,'msg'=>'Máquina inválida']);
+        $notes = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+            $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_notes','WHERE'=>['machine_id'=>$mid],'ORDER'=>['date_creation ASC','id ASC']]);
+            foreach ($iter as $r) $notes[] = $r;
+        }
+        // nomes dos autores em lote
+        $uids = array_values(array_unique(array_filter(array_map(fn($n)=> (int)($n['users_id'] ?? 0), $notes))));
+        $names = [];
+        if (!empty($uids)) {
+            foreach ($DB->request(['SELECT'=>['id','name','realname','firstname'],'FROM'=>'glpi_users','WHERE'=>['id'=>$uids]]) as $u) {
+                $full = trim(($u['firstname'] ?? '') . ' ' . ($u['realname'] ?? ''));
+                if ($full === '') $full = $u['name'] ?? ('#' . $u['id']);
+                $names[(int)$u['id']] = $full;
+            }
+        }
+        foreach ($notes as &$n) {
+            $n['user_name'] = ($n['users_id'] && isset($names[(int)$n['users_id']])) ? $names[(int)$n['users_id']] : 'Sistema';
+        }
+        unset($n);
+        jexit(['success'=>true,'notes'=>$notes,'count'=>count($notes)]);
+
+    case 'add_machine_note':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $mid = (int)($_POST['machine_id'] ?? $_POST['id'] ?? 0);
+        $note = trim($_POST['note'] ?? '');
+        if (!$mid) jexit(['success'=>false,'msg'=>'Máquina inválida']);
+        if ($note === '') jexit(['success'=>false,'msg'=>'Escreva a anotação']);
+        $mrow = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
+        if (!$mrow) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
+        $now = date('Y-m-d H:i:s');
+        $nid = $DB->insert('glpi_plugin_kanpro_maintenance_notes', [
+            'machine_id'    => $mid,
+            'users_id'      => Session::getLoginUserID(),
+            'note'          => mb_substr($note, 0, 2000),
+            'date_creation' => $now,
+            'date_mod'      => $now,
+        ]);
+        if (!$nid) jexit(['success'=>false,'msg'=>'Falha ao salvar anotação']);
+        $cnt = countElementsInTable('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]);
+        jexit(['success'=>true,'id'=>$nid,'count'=>$cnt]);
+
+    case 'delete_machine_note':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $nid = (int)($_POST['id'] ?? $_POST['note_id'] ?? 0);
+        if (!$nid) jexit(['success'=>false,'msg'=>'Anotação inválida']);
+        $nrow = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_notes','WHERE'=>['id'=>$nid]])->current();
+        if (!$nrow) jexit(['success'=>false,'msg'=>'Anotação não encontrada']);
+        $mid = (int)$nrow['machine_id'];
+        $DB->delete('glpi_plugin_kanpro_maintenance_notes', ['id'=>$nid]);
+        $cnt = $DB->tableExists('glpi_plugin_kanpro_maintenance_notes') ? countElementsInTable('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]) : 0;
+        jexit(['success'=>true,'count'=>$cnt,'machine_id'=>$mid]);
 
     case 'retirada_machine':
         needEdit();

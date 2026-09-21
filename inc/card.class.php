@@ -70,6 +70,14 @@ class PluginKanproCard extends CommonDBTM {
         $DB->delete('glpi_plugin_kanpro_activities', ['plugin_kanpro_cards_id' => $cid]);
         // manutenção
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            // apaga anotações das máquinas antes das máquinas
+            if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+                $mids = [];
+                foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $cid]]) as $mr) {
+                    $mids[] = (int)$mr['id'];
+                }
+                if (!empty($mids)) $DB->delete('glpi_plugin_kanpro_maintenance_notes', ['machine_id' => $mids]);
+            }
             $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id' => $cid]);
         }
     }
@@ -312,6 +320,24 @@ class PluginKanproCard extends CommonDBTM {
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             $mm = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id],'ORDER'=>'seq ASC']);
             foreach ($mm as $r) $data['maintenance_machines'][] = $r;
+            // contagem de anotações por máquina (1 query)
+            if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes') && !empty($data['maintenance_machines'])) {
+                $noteCounts = [];
+                try {
+                    foreach ($DB->request(['SELECT' => ['machine_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_maintenance_notes', 'WHERE' => ['machine_id' => array_column($data['maintenance_machines'], 'id')], 'GROUPBY' => ['machine_id']]) as $nc) {
+                        $noteCounts[(int)$nc['machine_id']] = (int)$nc['total'];
+                    }
+                } catch (\Throwable $e) {}
+                foreach ($data['maintenance_machines'] as &$mref) {
+                    $mref['notes_count'] = $noteCounts[(int)$mref['id']] ?? 0;
+                }
+                unset($mref);
+            } else {
+                foreach ($data['maintenance_machines'] as &$mref) {
+                    $mref['notes_count'] = 0;
+                }
+                unset($mref);
+            }
             $total = count($data['maintenance_machines']);
             $done = 0;
             $urgent = 0;

@@ -1039,6 +1039,9 @@
                   <i class="${urgIcon}" style="font-size:12px"></i> ${urgLabel}
                 </button>
                 ${isUrgent ? `<button onclick="Kanpro.retiradaMachine(${m.id})" title="Criar card de Retirada para esta máquina e ir para Assinatura" style="display:flex;align-items:center;gap:4px;background:#ff5630;color:#fff;border:1px solid #ff5630;padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-truck" style="font-size:12px"></i> Retirada</button>` : ""}
+                <button onclick="Kanpro.openMachineNotes(${m.id})" title="Anotações sobre esta máquina" style="position:relative;display:flex;align-items:center;gap:4px;background:#fff;color:#5e6c84;border:1px solid #dfe1e6;padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">
+                  <i class="ti ti-notes" style="font-size:13px"></i> Notas${(parseInt(m.notes_count||0)>0)?`<span style="background:#eb5a46;color:#fff;min-width:18px;height:18px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;padding:0 5px">${parseInt(m.notes_count)}</span>`:""}
+                </button>
                 <button onclick="Kanpro.deleteMaintenanceMachine(${m.id})" title="Remover máquina" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:14px"></i></button>
               </div>
             </div>
@@ -1768,6 +1771,61 @@
           if(res.success){
             this.showToast("Máquina removida");
             this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          } else alert(res.msg||"Erro");
+        });
+      });
+    },
+    // ---------- ANOTAÇÕES DA MÁQUINA ----------
+    openMachineNotes(mid){
+      const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
+      const title = data ? `Anotações — Máquina #${data.seq} ${data.model||''}` : `Anotações da máquina`;
+      this.showPicker({title, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px"></i><br>Carregando anotações...</div>'});
+      this.ajax("get_machine_notes", {machine_id: mid}).then(res=>{
+        if(!res.success){ this.showPicker({title, html: `<div style="padding:16px;color:#eb5a46">${this.escape(res.msg||'Erro ao carregar')}</div>`}); return; }
+        const notes = res.notes || [];
+        let html = `<div style="display:grid;gap:8px;max-height:300px;overflow-y:auto;margin-bottom:12px">`;
+        if(!notes.length) html += `<div style="text-align:center;color:#97a0af;font-size:13px;padding:16px 8px"><i class="ti ti-notes-off" style="font-size:22px"></i><br>Nenhuma anotação ainda.<br>Registre observações sobre esta máquina abaixo.</div>`;
+        notes.forEach(n=>{
+          const when = n.date_creation ? new Date(n.date_creation.replace(' ','T')).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+          html += `<div style="background:#f4f5f7;border-radius:6px;padding:8px 10px">
+            <div style="font-size:13px;color:#172b4d;white-space:pre-wrap;word-break:break-word">${this.escape(n.note||'')}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:#97a0af">
+              <span style="font-weight:700">${this.escape(n.user_name||'')}</span><span>${this.escape(when)}</span>
+              <button onclick="Kanpro.deleteMachineNote(${n.id}, ${mid})" title="Excluir anotação" style="margin-left:auto;background:none;border:none;color:#eb5a46;cursor:pointer;font-size:14px"><i class="ti ti-trash"></i></button>
+            </div>
+          </div>`;
+        });
+        html += `</div>`;
+        html += `<div style="display:grid;gap:8px">
+          <textarea id="machine-note-input" placeholder="Escrever anotação sobre esta máquina..." style="width:100%;min-height:64px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Fechar</button>
+            <button onclick="Kanpro.addMachineNote(${mid})" style="background:#0079bf;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-plus"></i> Adicionar</button>
+          </div>
+        </div>`;
+        this.showPicker({title, html});
+        setTimeout(()=>{ const ta=document.getElementById('machine-note-input'); if(ta) ta.focus(); }, 100);
+      });
+    },
+    addMachineNote(mid){
+      const ta = document.getElementById('machine-note-input');
+      const text = (ta ? ta.value : '').trim();
+      if(!text){ if(ta) ta.focus(); return; }
+      this.ajax("add_machine_note", {machine_id: mid, note: text}).then(res=>{
+        if(res.success){
+          this.showToast("Anotação adicionada");
+          this.openMachineNotes(mid); // recarrega lista
+          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        } else alert(res.msg||"Erro");
+      });
+    },
+    deleteMachineNote(noteId, mid){
+      this.kpConfirm("Excluir esta anotação?").then(ok=>{
+        if(!ok) return;
+        this.ajax("delete_machine_note", {id: noteId}).then(res=>{
+          if(res.success){
+            this.openMachineNotes(mid); // recarrega lista
+            this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
           } else alert(res.msg||"Erro");
         });
       });

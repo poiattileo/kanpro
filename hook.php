@@ -328,6 +328,23 @@ function plugin_kanpro_install(): bool {
         }
     }
 
+    // --- MAINTENANCE NOTES (Anotações por máquina) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_maintenance_notes` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `machine_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_plugin_kanpro_maintenance_machines.id',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `note`                        TEXT         DEFAULT NULL,
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `machine_id` (`machine_id`),
+                KEY `date_creation` (`date_creation`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
     return true;
 }
@@ -338,6 +355,7 @@ function plugin_kanpro_uninstall(): bool {
     PluginKanproProfile::uninstall();
 
     $tables = [
+        'glpi_plugin_kanpro_maintenance_notes',
         'glpi_plugin_kanpro_maintenance_machines',
         'glpi_plugin_kanpro_activities',
         'glpi_plugin_kanpro_attachments',
