@@ -176,6 +176,9 @@ class PluginKanproBoard extends CommonDBTM {
             '#091e42' => 'Azul Noite',
             '#6b778c' => 'Cinza Neutro',
             '#2c3e50' => 'Cinza Azulado',
+            '#0078d4' => 'Azul Windows',
+            '#e95420' => 'Laranja Ubuntu',
+            '#8e8e93' => 'Cinza macOS',
         ];
     }
 
@@ -194,6 +197,15 @@ class PluginKanproBoard extends CommonDBTM {
             'linear-gradient(135deg, #e1316f 0%, #ff7452 100%)' => 'Magenta Flame',
             'linear-gradient(135deg, #091e42 0%, #6554c0 100%)' => 'Galáxia',
             'linear-gradient(135deg, #172b4d 0%, #00aecc 100%)' => 'Boreal',
+            'linear-gradient(135deg, #0b6cb4 0%, #59b947 100%)' => 'Windows XP',
+            'linear-gradient(135deg, #0078d4 0%, #5b5bd6 100%)' => 'Windows 11',
+            'linear-gradient(135deg, #0f9d8f 0%, #7fd4c1 100%)' => 'Windows Vista',
+            'linear-gradient(135deg, #e95420 0%, #77216f 100%)' => 'Ubuntu',
+            'linear-gradient(135deg, #3fa34d 0%, #1b4d2e 100%)' => 'Mint',
+            'linear-gradient(135deg, #2c001e 0%, #77216f 100%)' => 'Terminal Linux',
+            'linear-gradient(135deg, #2d5da1 0%, #9b59d0 100%)' => 'Big Sur',
+            'linear-gradient(135deg, #ff6a00 0%, #ee0979 100%)' => 'Ventura',
+            'linear-gradient(135deg, #1c1c1e 0%, #4a4a4f 100%)' => 'macOS Escuro',
         ];
     }
 
