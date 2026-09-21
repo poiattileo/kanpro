@@ -232,11 +232,6 @@ foreach ($all_cards as $c) {
 $comment_counts_json = json_encode($comment_counts);
 $att_counts_json = json_encode($att_counts);
 
-$generate_term_btn = '';
-if (!empty($board->fields['generate_term'])) {
-    $generate_term_btn = '<a href="http://10.180.152.31/termo/" target="_blank" rel="noopener" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i> Gerar termo</a>';
-}
-
 $hasMaintenance = count(array_filter($all_cards, fn($c) => !empty($c['is_maintenance']))) > 0;
 $assinatura_url = $CFG_GLPI['root_doc'] . '/plugins/assetmgrstatus/front/assinatura.php?f=pendente';
 $assinatura_btn = '<a id="kanpro-assinatura-btn" href="' . $assinatura_url . '" target="_blank" rel="noopener" title="Ir para Assinaturas (termos pendentes)" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:700;text-decoration:none;display:' . ($hasMaintenance ? 'inline-flex' : 'none') . ';align-items:center;gap:6px;box-shadow:0 2px 6px rgba(79,70,229,.3)"><i class="ti ti-signature"></i> Assinaturas</a>';
@@ -264,7 +259,6 @@ echo <<<HTML
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       <button onclick="Kanpro.openInvite()" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600"><i class="ti ti-user-plus"></i> Convidar</button>
-      {$generate_term_btn}
       {$assinatura_btn}
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
       <button onclick="Kanpro.openGlobalSearch()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer" title="Buscar em todos os quadros"><i class="ti ti-search"></i> Busca global</button>
