@@ -441,6 +441,19 @@ echo <<<HTML
       </div>
     </div>
     <div>
+      <div style="font-weight:600;margin-bottom:8px">Fundo do quadro</div>
+      <div id="board-menu-color-preview" style="height:42px;border-radius:8px;border:1px solid #dfe1e6;margin-bottom:6px"></div>
+      <div id="board-menu-color-label" style="font-size:12px;color:#5e6c84;margin-bottom:8px"></div>
+      <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">CORES SÓLIDAS</div>
+      <div id="board-menu-colors" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+      <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">DEGRADÊS — TEMAS</div>
+      <div id="board-menu-gradients" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="color" id="board-menu-custom" value="#0079bf" style="width:44px;height:34px;border:none;padding:0;border-radius:6px;cursor:pointer">
+        <button onclick="Kanpro.setBoardColor(document.getElementById('board-menu-custom').value)" style="background:#0079bf;color:#fff;border:none;padding:7px 12px;border-radius:4px;cursor:pointer;font-weight:700">Aplicar cor</button>
+      </div>
+    </div>
+    <div>
       <div style="font-weight:600;margin-bottom:8px">Etiquetas</div>
       <div id="board-menu-labels" style="display:grid;gap:6px"></div>
       <button onclick="Kanpro.addBoardLabel()" style="margin-top:8px;background:#eaecf0;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;width:100%">
