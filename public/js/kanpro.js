@@ -1291,6 +1291,7 @@
         }
         this.closePicker();
         this.showToast("Card convertido para Manutenção — " + (res.new_name||""));
+        this.handleConvertTicket(res);
         const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
         if(c){ c.is_maintenance=1; if(res.new_name) c.name=res.new_name; this.renderBoard(); }
         this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
@@ -1408,6 +1409,7 @@
         }
         this.closePicker();
         this.showToast("Card convertido para Manutenção!");
+        this.handleConvertTicket(res);
         const c = this.cards.find(x=> x.id==this.currentCardId);
         if(c) c.is_maintenance=1;
         this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
@@ -2592,6 +2594,43 @@
     },
 
     // ---------- CARD <-> CHAMADO ----------
+    async ticketButton(){
+      if(!this.currentCardId) return;
+      const atual = this.ticketMap && this.ticketMap[this.currentCardId];
+      if (atual) {
+        const change = await this.kpConfirm('Este cartão já tem o chamado #' + atual.id + ' vinculado.\n\n(OK = vincular OUTRO pelo nº • Cancelar = voltar)');
+        if (!change) return;
+        this.linkTicketPicker();
+        return;
+      }
+      const create = await this.kpConfirm('Criar um NOVO chamado a partir deste cartão?\n\n(OK = criar novo • Cancelar = vincular um existente pelo nº)');
+      if (create) {
+        this.ajax('create_ticket_from_card', {cards_id: this.currentCardId}).then(res=>{
+          if(res.success){
+            this.ticketMap[this.currentCardId] = res.ticket;
+            const c = this.cards.find(x=> x.id==this.currentCardId);
+            if(c) c.tickets_id = res.ticket.id;
+            this.showToast('Chamado #' + res.ticket.id + (res.existed ? ' (já existia, vinculado)' : ' criado e vinculado!'));
+            this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+            this.renderBoard();
+          } else alert(res.msg||'Erro ao criar chamado');
+        });
+      } else {
+        this.linkTicketPicker();
+      }
+    },
+    handleConvertTicket(res){
+      if(!res || !this.currentCardId) return;
+      if(res.ticket_id){
+        this.ticketMap[this.currentCardId] = {id: res.ticket_id, name:'', restricted:true, status:1, status_label:'Novo'};
+        const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
+        if(c) c.tickets_id = res.ticket_id;
+        this.showToast('Chamado #' + res.ticket_id + ' criado automaticamente!');
+        this.renderBoard();
+      } else if(res.ticket_warning){
+        this.showToast('Chamado não criado: ' + res.ticket_warning);
+      }
+    },
     async linkTicketPicker(){
       if(!this.currentCardId) return;
       const atual = this.ticketMap && this.ticketMap[this.currentCardId];

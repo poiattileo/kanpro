@@ -406,7 +406,7 @@ echo <<<HTML
             <button class="kp-sidebar-btn" onclick="Kanpro.openDatesPicker()"><i class="ti ti-clock"></i> Datas</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.openCoverPicker()"><i class="ti ti-photo"></i> Capa</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.editMaintenanceCardTitle('Escola')" title="Escolher escola (entidade) como nome do cartão"><i class="ti ti-school"></i> Escola</button>
-            <button class="kp-sidebar-btn" onclick="Kanpro.linkTicketPicker()" title="Vincular chamado GLPI ao cartão"><i class="ti ti-ticket"></i> Chamado</button>
+            <button class="kp-sidebar-btn" onclick="Kanpro.ticketButton()" title="Criar chamado a partir do cartão ou vincular existente"><i class="ti ti-ticket"></i> Chamado</button>
           </div>
         </div>
         <div>

@@ -256,6 +256,44 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
     } catch (Throwable $e) {}
 }
 
+// Cria um chamado GLPI a partir do cartão e vincula (tickets_id).
+// Usado na conversão para manutenção (automático) e no botão Chamado.
+// Se o cartão já tem chamado válido, só retorna o vínculo existente.
+function kanpro_create_ticket_from_card(int $cards_id): array {
+    global $DB;
+    if (!class_exists('Ticket')) return ['ok' => false, 'error' => 'Classe Ticket indisponível'];
+    $card = new PluginKanproCard();
+    if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Cartão não encontrado'];
+    if (!Session::haveRight('ticket', CREATE)) return ['ok' => false, 'error' => 'Sem permissão para criar chamados (perfil sem ticket CREATE)'];
+    $old = (int)($card->fields['tickets_id'] ?? 0);
+    if ($old > 0) {
+        $tkOld = new Ticket();
+        if ($tkOld->getFromDB($old)) return ['ok' => true, 'id' => $old, 'existed' => true, 'ticket' => kanpro_ticket_info($old)];
+    }
+    $board = new PluginKanproBoard();
+    $board->getFromDB((int)$card->fields['plugin_kanpro_boards_id']);
+    $list = new PluginKanproList();
+    $list->getFromDB((int)$card->fields['plugin_kanpro_lists_id']);
+    $entities_id = (int)($board->fields['entities_id'] ?? 0);
+    if ($entities_id <= 0) $entities_id = (int)($_SESSION['glpiactive_entity'] ?? 0);
+    $content = 'Criado automaticamente pelo KanPro a partir do cartão #' . $cards_id
+        . ' (' . ($board->fields['name'] ?? 'Quadro') . ' / ' . ($list->fields['name'] ?? 'Lista') . ').';
+    if (!empty($card->fields['description'])) $content .= "\n\nDescrição do cartão:\n" . $card->fields['description'];
+    $tk = new Ticket();
+    $tid = $tk->add([
+        'name' => mb_substr(trim($card->fields['name'] ?? ('Cartão #' . $cards_id)), 0, 255),
+        'content' => $content,
+        'entities_id' => $entities_id,
+        'status' => 1,
+        '_users_id_requester' => Session::getLoginUserID(),
+    ]);
+    if (!$tid) return ['ok' => false, 'error' => 'Falha ao criar chamado (verifique entidade/perfil)'];
+    $tid = (int)$tid;
+    $DB->update('glpi_plugin_kanpro_cards', ['tickets_id' => $tid], ['id' => $cards_id]);
+    PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cards_id, $card->fields['plugin_kanpro_lists_id'], 'card_create_ticket', "Chamado #{$tid} criado a partir do cartão");
+    return ['ok' => true, 'id' => $tid, 'ticket' => kanpro_ticket_info($tid)];
+}
+
 switch ($action) {
 
     // --- BOARD ---
@@ -1066,7 +1104,19 @@ switch ($action) {
         ];
         $DB->update('glpi_plugin_kanpro_cards', $updateData, ['id' => $cid]);
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_maintenance_convert', "Cartão convertido para manutenção por ". Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})");
-        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1,'new_name'=>$newName,'entities_id'=>$entities_id]);
+        kanpro_touch_member($cid);
+        // gera chamado GLPI automaticamente (não bloqueia a conversão se falhar)
+        $autoTicketId = 0;
+        $autoTicketWarn = '';
+        try {
+            $autoRes = kanpro_create_ticket_from_card($cid);
+            if (!empty($autoRes['ok'])) {
+                $autoTicketId = (int)($autoRes['id'] ?? 0);
+            } else {
+                $autoTicketWarn = $autoRes['error'] ?? 'falha desconhecida';
+            }
+        } catch (Throwable $e) { $autoTicketWarn = $e->getMessage(); }
+        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1,'new_name'=>$newName,'entities_id'=>$entities_id,'ticket_id'=>$autoTicketId,'ticket_warning'=>$autoTicketWarn]);
 
     case 'verify_maintenance_password':
         // endpoint auxiliar só para validar senha antes de converter (usado em fluxo 2 etapas separado)
@@ -1888,6 +1938,17 @@ switch ($action) {
         $DB->update('glpi_plugin_kanpro_cards', ['tickets_id'=>0], ['id'=>$cid]);
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_unlink_ticket', "Chamado #{$old} desvinculado do cartão");
         jexit(['success'=>true]);
+
+    case 'create_ticket_from_card':
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        try {
+            $res = kanpro_create_ticket_from_card($cid);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
+        if (empty($res['ok'])) jexit(['success'=>false,'msg'=>$res['error'] ?? 'Falha ao criar chamado']);
+        kanpro_touch_member($cid);
+        jexit(['success'=>true,'ticket'=>$res['ticket'],'existed'=>!empty($res['existed'])]);
 
     default:
         jexit(['success'=>false,'msg'=>'Ação desconhecida: '.$action]);
