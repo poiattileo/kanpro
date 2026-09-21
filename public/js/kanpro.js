@@ -2739,6 +2739,7 @@
       this.loadBoardActivity();
       this.renderBoardMenuColors();
       this.renderBoardMenuBackground();
+      this.renderBoardMenuWallpapers();
     },
     closeBoardMenu(){ $('#kanpro-board-menu').style.display='none'; },
     // --- NOVO: paleta de cores/temas dentro do quadro ---
@@ -2875,6 +2876,42 @@
         } else alert(res.msg||'Erro ao remover');
       });
     },
+    // --- Papéis de parede prontos (SVG embutido) ---
+    getBoardWallpapers(){
+      return [
+        {key:'xp-bliss', file:'xp-bliss.svg', label:'Windows XP'},
+        {key:'win11-bloom', file:'win11-bloom.svg', label:'Windows 11'},
+        {key:'vista-aurora', file:'vista-aurora.svg', label:'Windows Vista'},
+        {key:'ubuntu', file:'ubuntu.svg', label:'Ubuntu'},
+        {key:'mint', file:'mint.svg', label:'Mint'},
+        {key:'mac-waves', file:'mac-waves.svg', label:'macOS Ondas'},
+        {key:'mac-night', file:'mac-night.svg', label:'macOS Noite'},
+      ];
+    },
+    wallpaperThumbUrl(file){
+      return this.ajax_url.replace('/front/ajax.php','/public/img/wallpapers/'+file);
+    },
+    setBoardWallpaper(key, closeAfter){
+      if(!key) return;
+      this.ajax('set_board_wallpaper', {boards_id: this.board.id, wallpaper: key}).then(res=>{
+        if(res.success){
+          this.board.background = res.background;
+          this.applyBoardBackground();
+          this.renderBoardMenuBackground();
+          this.showToast('Papel de parede aplicado!');
+          if(closeAfter) this.closePicker();
+        } else alert(res.msg||'Erro ao aplicar papel de parede');
+      });
+    },
+    renderBoardMenuWallpapers(){
+      const wrap = document.getElementById('board-menu-wallpapers');
+      if(!wrap) return;
+      wrap.innerHTML = this.getBoardWallpapers().map(w=>`
+        <div onclick="Kanpro.setBoardWallpaper('${w.key}')" title="${this.escape(w.label)}" style="position:relative;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid #dfe1e6;box-shadow:0 1px 3px rgba(0,0,0,.15);height:56px">
+          <img src="${this.wallpaperThumbUrl(w.file)}" alt="${this.escape(w.label)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
+          <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(9,30,66,.65);color:#fff;font-size:10px;font-weight:700;padding:2px 6px">${this.escape(w.label)}</span>
+        </div>`).join('');
+    },
     setBoardColor(color){
       if(!color) return;
       const isHex = /^#[0-9a-fA-F]{6}$/.test(color);
@@ -2911,12 +2948,25 @@
         const border = isSel ? '3px solid #172b4d' : '2px solid #dfe1e6';
         return `<button onclick="Kanpro.setBoardColor('${escGrad}');Kanpro.closePicker()" title="${this.escape(label)}" style="width:86px;height:38px;border-radius:8px;background:${grad};border:${border};cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;text-shadow:0 1px 2px rgba(0,0,0,.4)">${isSel?'✓':''}</button>`;
       }).join('');
+      let wallsHtml = this.getBoardWallpapers().map(w=>`
+        <div onclick="Kanpro.setBoardWallpaper('${w.key}', true)" title="${this.escape(w.label)}" style="position:relative;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid #dfe1e6;box-shadow:0 1px 3px rgba(0,0,0,.15);height:64px">
+          <img src="${this.wallpaperThumbUrl(w.file)}" alt="${this.escape(w.label)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">
+          <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(9,30,66,.65);color:#fff;font-size:10px;font-weight:700;padding:2px 6px">${this.escape(w.label)}</span>
+        </div>`).join('');
       const html = `
         <div style="display:grid;gap:14px">
           <div style="height:42px;border-radius:8px;border:1px solid #dfe1e6;background:${current};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.4)" id="picker-preview">Prévia: ${this.escape(current)}</div>
           <div>
             <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">CORES SÓLIDAS</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">${solidsHtml}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">DEGRADÊS — TEMAS</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${gradsHtml}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">PAPÉIS DE PAREDE</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${wallsHtml}</div>
           </div>
           <div>
             <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">DEGRADÊS — TEMAS</div>

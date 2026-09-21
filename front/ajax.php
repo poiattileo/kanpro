@@ -297,6 +297,18 @@ switch ($action) {
         PluginKanproBoard::deleteBackgroundFile($bid);
         jexit(['success'=>true]);
 
+    case 'set_board_wallpaper':
+        needEdit();
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $key = trim($_POST['wallpaper'] ?? '');
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $board = new PluginKanproBoard();
+        if (!$board->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        $rel = PluginKanproBoard::setBoardWallpaper($bid, $key);
+        if (!$rel) jexit(['success'=>false,'msg'=>'Papel de parede inválido']);
+        $board->getFromDB($bid);
+        jexit(['success'=>true,'background'=>$rel,'url'=>PluginKanproBoard::getBackgroundImageUrl($bid, $rel)]);
+
     case 'invite_member':
         needEdit();
         $bid = (int)($_POST['boards_id'] ?? 0);

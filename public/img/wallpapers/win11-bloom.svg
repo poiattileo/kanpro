@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b3d91"/>
+      <stop offset="1" stop-color="#061a3a"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="60"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <g filter="url(#soft)">
+    <ellipse cx="700" cy="620" rx="420" ry="260" fill="#2f7fe0" transform="rotate(-18 700 620)"/>
+    <ellipse cx="1150" cy="560" rx="460" ry="280" fill="#6a5cff" transform="rotate(14 1150 560)"/>
+    <ellipse cx="950" cy="700" rx="380" ry="220" fill="#00c6ff" opacity=".8" transform="rotate(-8 950 700)"/>
+    <ellipse cx="1350" cy="750" rx="300" ry="200" fill="#b388ff" opacity=".7" transform="rotate(20 1350 750)"/>
+    <ellipse cx="480" cy="800" rx="260" ry="180" fill="#1e5fb8" opacity=".85" transform="rotate(-24 480 800)"/>
+  </g>
+  <ellipse cx="960" cy="1050" rx="900" ry="140" fill="#04102a" opacity=".45"/>
+</svg>

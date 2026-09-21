@@ -448,6 +448,8 @@ echo <<<HTML
       <div id="board-menu-colors" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
       <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">DEGRADÊS — TEMAS</div>
       <div id="board-menu-gradients" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+      <div style="font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">PAPÉIS DE PAREDE</div>
+      <div id="board-menu-wallpapers" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px"></div>
       <div style="display:flex;align-items:center;gap:8px">
         <input type="color" id="board-menu-custom" value="#0079bf" style="width:44px;height:34px;border:none;padding:0;border-radius:6px;cursor:pointer">
         <button onclick="Kanpro.setBoardColor(document.getElementById('board-menu-custom').value)" style="background:#0079bf;color:#fff;border:none;padding:7px 12px;border-radius:4px;cursor:pointer;font-weight:700">Aplicar cor</button>

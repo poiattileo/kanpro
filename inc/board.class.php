@@ -217,6 +217,59 @@ class PluginKanproBoard extends CommonDBTM {
         ];
     }
 
+    // Papéis de parede prontos (SVG embutido no plugin) — chave => arquivo
+    static function getBoardWallpapers(): array {
+        return [
+            'xp-bliss'    => 'xp-bliss.svg',
+            'win11-bloom' => 'win11-bloom.svg',
+            'vista-aurora'=> 'vista-aurora.svg',
+            'ubuntu'      => 'ubuntu.svg',
+            'mint'        => 'mint.svg',
+            'mac-waves'   => 'mac-waves.svg',
+            'mac-night'   => 'mac-night.svg',
+        ];
+    }
+
+    // Aplica um papel de parede pronto ao quadro (copia o SVG para o slot de background)
+    static function setBoardWallpaper(int $boards_id, string $key): ?string {
+        global $DB;
+        if ($boards_id <= 0) return null;
+        $map = self::getBoardWallpapers();
+        if (!isset($map[$key])) return null;
+        $plugDir = method_exists('Plugin', 'getPhpDir') ? Plugin::getPhpDir('kanpro') : (defined('GLPI_ROOT') ? GLPI_ROOT . '/plugins/kanpro' : null);
+        if (!$plugDir) return null;
+        $src = $plugDir . '/public/img/wallpapers/' . $map[$key];
+        if (!is_file($src)) return null;
+        // garante coluna background
+        try {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
+            }
+        } catch (Throwable $e) {}
+        // remove imagem antiga do mesmo quadro
+        try {
+            if ($DB->tableExists('glpi_plugin_kanpro_boards')) {
+                $row = $DB->request(['SELECT'=>['background'],'FROM'=>'glpi_plugin_kanpro_boards','WHERE'=>['id'=>$boards_id]])->current();
+                $old = $row['background'] ?? null;
+                if (!empty($old)) {
+                    $oldPath = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $old;
+                    if (is_file($oldPath)) @unlink($oldPath);
+                }
+            }
+        } catch (Throwable $e) {}
+        $dir = GLPI_PLUGIN_DOC_DIR . '/kanpro/boards/' . $boards_id . '/';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) return null;
+        $dest = $dir . 'bg_wall_' . preg_replace('/[^a-z0-9_-]/i', '', $key) . '.svg';
+        if (!@copy($src, $dest) || !is_file($dest)) return null;
+        $relative = 'boards/' . $boards_id . '/' . basename($dest);
+        try {
+            $DB->update('glpi_plugin_kanpro_boards', ['background'=>$relative,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$boards_id]);
+        } catch (Throwable $e) {
+            return null;
+        }
+        return $relative;
+    }
+
     // === Background por imagem ===
     static function getBackgroundImageUrl(int $boards_id, ?string $background = null): string {
         if (empty($background)) return '';
