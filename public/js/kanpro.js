@@ -2299,8 +2299,28 @@
       const search=document.getElementById("rename-entity-search");
       const err=document.getElementById("rename-entity-error");
       const btn=document.getElementById("rename-entity-save");
-      const entities_id = hid ? parseInt(hid.value||"0") : 0;
-      const selectedName = hid ? (hid.dataset.name||"") : "";
+      let entities_id = hid ? parseInt(hid.value||"0") : 0;
+      let selectedName = hid ? (hid.dataset.name||"") : "";
+      if(!entities_id){
+        // fallback: resolve pelo texto (caso o clique não tenha fixado o id — ex: nome digitado por extenso)
+        const typed = (search ? search.value : '').trim();
+        if(typed){
+          const norm=s=> s.normalize ? s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase() : s.toLowerCase();
+          const ntyped = norm(typed);
+          const found = (this._renameEntities||this._maintEntities||[]).find(e=>{
+            const raw=(e.completename||e.name||'');
+            const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
+            return norm(short)===ntyped || norm(raw)===ntyped || norm(e.name||'')===ntyped;
+          });
+          if(found && parseInt(found.id)){
+            entities_id = parseInt(found.id);
+            const fraw=(found.completename||found.name||'');
+            selectedName = fraw.includes(' > ') ? fraw.split(' > ').pop().trim() : fraw;
+            if(hid){ hid.value=String(entities_id); hid.dataset.name=selectedName; }
+            try{ console.warn('[kanpro] entidade resolvida pelo texto:', typed, entities_id); }catch(e){}
+          }
+        }
+      }
       if(!entities_id){
         if(err){ err.textContent="Selecione a entidade."; err.style.display="block"; }
         if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showRenameEntityDropdown(); }
