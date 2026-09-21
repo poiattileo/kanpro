@@ -311,8 +311,9 @@ function kanpro_card_ticket_id(int $cards_id): int {
     } catch (Throwable $e) { return 0; }
 }
 
-// Acompanhamento no chamado vinculado (nunca quebra o fluxo principal)
-function kanpro_ticket_followup(int $tickets_id, string $content): bool {
+// Acompanhamento no chamado vinculado (nunca quebra o fluxo principal).
+// Por padrão também atribui quem agiu (type=2), sem duplicar.
+function kanpro_ticket_followup(int $tickets_id, string $content, bool $assignActingUser = true): bool {
     if ($tickets_id <= 0 || trim($content) === '' || !class_exists('ITILFollowup')) return false;
     try {
         $tf = new ITILFollowup();
@@ -323,6 +324,7 @@ function kanpro_ticket_followup(int $tickets_id, string $content): bool {
             'users_id' => Session::getLoginUserID(),
             'is_private' => 0,
         ]);
+        if ($fid && $assignActingUser) kanpro_ticket_assign($tickets_id, Session::getLoginUserID());
         return (bool)$fid;
     } catch (Throwable $e) { return false; }
 }
