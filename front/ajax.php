@@ -915,6 +915,8 @@ switch ($action) {
 
     case 'list_entities':
         // Lista entidades GLPI para seleção ao converter manutenção — nome do Card vira nome da Entidade
+        // include_root=1 (botão Escola): inclui a mãe "Unidade Regional de Ensino de Jales" na lista
+        $includeRoot = !empty($_REQUEST['include_root']);
         $entities = [];
         try {
             $iter = $DB->request(['FROM' => 'glpi_entities', 'ORDER' => 'completename ASC']);
@@ -923,9 +925,11 @@ switch ($action) {
                 if (isset($row['is_deleted']) && $row['is_deleted']) continue;
                 $cname = trim($row['completename'] ?? $row['name'] ?? '');
                 $rname = trim($row['name'] ?? '');
-                // remove a própria "Unidade Regional de Ensino de Jales" da lista
-                if ($cname === 'Unidade Regional de Ensino de Jales' || $rname === 'Unidade Regional de Ensino de Jales') continue;
-                if (strcasecmp($cname, 'Unidade Regional de Ensino de Jales') === 0) continue;
+                // remove a própria "Unidade Regional de Ensino de Jales" da lista (exceto botão Escola)
+                if (!$includeRoot) {
+                    if ($cname === 'Unidade Regional de Ensino de Jales' || $rname === 'Unidade Regional de Ensino de Jales') continue;
+                    if (strcasecmp($cname, 'Unidade Regional de Ensino de Jales') === 0) continue;
+                }
                 $entities[] = [
                     'id'           => (int)$row['id'],
                     'name'         => $row['name'] ?? '',

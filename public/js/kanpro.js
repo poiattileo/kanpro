@@ -2125,17 +2125,17 @@
       if(!cur) return;
       this.showPicker({title:pickerTitle, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>Carregando entidades...</div>'});
       const doShow = (entities)=>{
-        // filtra raiz e já sem prefixo
+        // botão Escola: mostra todas, inclusive a mãe (só ignora a raiz técnica)
         const filteredEntities = (entities||[]).filter(e=>{
           const raw=(e.completename||e.name||'').trim();
-          return raw !== 'Unidade Regional de Ensino de Jales' && raw.toLowerCase() !== 'unidade regional de ensino de jales' && raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
+          return raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
         });
         this._renameEntities = filteredEntities;
         const curName = this.escape(cur.name);
         const html = `
           <div style="display:grid;gap:10px">
             <div style="background:#e6f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:6px;color:#003a8c;font-size:12px;line-height:1.3">
-              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade atual:</strong> ${curName}<br><small style="color:#595959">Selecione outra entidade abaixo para alterar o nome do card. O nome do card virará o nome curto da entidade (último nível).</small>
+              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade atual:</strong> ${curName}<br><small style="color:#595959">Selecione outra entidade abaixo. Com "Somar" marcado o nome fica "Escola - Título atual"; desmarcado, substitui pelo nome da escola.</small>
             </div>
             <div style="position:relative">
               <input id="rename-entity-search" type="text" placeholder="Digite para buscar entidade... ex: Adelino, EE, Jales" autocomplete="off" style="width:100%;padding:10px 10px 10px 36px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;box-sizing:border-box" oninput="Kanpro.onRenameEntitySearch(this.value)" onfocus="Kanpro.showRenameEntityDropdown()" onkeydown="if(event.key==='Escape') Kanpro.hideRenameEntityDropdown()">
@@ -2144,6 +2144,10 @@
             </div>
             <input type="hidden" id="rename-entity-select" value="">
             <div id="rename-entity-selected" style="font-size:12px;color:#389e0d;display:none;background:#f6ffed;border:1px solid #b7eb8f;padding:6px 8px;border-radius:4px"><i class="ti ti-check"></i> Selecionado: <strong id="rename-entity-selected-name"></strong> <a href="#" onclick="Kanpro.clearRenameSelection();return false" style="margin-left:8px;color:#ff4d4f;font-size:11px">trocar</a></div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#172b4d;cursor:pointer;background:#f4f5f7;padding:8px 10px;border-radius:6px">
+              <input type="checkbox" id="rename-entity-prepend" checked style="accent-color:#1890ff;width:16px;height:16px">
+              <span>Somar com o título atual <small style="color:#8c8c8c">("Escola - Título")</small></span>
+            </label>
             <div id="rename-entity-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
               <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
@@ -2208,12 +2212,12 @@
           document.addEventListener("click", onDocClick);
         }, 30);
       };
-      if(this._maintEntities && this._maintEntities.length){
-        doShow(this._maintEntities);
+      if(this._renameEntities && this._renameEntities.length){
+        doShow(this._renameEntities);
       } else {
-        this.ajax("list_entities", {}).then(res=>{
+        this.ajax("list_entities", {include_root: 1}).then(res=>{
           let entities = (res && res.success && Array.isArray(res.entities)) ? res.entities : [];
-          this._maintEntities = entities;
+          this._renameEntities = entities;
           doShow(entities);
         }).catch(()=>{
           doShow([]);
@@ -2312,6 +2316,13 @@
         if(!newName) newName=selectedName;
       }
       newName = newName.trim().substring(0,255);
+      // "Somar com o título atual" (marcado por padrão): "Escola - Título atual"
+      const prepend = document.getElementById('rename-entity-prepend');
+      const curCard = this.cards.find(c=> String(c.id)===String(this.currentCardId));
+      const curTitle = (curCard ? curCard.name : '').trim();
+      if(prepend && prepend.checked && curTitle && curTitle.toLowerCase() !== newName.toLowerCase() && !curTitle.toLowerCase().startsWith(newName.toLowerCase() + ' - ')){
+        newName = (newName + ' - ' + curTitle).substring(0,255);
+      }
       if(!newName){
         if(err){ err.textContent="Nome da entidade vazio."; err.style.display="block"; }
         return;
