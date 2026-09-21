@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14141a"/>
+      <stop offset="1" stop-color="#050508"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff4655"/>
+      <stop offset="1" stop-color="#b81f2e"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <g stroke="#2a2a33" stroke-width="2" opacity=".8">
+    <path d="M0,270 L1920,270 M0,540 L1920,540 M0,810 L1920,810 M480,0 L480,1080 M960,0 L960,1080 M1440,0 L1440,1080"/>
+  </g>
+  <g filter="url(#soft)">
+    <polygon points="-100,1080 700,0 1050,0 250,1080" fill="#ff4655" opacity=".55"/>
+    <polygon points="600,1080 1400,0 1620,0 820,1080" fill="#ff4655" opacity=".35"/>
+  </g>
+  <polygon points="-100,1080 700,0 830,0 30,1080" fill="url(#red)"/>
+  <polygon points="1090,1080 1890,0 2020,0 1220,1080" fill="url(#red)" opacity=".9"/>
+  <polygon points="1500,1080 1920,520 1920,700 1680,1080" fill="#ff4655"/>
+  <circle cx="960" cy="540" r="90" fill="none" stroke="#ece8e1" stroke-width="10" opacity=".9"/>
+  <circle cx="960" cy="540" r="10" fill="#ff4655"/>
+</svg>

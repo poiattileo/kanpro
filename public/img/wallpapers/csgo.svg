@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8c07a"/>
+      <stop offset=".6" stop-color="#d9a45b"/>
+      <stop offset="1" stop-color="#b07a3a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff3d6"/>
+      <stop offset=".5" stop-color="#ffe1a1" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#ffe1a1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="crate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a9743b"/>
+      <stop offset="1" stop-color="#7a4d22"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="960" cy="330" r="260" fill="url(#sun)"/>
+  <circle cx="960" cy="330" r="95" fill="#fff6df"/>
+  <rect y="780" width="1920" height="300" fill="#8a5a2e"/>
+  <rect y="780" width="1920" height="24" fill="#6e4522"/>
+  <g>
+    <g transform="translate(280,560)">
+      <rect x="0" y="0" width="220" height="220" fill="url(#crate)" stroke="#4e2f12" stroke-width="10"/>
+      <path d="M0,0 L220,220 M220,0 L0,220" stroke="#4e2f12" stroke-width="10"/>
+      <rect x="0" y="0" width="220" height="220" fill="none" stroke="#4e2f12" stroke-width="10"/>
+    </g>
+    <g transform="translate(1420,560)">
+      <rect x="0" y="0" width="220" height="220" fill="url(#crate)" stroke="#4e2f12" stroke-width="10"/>
+      <path d="M0,0 L220,220 M220,0 L0,220" stroke="#4e2f12" stroke-width="10"/>
+      <rect x="0" y="0" width="220" height="220" fill="none" stroke="#4e2f12" stroke-width="10"/>
+    </g>
+    <g transform="translate(1530,340)">
+      <rect x="0" y="0" width="150" height="150" fill="url(#crate)" stroke="#4e2f12" stroke-width="8"/>
+      <path d="M0,0 L150,150 M150,0 L0,150" stroke="#4e2f12" stroke-width="8"/>
+    </g>
+  </g>
+  <g stroke="#1a1a1a" stroke-width="10" opacity=".9">
+    <line x1="960" y1="120" x2="960" y2="240"/>
+    <line x1="960" y1="840" x2="960" y2="960"/>
+    <line x1="540" y1="540" x2="660" y2="540"/>
+    <line x1="1260" y1="540" x2="1380" y2="540"/>
+  </g>
+  <circle cx="960" cy="540" r="46" fill="none" stroke="#1a1a1a" stroke-width="10" opacity=".9"/>
+  <circle cx="960" cy="540" r="10" fill="#c1272d"/>
+</svg>

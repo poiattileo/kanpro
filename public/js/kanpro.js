@@ -2893,6 +2893,10 @@
         {key:'mac-night', file:'mac-night.svg', label:'macOS Noite'},
         {key:'mac-sonoma', file:'mac-sonoma.svg', label:'macOS Sonoma'},
         {key:'mac-sequoia', file:'mac-sequoia.svg', label:'macOS Sequoia'},
+        {key:'mario', file:'mario.svg', label:'Mario'},
+        {key:'csgo', file:'csgo.svg', label:'Counter-Strike'},
+        {key:'lol', file:'lol.svg', label:'League of Legends'},
+        {key:'valorant', file:'valorant.svg', label:'Valorant'},
       ];
     },
     wallpaperThumbUrl(file){
