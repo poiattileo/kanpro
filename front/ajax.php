@@ -1115,9 +1115,8 @@ switch ($action) {
                 $st = '';
             }
             $updates['status'] = $st;
-            // sincroniza is_ok para compat
+            // sincroniza is_ok para compat: apenas ok = 1
             $updates['is_ok'] = ($st==='ok'?1:0);
-            // se ok ou defect, considera terminado? Não automático, deixa usuário marcar done
         }
         if (array_key_exists('model', $_POST)) {
             $model = trim($_POST['model']);
@@ -1132,6 +1131,10 @@ switch ($action) {
         if (array_key_exists('is_urgent', $_POST)) $updates['is_urgent'] = (int)$_POST['is_urgent'] ? 1:0;
         if (array_key_exists('urgent', $_POST)) $updates['is_urgent'] = (int)$_POST['urgent'] ? 1:0;
         if (array_key_exists('urgencia', $_POST)) $updates['is_urgent'] = (int)$_POST['urgencia'] ? 1:0;
+        // Invariante: Pendente nunca é Feito (rede de segurança do servidor)
+        $effStatus = $updates['status'] ?? ($row['status'] ?? '');
+        if ($effStatus === 'pending') $effStatus = 'pendente';
+        if ($effStatus === 'pendente') $updates['is_done'] = 0;
         if (empty($updates)) jexit(['success'=>false,'msg'=>'Nada para atualizar']);
         $updates['date_mod'] = date('Y-m-d H:i:s');
         $updates['users_id'] = Session::getLoginUserID();
@@ -1539,7 +1542,76 @@ switch ($action) {
         if (empty($machines) || $nonCount===0) {
             jexit(['success'=>true,'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'msg'=>"Pendentes movidos para card #{$pendingCardId}. Nenhum termo gerado.","pending_only"=>true]);
         }
-        // dados do quadro/lista para razão e entidade
+        // se há pendentes, cria novo card com eles antes de finalizar o atual
+        $pendingCardId = null;
+        if ($pendingCount > 0) {
+            $newCard = new PluginKanproCard();
+            $newName = $card->fields['name'] . ' - Pendentes ('.$pendingCount.')';
+            $newName = mb_substr($newName, 0, 255);
+            $newId = $newCard->add([
+                'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
+                'plugin_kanpro_lists_id'  => $card->fields['plugin_kanpro_lists_id'],
+                'name'        => $newName,
+                'description' => $card->fields['description'] ?? '',
+            ]);
+            if ($newId) {
+                $pendingCardId = (int)$newId;
+                // marca como manutenção
+                $DB->update('glpi_plugin_kanpro_cards', [
+                    'is_maintenance'   => 1,
+                    'maintenance_date' => date('Y-m-d H:i:s'),
+                    'maintenance_by'   => Session::getLoginUserID(),
+                    'date_mod'         => date('Y-m-d H:i:s')
+                ], ['id' => $pendingCardId]);
+                // copia máquinas pendentes para novo card re-sequenciando 1..N
+                $seq = 0;
+                $now2 = date('Y-m-d H:i:s');
+                $uid2 = Session::getLoginUserID();
+                foreach ($pendingMachines as $pm) {
+                    $seq++;
+                    $DB->insert('glpi_plugin_kanpro_maintenance_machines', [
+                        'plugin_kanpro_cards_id' => $pendingCardId,
+                        'seq'                    => $seq,
+                        'model'                  => $pm['model'],
+                        'label'                  => "Máquina {$seq} - {$pm['model']}",
+                        'diary'                  => $pm['diary'] ?? '',
+                        'is_done'                => $pm['is_done'] ?? 0,
+                        'is_ok'                  => $pm['is_ok'] ?? 0,
+                        'status'                 => 'pendente',
+                        'users_id'               => $uid2,
+                        'date_creation'          => $now2,
+                        'date_mod'               => $now2,
+                    ]);
+                }
+                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $pendingCardId, $card->fields['plugin_kanpro_lists_id'], 'card_create', "Card pendente criado a partir de #{$cid} com {$pendingCount} máquina(s) pendente(s)");
+                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Manutenção: {$pendingCount} pendente(s) movido(s) para card #{$pendingCardId}");
+                // remove pendentes do card original (movido, não duplicado)
+                $pendingIds = array_column($pendingMachines, 'id');
+                if (!empty($pendingIds)) {
+                    $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id' => $pendingIds]);
+                    // re-sequencia restantes do card original
+                    $remaining = [];
+                    $iter2 = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+                    foreach ($iter2 as $r) $remaining[]=$r;
+                    $s=1;
+                    foreach ($remaining as $r) {
+                        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$s,'label'=>"Máquina {$s} - {$r['model']}"], ['id'=>$r['id']]);
+                        $s++;
+                    }
+                }
+                // atualiza variáveis para transferência: apenas não-pendentes
+                $machines = $nonPendingMachines;
+                $total = count($machines);
+                if ($total===0) {
+                    // todos eram pendentes — não gera transferência, apenas informa novo card
+                    jexit(['success'=>true,'msg'=>"Todos os itens estavam como Pendente. Criado novo card #{$pendingCardId} com {$pendingCount} máquina(s). Nenhum termo gerado para o card atual.",'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'all_pending'=>true]);
+                }
+                // recalcula done/ok para não-pendentes
+                $done=0; $okCount=0;
+                foreach ($machines as $m){ if(!empty($m['is_done'])) $done++; if(($m['status']??'')==='ok') $okCount++; }
+            }
+        }
+        // dados do quadro/lista para razão e entidade — usa $total já ajustado (após split)
         $board = new PluginKanproBoard();
         $board->getFromDB($card->fields['plugin_kanpro_boards_id']);
         $list = new PluginKanproList();

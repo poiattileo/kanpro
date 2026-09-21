@@ -267,6 +267,7 @@
 
       this.enableDragAndDrop();
       this.updateAssinaturaButton();
+      this.updateStats();
     },
 
     createListEl(list, cardsInList){
@@ -298,15 +299,19 @@
         const cardEl = this.createCardEl(card);
         cardsContainer.appendChild(cardEl);
       });
-      // drag handle só no header
+      // drag handle só no header: no dragstart o e.target é a própria lista,
+      // então registra no mousedown onde o arrasto começou
+      div.addEventListener('mousedown', e=>{
+        div._fromHeader = !!e.target.closest('.kp-list-header');
+      });
       div.addEventListener('dragstart', e=>{
-        if(!e.target.closest('.kp-list-header')) { e.preventDefault(); return; }
+        if(!div._fromHeader) { e.preventDefault(); return; }
         this.dragList = div;
         div.style.opacity='0.5';
         e.dataTransfer.effectAllowed='move';
-        e.dataTransfer.setData('text/plain', list.id);
+        e.dataTransfer.setData('text/plain', 'kp-list:'+list.id);
       });
-      div.addEventListener('dragend', ()=>{ div.style.opacity='1'; this.dragList=null; });
+      div.addEventListener('dragend', ()=>{ div.style.opacity='1'; div._fromHeader=false; this.dragList=null; });
       return div;
     },
 
@@ -415,7 +420,7 @@
         this.dragCard = div;
         div.classList.add('dragging');
         e.dataTransfer.effectAllowed='move';
-        e.dataTransfer.setData('text/plain', card.id);
+        e.dataTransfer.setData('text/plain', 'kp-card:'+card.id);
       });
       div.addEventListener('dragend', e=>{
         e.stopPropagation();
@@ -450,8 +455,11 @@
         container.addEventListener('drop', e=>{
           e.preventDefault();
           container.classList.remove('drag-over');
-          const cardId = e.dataTransfer.getData('text/plain');
-          // verifica se é card ou list
+          const raw = e.dataTransfer.getData('text/plain') || '';
+          // aceita só cartão (ignora lista solta sobre os cartões — ids podem colidir)
+          const m = /^kp-card:(\d+)$/.exec(raw);
+          if (!m) return;
+          const cardId = m[1];
           const isCard = this.cards.some(c=> c.id==cardId);
           if (!isCard) return;
           const targetListId = parseInt(container.dataset.listId);
@@ -462,8 +470,11 @@
         });
       });
 
-      // Listas (drag no header)
+      // Listas (drag no header) — listeners do quadro ligados uma única vez
+      // (renderBoard roda a cada polling; sem a trava eles acumulavam)
       const board = $('#kanpro-board');
+      if(!this._boardDndBound){
+      this._boardDndBound = true;
       board.addEventListener('dragover', e=>{
         if(!this.dragList) return;
         e.preventDefault();
@@ -491,6 +502,7 @@
           }
         });
       });
+      } // _boardDndBound
     },
 
     getDragAfterElement(container, y){
@@ -1010,8 +1022,8 @@
                 </div>
               </div>
               <div style="display:flex;align-items:center;gap:6px;flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start;max-width:100%">
-                <label style="display:flex;align-items:center;gap:4px;background:#fff;padding:4px 8px;border-radius:20px;border:1px solid #dfe1e6;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0">
-                  <input type="checkbox" ${isDone?"checked":""} onchange="Kanpro.toggleMaintenanceDone(${m.id}, this.checked)" style="accent-color:#61bd4f"> Feito
+                <label style="display:flex;align-items:center;gap:4px;background:#fff;padding:4px 8px;border-radius:20px;border:1px solid #dfe1e6;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0${status==="pendente"?";opacity:.55":""}">
+                  <input type="checkbox" ${isDone?"checked":""} ${status==="pendente"?"disabled title='Máquina Pendente não pode ser marcada como Feita'":""} onchange="Kanpro.toggleMaintenanceDone(${m.id}, this.checked)" style="accent-color:#61bd4f"> Feito
                 </label>
                 <select onchange="Kanpro.updateMaintenanceStatus(${m.id}, this.value)" style="padding:6px 10px;border-radius:20px;border:${selectBorder};background:${statusSelectBg};color:${statusSelectColor};font-size:11px;font-weight:700;cursor:pointer;min-width:130px;flex-shrink:0">
                   <option value="" ${!status?"selected":""}>— Status Final *</option>
@@ -1608,6 +1620,16 @@
       });
     },
     toggleMaintenanceDone(mid, checked){
+      // Pendente nunca pode ser Feito — barra na origem (o checkbox já vem disabled, isto é rede de segurança)
+      const row = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
+      const sel = row ? row.querySelector('select') : null;
+      const st = sel ? sel.value : '';
+      if(checked && (st==='pendente' || st==='pending')){
+        alert('Máquina com status Pendente não pode ser marcada como Feita. Troque o status primeiro (Garantia/Ok/Inservível).');
+        const cb = row ? row.querySelector('input[type=checkbox]') : null;
+        if(cb) cb.checked = false;
+        return;
+      }
       this.ajax("update_maintenance_machine", {id: mid, is_done: checked?1:0}).then(res=>{
         if(res.success){
           const cardId=this.currentCardId;
@@ -1617,7 +1639,17 @@
       });
     },
     updateMaintenanceStatus(mid, status){
-      this.ajax("update_maintenance_machine", {id: mid, status}).then(res=>{
+      const data = {id: mid, status};
+      // Ao virar Pendente, desmarca Feito na hora (Pendente nunca é Feito)
+      const row = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
+      const cb = row ? row.querySelector('input[type=checkbox]') : null;
+      if(status==='pendente' || status==='pending'){
+        data.is_done = 0;
+        if(cb){ cb.checked = false; cb.disabled = true; cb.title = 'Máquina Pendente não pode ser marcada como Feita'; }
+      } else if(cb){
+        cb.disabled = false; cb.title = '';
+      }
+      this.ajax("update_maintenance_machine", data).then(res=>{
         if(res.success){
           this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
         }
@@ -1820,6 +1852,8 @@
       if(!checkAndPrompt()) return;
       const prog = this.maintenanceProgress[cardId];
       let force = 0;
+      // pendentes não precisam estar 100% — apenas não-pendentes
+      const pendingCountLocal = document.querySelectorAll(".kp-maint-machine select option[value='pendente']:checked").length;
       if(prog && prog.total>0 && prog.done!==prog.total){
         // verifica se há pendentes — pendentes justificam não estar 100% Feito (ficam em novo card)
         const wrap = document.getElementById("card-modal-maintenance");
@@ -1857,6 +1891,14 @@
           if(res.need_100){
             const goLocal = confirm((res.msg||"Conclua 100%") + "\nDeseja gerar termo local (fallback) em vez de enviar para Assinatura?");
             if(goLocal) this.generateMaintenanceTerm();
+            return;
+          }
+          if(res.all_pending){
+            this.showToast(`Novo card #${res.pending_card_id} criado com ${res.pending_count} pendente(s).`);
+            this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+            if(res.pending_card_id){
+              setTimeout(()=>{ const el=document.querySelector(`.kp-card[data-card-id="${res.pending_card_id}"]`); if(el){ el.classList.add('kp-card-updated'); el.scrollIntoView({behavior:"smooth",block:"center"}); } }, 600);
+            }
             return;
           }
           alert(res.msg||"Erro ao finalizar");
