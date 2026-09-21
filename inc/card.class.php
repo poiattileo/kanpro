@@ -316,7 +316,7 @@ class PluginKanproCard extends CommonDBTM {
         $data['maintenance_date'] = $data['maintenance_date'] ?? null;
         $data['maintenance_by'] = $data['maintenance_by'] ?? 0;
         $data['maintenance_machines'] = [];
-        $data['maintenance_progress'] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0];
+        $data['maintenance_progress'] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             $mm = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id],'ORDER'=>'seq ASC']);
             foreach ($mm as $r) $data['maintenance_machines'][] = $r;
@@ -341,11 +341,13 @@ class PluginKanproCard extends CommonDBTM {
             $total = count($data['maintenance_machines']);
             $done = 0;
             $urgent = 0;
+            $notes = 0;
             foreach ($data['maintenance_machines'] as $m) {
                 if (!empty($m['is_done'])) $done++;
                 if (!empty($m['is_urgent'])) $urgent++;
+                $notes += (int)($m['notes_count'] ?? 0);
             }
-            $data['maintenance_progress'] = ['total'=>$total,'done'=>$done,'percent'=>$total? (int)round($done/$total*100):0,'urgent'=>$urgent];
+            $data['maintenance_progress'] = ['total'=>$total,'done'=>$done,'percent'=>$total? (int)round($done/$total*100):0,'urgent'=>$urgent,'notes'=>$notes];
         }
 
         return $data;

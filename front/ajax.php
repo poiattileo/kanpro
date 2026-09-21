@@ -469,6 +469,23 @@ switch ($action) {
             $maint_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $maint_ids]]);
             $maint_by_card = [];
             foreach ($maint_iter as $mm) $maint_by_card[$mm['plugin_kanpro_cards_id']][] = $mm;
+            // anotações por card (selo no card minimizado) — 1 query
+            $notes_by_card = [];
+            if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes') && !empty($maint_by_card)) {
+                $mid2cid = [];
+                $all_mids = [];
+                foreach ($maint_by_card as $cid => $machines) {
+                    foreach ($machines as $mm) { $mid2cid[(int)$mm['id']] = (int)$cid; $all_mids[] = (int)$mm['id']; }
+                }
+                if (!empty($all_mids)) {
+                    try {
+                        foreach ($DB->request(['SELECT' => ['machine_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_maintenance_notes', 'WHERE' => ['machine_id' => $all_mids], 'GROUPBY' => ['machine_id']]) as $nr) {
+                            $cc = $mid2cid[(int)$nr['machine_id']] ?? 0;
+                            if ($cc) $notes_by_card[$cc] = ($notes_by_card[$cc] ?? 0) + (int)$nr['total'];
+                        }
+                    } catch (Throwable $e) {}
+                }
+            }
             foreach ($maint_by_card as $cid => $machines) {
                 $total = count($machines);
                 $done = 0;
@@ -477,10 +494,10 @@ switch ($action) {
                     if (!empty($mm['is_done'])) $done++;
                     if (!empty($mm['is_urgent'])) $urgent++;
                 }
-                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent];
+                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent,'notes'=>($notes_by_card[$cid] ?? 0)];
             }
             foreach ($all_cards as $c) {
-                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0];
+                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0];
             }
         }
 

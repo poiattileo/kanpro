@@ -357,6 +357,10 @@
         if (mProgUrgent && mProgUrgent.urgent > 0) {
           badges.push(`<span class="kp-badge" style="background:#eb5a46;color:#fff;font-weight:700;border:1px solid #eb5a46"><i class="ti ti-alert-triangle"></i> URGÊNCIA ${mProgUrgent.urgent}</span>`);
         }
+        // Anotações badge (ícone quando há anotações nas máquinas do card)
+        if (mProg && parseInt(mProg.notes||0) > 0) {
+          badges.push(`<span class="kp-badge" title="Este card possui anotações nas máquinas" style="background:#e6f4ff;color:#0050b3;font-weight:700;border:1px solid #91d5ff"><i class="ti ti-notes"></i></span>`);
+        }
       }
       // borda vermelha se tem urgência dentro do card (destaque na lista)
       const mProgBorder = this.maintenanceProgress && this.maintenanceProgress[card.id];
