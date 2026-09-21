@@ -201,6 +201,29 @@ function kanpro_ensure_maintenance_tables() {
     }
 }
 
+function kanpro_ticket_info(int $tid): ?array {
+    if (!class_exists('Ticket')) return null;
+    $tk = new Ticket();
+    if (!$tk->getFromDB($tid)) return null;
+    $can = false;
+    try { $can = $tk->can($tid, READ); } catch (Throwable $e) { $can = false; }
+    $status = (int)($tk->fields['status'] ?? 0);
+    $label = '';
+    if (method_exists('Ticket', 'getStatus')) {
+        try { $label = Ticket::getStatus($status); } catch (Throwable $e) { $label = 'Status '.$status; }
+    } else {
+        $label = 'Status '.$status;
+    }
+    return [
+        'id'           => $tid,
+        'name'         => $can ? ($tk->fields['name'] ?? '') : '',
+        'restricted'   => !$can,
+        'status'       => $status,
+        'status_label' => $label,
+        'date_mod'     => $tk->fields['date_mod'] ?? null,
+    ];
+}
+
 switch ($action) {
 
     // --- BOARD ---
@@ -1800,6 +1823,195 @@ switch ($action) {
         $resp = ['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$doneTerm,'percent'=>$total?round($doneTerm/$total*100):0,'garantia'=>$cntGarantiaTerm,'ok'=>$cntOkTerm,'inservivel'=>$cntInservivelTerm]];
         if ($pendingCardId) { $resp['pending_card_id']=$pendingCardId; $resp['pending_count']=$pendingCount; $resp['msg_pending']="Pendentes ({$pendingCount}) movidos para novo card #{$pendingCardId}"; }
         jexit($resp);
+
+    // --- CARD <-> CHAMADO GLPI ---
+    case 'link_ticket':
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $tid = (int)($_POST['tickets_id'] ?? 0);
+        if (!$cid || !$tid) jexit(['success'=>false,'msg'=>'Informe o nº do chamado']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $tk = new Ticket();
+        if (!$tk->getFromDB($tid)) jexit(['success'=>false,'msg'=>'Chamado #'.$tid.' não encontrado']);
+        if (!$tk->can($tid, READ)) jexit(['success'=>false,'msg'=>'Sem acesso ao chamado #'.$tid.' (perfil/entidade)']);
+        $DB->update('glpi_plugin_kanpro_cards', ['tickets_id'=>$tid], ['id'=>$cid]);
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_link_ticket', "Chamado #{$tid} vinculado ao cartão");
+        jexit(['success'=>true,'ticket'=>kanpro_ticket_info($tid)]);
+
+    case 'unlink_ticket':
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $old = (int)($card->fields['tickets_id'] ?? 0);
+        $DB->update('glpi_plugin_kanpro_cards', ['tickets_id'=>0], ['id'=>$cid]);
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_unlink_ticket', "Chamado #{$old} desvinculado do cartão");
+        jexit(['success'=>true]);
+
+    // --- CHECKLIST TURBINADO (responsável + prazo por item) ---
+    case 'assign_checkitem':
+        needEdit();
+        $id = (int)($_POST['id'] ?? 0);
+        $uid = (int)($_POST['users_id'] ?? 0);
+        if ($uid > 0) {
+            $u = new User();
+            if (!$u->getFromDB($uid)) jexit(['success'=>false,'msg'=>'Usuário não encontrado']);
+        }
+        $DB->update('glpi_plugin_kanpro_checklist_items', ['users_id'=>$uid], ['id'=>$id]);
+        jexit(['success'=>true]);
+
+    case 'date_checkitem':
+        needEdit();
+        $id = (int)($_POST['id'] ?? 0);
+        $due = trim($_POST['due_date'] ?? '');
+        $DB->update('glpi_plugin_kanpro_checklist_items', ['due_date'=>($due === '' ? null : $due)], ['id'=>$id]);
+        jexit(['success'=>true]);
+
+    case 'convert_checkitem_to_card':
+        needEdit();
+        $id = (int)($_POST['id'] ?? 0);
+        $item = $DB->request(['FROM'=>'glpi_plugin_kanpro_checklist_items','WHERE'=>['id'=>$id]])->current();
+        if (!$item) jexit(['success'=>false,'msg'=>'Item não encontrado']);
+        $cl = $DB->request(['FROM'=>'glpi_plugin_kanpro_checklists','WHERE'=>['id'=>(int)$item['plugin_kanpro_checklists_id']]])->current();
+        if (!$cl) jexit(['success'=>false,'msg'=>'Checklist não encontrado']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB((int)$cl['plugin_kanpro_cards_id'])) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $new = new PluginKanproCard();
+        $new_id = $new->add([
+            'plugin_kanpro_boards_id' => $card->fields['plugin_kanpro_boards_id'],
+            'plugin_kanpro_lists_id'  => $card->fields['plugin_kanpro_lists_id'],
+            'name'        => mb_substr(trim($item['name']), 0, 255),
+            'description' => 'Criado a partir do item "' . trim($item['name']) . '" do cartão #' . $card->getID(),
+        ]);
+        if (!$new_id) jexit(['success'=>false,'msg'=>'Falha ao criar cartão']);
+        // herda responsável do item, se houver (evita duplicar se já for membro)
+        if (!empty($item['users_id'])) {
+            $already = countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$new_id,'users_id'=>(int)$item['users_id']]);
+            if (!$already) {
+                $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$new_id,'users_id'=>(int)$item['users_id']]);
+            }
+        }
+        $DB->delete('glpi_plugin_kanpro_checklist_items', ['id'=>$id]);
+        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $new_id, $card->fields['plugin_kanpro_lists_id'], 'card_create', "Cartão #{$new_id} criado do item '{$item['name']}' do cartão #{$card->getID()}");
+        jexit(['success'=>true,'new_card_id'=>(int)$new_id]);
+
+    // --- MODELOS DE CARTÃO (templates) ---
+    case 'list_templates':
+        $bid = (int)($_REQUEST['boards_id'] ?? 0);
+        $out = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_templates')) {
+            $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_templates','ORDER'=>'name ASC']);
+            foreach ($iter as $r) {
+                $rbid = (int)$r['plugin_kanpro_boards_id'];
+                if ($rbid !== 0 && $rbid !== $bid) continue;
+                $snap = json_decode($r['snapshot'] ?? '{}', true);
+                if (!is_array($snap)) $snap = [];
+                $out[] = [
+                    'id' => (int)$r['id'],
+                    'name' => $r['name'],
+                    'global' => $rbid === 0,
+                    'description' => $r['description'] ?? '',
+                    'labels' => count($snap['labels'] ?? []),
+                    'checklists' => count($snap['checklists'] ?? []),
+                ];
+            }
+        }
+        jexit(['success'=>true,'data'=>$out]);
+
+    case 'save_template':
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $name = mb_substr(trim($_POST['name'] ?? ''), 0, 255);
+        $scope = ($_POST['scope'] ?? 'board') === 'global' ? 'global' : 'board';
+        if (!$cid || $name === '') jexit(['success'=>false,'msg'=>'Informe o nome do modelo']);
+        $data = PluginKanproCard::getFullData($cid);
+        if (!$data) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $snapLabels = [];
+        foreach (($data['labels'] ?? []) as $l) {
+            $snapLabels[] = ['name' => $l['name'] ?? '', 'color' => $l['color'] ?? '#61bd4f'];
+        }
+        $snapCls = [];
+        foreach (($data['checklists'] ?? []) as $cl) {
+            $items = [];
+            foreach (($cl['items'] ?? []) as $it) $items[] = $it['name'] ?? '';
+            $items = array_values(array_filter($items, fn($v) => trim($v) !== ''));
+            $snapCls[] = ['name' => $cl['name'] ?? 'Checklist', 'items' => $items];
+        }
+        $snap = json_encode(['description' => $data['description'] ?? '', 'labels' => $snapLabels, 'checklists' => $snapCls], JSON_UNESCAPED_UNICODE);
+        $bid = ($scope === 'global') ? 0 : (int)$data['plugin_kanpro_boards_id'];
+        $DB->insert('glpi_plugin_kanpro_templates', [
+            'name' => $name,
+            'plugin_kanpro_boards_id' => $bid,
+            'description' => $data['description'] ?? '',
+            'snapshot' => $snap,
+            'users_id' => Session::getLoginUserID(),
+            'date_creation' => date('Y-m-d H:i:s'),
+            'date_mod' => date('Y-m-d H:i:s'),
+        ]);
+        jexit(['success'=>true,'id'=>(int)$DB->insertId()]);
+
+    case 'delete_template':
+        needEdit();
+        $id = (int)($_POST['id'] ?? 0);
+        $DB->delete('glpi_plugin_kanpro_templates', ['id'=>$id]);
+        jexit(['success'=>true]);
+
+    case 'apply_template':
+        needEdit();
+        $lists_id = (int)($_POST['lists_id'] ?? 0);
+        $tpl_id = (int)($_POST['template_id'] ?? 0);
+        $name = mb_substr(trim($_POST['name'] ?? ''), 0, 255);
+        $tpl = $DB->request(['FROM'=>'glpi_plugin_kanpro_templates','WHERE'=>['id'=>$tpl_id]])->current();
+        if (!$tpl) jexit(['success'=>false,'msg'=>'Modelo não encontrado']);
+        $list = new PluginKanproList();
+        if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $bid = (int)$list->fields['plugin_kanpro_boards_id'];
+        $snap = json_decode($tpl['snapshot'] ?? '{}', true);
+        if (!is_array($snap)) $snap = [];
+        $card = new PluginKanproCard();
+        $new_id = $card->add([
+            'plugin_kanpro_boards_id' => $bid,
+            'plugin_kanpro_lists_id'  => $lists_id,
+            'name'        => $name !== '' ? $name : $tpl['name'],
+            'description' => $snap['description'] ?? ($tpl['description'] ?? ''),
+        ]);
+        if (!$new_id) jexit(['success'=>false,'msg'=>'Falha ao criar cartão do modelo']);
+        // etiquetas: encontra por nome no quadro ou cria
+        foreach (($snap['labels'] ?? []) as $sl) {
+            $lname = trim($sl['name'] ?? '');
+            if ($lname === '') continue;
+            $lrow = $DB->request(['FROM'=>'glpi_plugin_kanpro_labels','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'name'=>$lname],'LIMIT'=>1])->current();
+            if (!$lrow) {
+                $DB->insert('glpi_plugin_kanpro_labels', ['plugin_kanpro_boards_id'=>$bid,'name'=>$lname,'color'=>$sl['color'] ?? '#61bd4f']);
+                $lid = (int)$DB->insertId();
+            } else {
+                $lid = (int)$lrow['id'];
+            }
+            if ($lid) {
+                try { $DB->insert('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id'=>$new_id,'plugin_kanpro_labels_id'=>$lid]); }
+                catch (Throwable $e) {}
+            }
+        }
+        // checklists + itens
+        $rank = 1024;
+        foreach (($snap['checklists'] ?? []) as $scl) {
+            $DB->insert('glpi_plugin_kanpro_checklists', ['plugin_kanpro_cards_id'=>$new_id,'name'=>($scl['name'] ?? 'Checklist'),'rank'=>$rank]);
+            $clid = (int)$DB->insertId();
+            $rank += 1024;
+            if ($clid) {
+                $irank = 1024;
+                foreach (($scl['items'] ?? []) as $iname) {
+                    $iname = trim($iname);
+                    if ($iname === '') continue;
+                    $DB->insert('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id'=>$clid,'name'=>mb_substr($iname,0,255),'is_checked'=>0,'rank'=>$irank]);
+                    $irank += 1024;
+                }
+            }
+        }
+        $card->getFromDB($new_id);
+        PluginKanproBoard::logActivity($bid, $new_id, $lists_id, 'card_create', "Cartão '{$card->fields['name']}' criado do modelo '{$tpl['name']}'");
+        jexit(['success'=>true,'id'=>$new_id,'card'=>$card->fields]);
 
     default:
         jexit(['success'=>false,'msg'=>'Ação desconhecida: '.$action]);

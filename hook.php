@@ -94,6 +94,7 @@ function plugin_kanpro_install(): bool {
                 `start_date`                  DATETIME     DEFAULT NULL,
                 `cover_color`                 VARCHAR(20)  DEFAULT NULL,
                 `cover_attachment_id`         INT {$sign} DEFAULT NULL,
+                `tickets_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'chamado GLPI vinculado',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -120,6 +121,9 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_by')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `maintenance_by` INT NOT NULL DEFAULT '0' AFTER `maintenance_date`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`");
         }
     }
 
@@ -207,6 +211,14 @@ function plugin_kanpro_install(): bool {
                 KEY `plugin_kanpro_checklists_id` (`plugin_kanpro_checklists_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
+    } else {
+        // garante colunas do checklist turbinado (responsável + prazo por item)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_checklist_items', 'users_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_checklist_items` ADD `users_id` INT NOT NULL DEFAULT '0' AFTER `is_checked`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_checklist_items', 'due_date')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_checklist_items` ADD `due_date` DATETIME DEFAULT NULL AFTER `rank`");
+        }
     }
 
     // --- PRESENCE (quem está vendo o quadro agora) ---
@@ -345,6 +357,25 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- CARD TEMPLATES (Modelos de cartão) ---
+    // boards_id = 0 → modelo global (todos os quadros); >0 → só naquele quadro
+    if (!$DB->tableExists('glpi_plugin_kanpro_templates')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_templates` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `name`                        VARCHAR(255) NOT NULL DEFAULT '',
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `description`                 LONGTEXT     DEFAULT NULL,
+                `snapshot`                    LONGTEXT     DEFAULT NULL COMMENT 'JSON: labels, checklists',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
     return true;
 }
@@ -355,6 +386,7 @@ function plugin_kanpro_uninstall(): bool {
     PluginKanproProfile::uninstall();
 
     $tables = [
+        'glpi_plugin_kanpro_templates',
         'glpi_plugin_kanpro_maintenance_notes',
         'glpi_plugin_kanpro_maintenance_machines',
         'glpi_plugin_kanpro_activities',

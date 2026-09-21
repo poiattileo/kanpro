@@ -26,6 +26,7 @@ echo "<div style='display:flex;justify-content:space-between;align-items:center;
 echo "<h1 style='margin:0;font-size:22px;display:flex;align-items:center;gap:10px'><i class='ti ti-layout-kanban' style='font-size:28px;color:#0079bf'></i> Seus Quadros</h1>";
 echo "<div style='display:flex;gap:8px;align-items:center'>";
 echo "<form method='get' style='display:flex;gap:6px'><input type='text' name='search' value='" . htmlspecialchars($search) . "' placeholder='Buscar quadros...' style='padding:8px 12px;border:1px solid #dfe1e6;border-radius:6px;min-width:220px'><button class='btn btn-outline-secondary btn-sm'><i class='ti ti-search'></i></button></form>";
+echo "<a href='mytasks.php' class='btn btn-outline-secondary' style='font-weight:600'><i class='ti ti-user-check'></i> Minhas tarefas</a>";
 if ($canedit) {
     echo "<a href='board.form.php' class='btn btn-primary' style='background:#0079bf;border-color:#0079bf'><i class='ti ti-plus'></i> Criar quadro</a>";
 }

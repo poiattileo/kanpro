@@ -222,6 +222,32 @@ if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
 }
 $transfer_status_json = json_encode($transfer_status, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
+// Chamados GLPI vinculados (badge no card minimizado + seção no modal)
+$ticket_map = [];
+$__tk_ids = [];
+foreach ($all_cards as $c) {
+    if (!empty($c['tickets_id'] ?? 0)) $__tk_ids[(int)$c['id']] = (int)$c['tickets_id'];
+}
+if (!empty($__tk_ids) && class_exists('Ticket')) {
+    $tkRows = $DB->request(['SELECT' => ['id','name','status'], 'FROM' => 'glpi_tickets', 'WHERE' => ['id' => array_values(array_unique($__tk_ids))]]);
+    $tkById = [];
+    foreach ($tkRows as $tr) $tkById[(int)$tr['id']] = $tr;
+    $tkObj = new Ticket();
+    foreach ($__tk_ids as $cid => $tid) {
+        if (!isset($tkById[$tid])) continue;
+        $tr = $tkById[$tid];
+        $can = false;
+        try { $can = $tkObj->can($tid, READ); } catch (Throwable $e) { $can = false; }
+        $st = (int)$tr['status'];
+        $lbl = 'Status ' . $st;
+        if (method_exists('Ticket', 'getStatus')) {
+            try { $lbl = Ticket::getStatus($st); } catch (Throwable $e) {}
+        }
+        $ticket_map[$cid] = ['id' => $tid, 'name' => $can ? ($tr['name'] ?? '') : '', 'restricted' => !$can, 'status' => $st, 'status_label' => $lbl];
+    }
+}
+$ticket_map_json = json_encode($ticket_map, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
+
 // Comentários count e anexos count
 $comment_counts = [];
 $att_counts = [];
@@ -273,6 +299,7 @@ echo <<<HTML
   <div style="display:flex;gap:8px;padding:8px 16px;align-items:center;flex-wrap:wrap">
     <button onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
     <button onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
+    <a href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/mytasks.php" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-user-check"></i> Minhas tarefas</a>
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
 
@@ -311,6 +338,10 @@ echo <<<HTML
           <div id="card-modal-dates" style="display:none">
             <div style="font-size:12px;font-weight:600;color:#5e6c84;margin-bottom:6px">DATAS</div>
             <div id="card-modal-dates-val" style="background:#eaecf0;padding:6px 10px;border-radius:4px;font-size:13px"></div>
+          </div>
+          <div id="card-modal-ticket" style="display:none">
+            <div style="font-size:12px;font-weight:600;color:#5e6c84;margin-bottom:6px;letter-spacing:.04em">CHAMADO</div>
+            <div id="card-modal-ticket-val"></div>
           </div>
         </div>
 
@@ -371,6 +402,7 @@ echo <<<HTML
             <button class="kp-sidebar-btn" onclick="Kanpro.openDatesPicker()"><i class="ti ti-clock"></i> Datas</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.openCoverPicker()"><i class="ti ti-photo"></i> Capa</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.editMaintenanceCardTitle('Escola')" title="Escolher escola (entidade) como nome do cartão"><i class="ti ti-school"></i> Escola</button>
+            <button class="kp-sidebar-btn" onclick="Kanpro.linkTicketPicker()" title="Vincular chamado GLPI ao cartão"><i class="ti ti-ticket"></i> Chamado</button>
           </div>
         </div>
         <div>
@@ -379,6 +411,7 @@ echo <<<HTML
             <button id="kp-maintenance-btn" class="kp-sidebar-btn" onclick="Kanpro.openMaintenanceFlow()" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d"><i class="ti ti-tool"></i> Manutenção</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.moveCardPicker()"><i class="ti ti-arrows-move"></i> Mover</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.copyCard()"><i class="ti ti-copy"></i> Copiar</button>
+            <button class="kp-sidebar-btn" onclick="Kanpro.saveAsTemplate()" title="Salvar este cartão como modelo para reutilizar"><i class="ti ti-template"></i> Modelo</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.archiveCard()"><i class="ti ti-archive"></i> Arquivar</button>
             <button class="kp-sidebar-btn" style="color:#eb5a46" onclick="Kanpro.deleteCard()"><i class="ti ti-trash"></i> Excluir</button>
           </div>
@@ -500,6 +533,7 @@ window.KANPRO = {
   members: {$members_json},
   allUsers: {$all_users_json},
   transferStatus: {$transfer_status_json},
+  ticketMap: {$ticket_map_json},
   ajax_url: "{$ajax_url}",
   csrf_token: "{$csrf_token}",
   canEdit: {$canedit},

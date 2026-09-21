@@ -261,16 +261,47 @@ class PluginKanproCard extends CommonDBTM {
         ]);
         foreach ($iter as $r) $data['members'][] = $r;
 
-        // checklists com items
+        // checklists com items (+ nome do responsável de cada item)
         $data['checklists'] = [];
+        $itemUserIds = [];
         $cls = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id], 'ORDER' => 'rank ASC']);
+        $clsArr = [];
         foreach ($cls as $cl) {
             $items = [];
             $its = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['plugin_kanpro_checklists_id' => $cl['id']], 'ORDER' => 'rank ASC']);
-            foreach ($its as $it) $items[] = $it;
+            foreach ($its as $it) {
+                $items[] = $it;
+                if (!empty($it['users_id'])) $itemUserIds[(int)$it['users_id']] = true;
+            }
             $cl['items'] = $items;
-            $data['checklists'][] = $cl;
+            $clsArr[] = $cl;
         }
+        // membros do quadro (atribuíveis nos itens) + nomes dos responsáveis
+        $data['assignable'] = [];
+        $needUsers = $itemUserIds;
+        $bmIter = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => (int)$data['plugin_kanpro_boards_id']]]);
+        foreach ($bmIter as $bm) $needUsers[(int)$bm['users_id']] = true;
+        $userNames = [];
+        if (!empty($needUsers)) {
+            $uIter = $DB->request(['SELECT' => ['id','name','realname','firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_keys($needUsers)]]);
+            foreach ($uIter as $u) {
+                $full = trim(($u['firstname'] ?? '') . ' ' . ($u['realname'] ?? ''));
+                if ($full === '') $full = $u['name'];
+                $userNames[(int)$u['id']] = $full;
+                $initials = strtoupper(substr($u['firstname'] ?? $u['name'] ?? '?', 0, 1) . substr($u['realname'] ?? '', 0, 1));
+                if (trim($initials) === '') $initials = strtoupper(substr($full, 0, 2));
+                $data['assignable'][] = ['users_id' => (int)$u['id'], 'name' => $full, 'initials' => $initials];
+            }
+        }
+        usort($data['assignable'], fn($a,$b) => strcmp($a['name'], $b['name']));
+        foreach ($clsArr as &$clRef) {
+            foreach ($clRef['items'] as &$itRef) {
+                $itRef['assignee_name'] = !empty($itRef['users_id']) ? ($userNames[(int)$itRef['users_id']] ?? '') : '';
+            }
+            unset($itRef);
+        }
+        unset($clRef);
+        $data['checklists'] = $clsArr;
 
         // comments
         $data['comments'] = [];
@@ -309,6 +340,30 @@ class PluginKanproCard extends CommonDBTM {
         if ($board->getFromDB($data['plugin_kanpro_boards_id'])) {
             $data['board_name'] = $board->fields['name'];
             $data['board_color'] = $board->fields['color'];
+        }
+
+        // chamado GLPI vinculado
+        $data['ticket'] = null;
+        $linkedTid = (int)($data['tickets_id'] ?? 0);
+        if ($linkedTid > 0 && class_exists('Ticket')) {
+            $tk = new Ticket();
+            if ($tk->getFromDB($linkedTid)) {
+                $can = false;
+                try { $can = $tk->can($linkedTid, READ); } catch (Throwable $e) { $can = false; }
+                $tStatus = (int)($tk->fields['status'] ?? 0);
+                $tLabel = 'Status ' . $tStatus;
+                if (method_exists('Ticket', 'getStatus')) {
+                    try { $tLabel = Ticket::getStatus($tStatus); } catch (Throwable $e) {}
+                }
+                $data['ticket'] = [
+                    'id' => $linkedTid,
+                    'name' => $can ? ($tk->fields['name'] ?? '') : '',
+                    'restricted' => !$can,
+                    'status' => $tStatus,
+                    'status_label' => $tLabel,
+                    'date_mod' => $tk->fields['date_mod'] ?? null,
+                ];
+            }
         }
 
         // manutenção
