@@ -2119,10 +2119,11 @@
         });
       }
     },
-    editMaintenanceCardTitle(){
+    editMaintenanceCardTitle(customTitle){
+      const pickerTitle = customTitle || "Alterar entidade — Manutenção";
       const cur = this.cards.find(c=> c.id==this.currentCardId);
       if(!cur) return;
-      this.showPicker({title:"Alterar entidade — Manutenção", html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>Carregando entidades...</div>'});
+      this.showPicker({title:pickerTitle, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>Carregando entidades...</div>'});
       const doShow = (entities)=>{
         // filtra raiz e já sem prefixo
         const filteredEntities = (entities||[]).filter(e=>{
@@ -2158,7 +2159,7 @@
           px = Math.max(12, r.left);
           py = r.bottom + 8;
         }
-        this.showPicker({title:"Alterar entidade — Manutenção", html, x: px, y: py});
+        this.showPicker({title:pickerTitle, html, x: px, y: py});
         setTimeout(()=>{
           const picker = document.getElementById("kanpro-picker");
           const body = document.getElementById("picker-body");

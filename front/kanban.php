@@ -370,6 +370,7 @@ echo <<<HTML
             <button class="kp-sidebar-btn" onclick="document.getElementById('card-attach-input').click()"><i class="ti ti-paperclip"></i> Anexo</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.openDatesPicker()"><i class="ti ti-clock"></i> Datas</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.openCoverPicker()"><i class="ti ti-photo"></i> Capa</button>
+            <button class="kp-sidebar-btn" onclick="Kanpro.editMaintenanceCardTitle('Escola')" title="Escolher escola (entidade) como nome do cartão"><i class="ti ti-school"></i> Escola</button>
           </div>
         </div>
         <div>
