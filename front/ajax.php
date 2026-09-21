@@ -389,7 +389,7 @@ function kanpro_card_machines_report(int $cards_id): string {
             $lines[] = '#' . $m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' — ' . implode(' | ', $bits);
         }
         if (empty($lines)) return '';
-        return 'Máquinas do card (' . count($lines) . "):\n" . implode("\n", $lines);
+        return 'Máquinas do card (' . count($lines) . "):\n\n" . implode("\n", $lines);
     } catch (Throwable $e) { return ''; }
 }
 
