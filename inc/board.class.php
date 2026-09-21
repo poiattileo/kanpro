@@ -236,6 +236,7 @@ class PluginKanproBoard extends CommonDBTM {
             'mac-sequoia' => 'mac-sequoia.svg',
             'mario'       => 'mario.svg',
             'csgo'        => 'csgo.svg',
+            'mirage'      => 'mirage.svg',
             'lol'         => 'lol.svg',
             'valorant'    => 'valorant.svg',
         ];

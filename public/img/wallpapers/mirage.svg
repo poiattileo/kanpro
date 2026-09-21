@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e6da8"/>
+      <stop offset=".6" stop-color="#7fb3d9"/>
+      <stop offset="1" stop-color="#f2d8a0"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff8e1"/>
+      <stop offset=".45" stop-color="#ffedb5" stop-opacity=".8"/>
+      <stop offset="1" stop-color="#ffedb5" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9b382"/>
+      <stop offset="1" stop-color="#a97a48"/>
+    </linearGradient>
+    <linearGradient id="wall2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c49a68"/>
+      <stop offset="1" stop-color="#8a5f36"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c99e64"/>
+      <stop offset="1" stop-color="#7d5527"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="960" cy="380" r="280" fill="url(#sun)"/>
+  <circle cx="960" cy="380" r="90" fill="#fff9e3"/>
+  <!-- skyline ao fundo -->
+  <g opacity=".85">
+    <rect x="80" y="480" width="220" height="220" fill="#b98d5e"/>
+    <rect x="340" y="430" width="180" height="270" fill="#a87f52"/>
+    <circle cx="1300" cy="470" r="90" fill="#b98d5e"/>
+    <rect x="1210" y="470" width="180" height="230" fill="#b98d5e"/>
+    <rect x="1560" y="380" width="70" height="320" fill="#a87f52"/>
+    <circle cx="1595" cy="360" r="46" fill="#a87f52"/>
+    <rect x="1591" y="280" width="8" height="60" fill="#a87f52"/>
+    <rect x="200" y="560" width="110" height="140" fill="#9c744a"/>
+    <rect x="1420" y="560" width="110" height="140" fill="#9c744a"/>
+  </g>
+  <!-- prédios principais -->
+  <g>
+    <rect x="0" y="540" width="560" height="330" fill="url(#wall)"/>
+    <rect x="1360" y="540" width="560" height="330" fill="url(#wall2)"/>
+    <rect x="0" y="520" width="560" height="34" fill="#7d5527"/>
+    <rect x="1360" y="520" width="560" height="34" fill="#6b4423"/>
+    <g fill="#4e3013">
+      <path d="M120,870 v-140 a60,60 0 0,1 120,0 v140 Z"/>
+      <path d="M320,870 v-140 a60,60 0 0,1 120,0 v140 Z"/>
+      <path d="M1480,870 v-140 a60,60 0 0,1 120,0 v140 Z"/>
+      <path d="M1680,870 v-140 a60,60 0 0,1 120,0 v140 Z"/>
+    </g>
+    <g fill="#5e3c17">
+      <rect x="130" y="600" width="90" height="110" rx="45"/>
+      <rect x="330" y="600" width="90" height="110" rx="45"/>
+      <rect x="1490" y="600" width="90" height="110" rx="45"/>
+      <rect x="1690" y="600" width="90" height="110" rx="45"/>
+    </g>
+    <!-- toldos -->
+    <g>
+      <rect x="90" y="730" width="400" height="26" fill="#8f1d1d"/>
+      <rect x="90" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="170" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="250" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="330" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="410" y="730" width="40" height="26" fill="#d9d9d9"/>
+      <rect x="1430" y="730" width="400" height="26" fill="#1d4e8f"/>
+      <rect x="1430" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="1510" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="1590" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="1670" y="730" width="40" height="26" fill="#d9d9d9"/><rect x="1750" y="730" width="40" height="26" fill="#d9d9d9"/>
+    </g>
+  </g>
+  <!-- rua -->
+  <rect y="870" width="1920" height="210" fill="url(#ground)"/>
+  <g filter="url(#soft)" opacity=".5">
+    <ellipse cx="700" cy="960" rx="420" ry="50" fill="#5e3c17"/>
+    <ellipse cx="1300" cy="990" rx="460" ry="50" fill="#5e3c17"/>
+  </g>
+  <!-- caixas na rua -->
+  <g>
+    <rect x="860" y="760" width="200" height="130" fill="#a9743b" stroke="#4e2f12" stroke-width="9"/>
+    <path d="M860,760 L1060,890 M1060,760 L860,890" stroke="#4e2f12" stroke-width="9"/>
+    <rect x="890" y="640" width="140" height="120" fill="#b9834a" stroke="#4e2f12" stroke-width="8"/>
+    <path d="M890,640 L1030,760 M1030,640 L890,760" stroke="#4e2f12" stroke-width="8"/>
+  </g>
+  <g fill="#3d2610" opacity=".8">
+    <ellipse cx="300" cy="950" rx="90" ry="14"/><ellipse cx="1600" cy="970" rx="110" ry="14"/>
+  </g>
+</svg>
