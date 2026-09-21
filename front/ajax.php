@@ -338,6 +338,32 @@ function kanpro_ticket_solve(int $tickets_id, string $solution): bool {
     } catch (Throwable $e) { return false; }
 }
 
+// Move o chamado para Em atendimento (só se ainda estiver aberto — nunca reabre Solucionado/Fechado)
+function kanpro_ticket_set_attending(int $tickets_id): bool {
+    if ($tickets_id <= 0 || !class_exists('Ticket')) return false;
+    try {
+        $tk = new Ticket();
+        if (!$tk->getFromDB($tickets_id)) return false;
+        $st = (int)($tk->fields['status'] ?? 0);
+        $attending = (defined('Ticket::ASSIGNED') ? Ticket::ASSIGNED : 2);
+        $solved = (defined('Ticket::SOLVED') ? Ticket::SOLVED : 5);
+        $closed = (defined('Ticket::CLOSED') ? Ticket::CLOSED : 6);
+        if (in_array($st, [$attending, $solved, $closed], true)) return true;
+        return (bool)$tk->update(['id' => $tickets_id, 'status' => $attending]);
+    } catch (Throwable $e) { return false; }
+}
+
+// Vincula usuário como atribuído (type=2) no chamado, sem duplicar
+function kanpro_ticket_assign(int $tickets_id, int $users_id): bool {
+    if ($tickets_id <= 0 || $users_id <= 0 || !class_exists('Ticket_User')) return false;
+    try {
+        $exists = countElementsInTable('glpi_tickets_users', ['tickets_id' => $tickets_id, 'users_id' => $users_id, 'type' => 2]);
+        if ($exists) return true;
+        $tu = new Ticket_User();
+        return (bool)$tu->add(['tickets_id' => $tickets_id, 'users_id' => $users_id, 'type' => 2]);
+    } catch (Throwable $e) { return false; }
+}
+
 function kanpro_machine_status_label(string $st): string {
     $map = ['' => 'sem status', 'pendente' => 'Pendente', 'garantia' => 'Garantia', 'ok' => 'OK', 'inservivel' => 'Inservível'];
     $k = mb_strtolower(trim($st), 'UTF-8');
@@ -1297,6 +1323,7 @@ switch ($action) {
             $lst = [];
             foreach ($created as $mc) $lst[] = '#' . $mc['seq'] . ' ' . $mc['model'];
             kanpro_ticket_followup($tid, '⚙ [KanPro] Máquinas configuradas (' . count($created) . ' novas): ' . implode('; ', array_slice($lst, 0, 20)) . (count($lst) > 20 ? ' ... (+' . (count($lst) - 20) . ')' : ''));
+            kanpro_ticket_set_attending($tid);
         }
         // Retorna lista completa atualizada
         $all = [];
@@ -1409,6 +1436,9 @@ switch ($action) {
                 kanpro_ticket_followup($tid, $msg);
             }
         }
+        // qualquer alteração (status, diário, feito, etc.) move o chamado para Em atendimento
+        $tidAtt = kanpro_card_ticket_id((int)$row['plugin_kanpro_cards_id']);
+        if ($tidAtt) kanpro_ticket_set_attending($tidAtt);
         // log
         $card = new PluginKanproCard();
         if ($card->getFromDB($row['plugin_kanpro_cards_id'])) {
@@ -1488,6 +1518,7 @@ switch ($action) {
             $lst = [];
             foreach ($defs as $def) $lst[] = $def['qty'] . 'x ' . $def['model'];
             kanpro_ticket_followup($tid, '⚙ [KanPro] Máquinas adicionadas: ' . implode('; ', array_slice($lst, 0, 20)));
+            kanpro_ticket_set_attending($tid);
         }
         jexit(['success'=>true,'machines'=>$all]);
 
@@ -1501,7 +1532,10 @@ switch ($action) {
         $cid = $row['plugin_kanpro_cards_id'];
         $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
         $tid = kanpro_card_ticket_id((int)$cid);
-        if ($tid) kanpro_ticket_followup($tid, "⚙ [KanPro] Máquina #{$row['seq']} '" . ($row['model'] ?? '') . "' removida do card");
+        if ($tid) {
+            kanpro_ticket_followup($tid, "⚙ [KanPro] Máquina #{$row['seq']} '" . ($row['model'] ?? '') . "' removida do card");
+            kanpro_ticket_set_attending($tid);
+        }
         // apaga anotações da máquina
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
             $DB->delete('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]);
@@ -1565,6 +1599,8 @@ switch ($action) {
         ]);
         if (!$nid) jexit(['success'=>false,'msg'=>'Falha ao salvar anotação']);
         kanpro_touch_member((int)$mrow['plugin_kanpro_cards_id']);
+        $tidNote = kanpro_card_ticket_id((int)$mrow['plugin_kanpro_cards_id']);
+        if ($tidNote) kanpro_ticket_set_attending($tidNote);
         $cnt = countElementsInTable('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]);
         jexit(['success'=>true,'id'=>$nid,'count'=>$cnt]);
 
@@ -2026,21 +2062,26 @@ switch ($action) {
         }
         try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Finalizado: Card #{$cid} '{$card->fields['name']}' — {$total} máquinas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm}) pendentes→#{$pendingCardId}"); }catch(Throwable $e){}
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_finalize', "Manutenção finalizada e enviada para Assinatura #{$transfer_id} ({$total} itens) pendentes→#{$pendingCardId}");
-        // espelha no chamado vinculado: relatório completo + soluciona
+        // espelha no chamado vinculado: atribui quem finalizou, relatório completo + soluciona
         $finTid = kanpro_card_ticket_id($cid);
         if ($finTid) {
+            $finUid = Session::getLoginUserID();
+            kanpro_ticket_assign($finTid, $finUid);
+            $finName = '';
+            try { $fu = new User(); if ($fu->getFromDB($finUid)) $finName = $fu->getFriendlyName(); } catch (Throwable $e) {}
             $techName = '';
             try { $tu = new User(); if ($tu->getFromDB($tech_id)) $techName = $tu->getFriendlyName(); } catch (Throwable $e) {}
             $finMsg = "✅ [KanPro] Manutenção finalizada\n"
                 . "Card #{$cid} '" . ($card->fields['name'] ?? '') . "' (" . $board_name . ' / ' . $list_name . ")\n"
                 . ($techName !== '' ? 'Técnico: ' . $techName . "\n" : '')
+                . ($finName !== '' ? 'Finalizado por: ' . $finName . "\n" : '')
                 . "{$total} máquinas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm})"
                 . ($pendingCount > 0 ? " | {$pendingCount} pendente(s) → card #{$pendingCardId}" : "")
                 . " | Termo de assinatura #{$transfer_id} gerado.";
             $finRep = kanpro_card_machines_report($cid);
             if ($finRep !== '') $finMsg .= "\n" . $finRep;
             kanpro_ticket_followup($finTid, $finMsg);
-            kanpro_ticket_solve($finTid, "Manutenção concluída pelo KanPro — {$total} máquinas verificadas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm}). Termo de assinatura #{$transfer_id} gerado para coleta na escola.");
+            kanpro_ticket_solve($finTid, "Manutenção concluída pelo KanPro" . ($finName !== '' ? ' por ' . $finName : '') . " — {$total} máquinas verificadas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm}). Termo de assinatura #{$transfer_id} gerado para coleta na escola.");
         }
         $base = Plugin::getWebDir('assetmgrstatus');
         if(!$base) $base = '/plugins/assetmgrstatus';
