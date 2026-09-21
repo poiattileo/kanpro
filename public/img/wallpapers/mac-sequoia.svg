@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b2b26"/>
+      <stop offset=".6" stop-color="#14532d"/>
+      <stop offset="1" stop-color="#3f6212"/>
+    </linearGradient>
+    <filter id="mist" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="35"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="330" cy="200" r="90" fill="#fef9c3" opacity=".9"/>
+  <circle cx="330" cy="200" r="140" fill="#fef9c3" opacity=".18"/>
+  <g filter="url(#mist)">
+    <ellipse cx="700" cy="500" rx="600" ry="120" fill="#d9f99d" opacity=".35"/>
+    <ellipse cx="1300" cy="380" rx="500" ry="110" fill="#fef9c3" opacity=".3"/>
+  </g>
+  <path d="M0,700 L220,520 L400,640 L640,480 L900,660 L1150,510 L1400,650 L1640,530 L1920,660 L1920,1080 L0,1080 Z" fill="#05241c"/>
+  <g fill="#05241c">
+    <path d="M150,700 l28,-110 28,110 Z"/><path d="M230,700 l22,-84 22,84 Z"/>
+    <path d="M800,690 l30,-120 30,120 Z"/><path d="M885,690 l22,-88 22,88 Z"/>
+    <path d="M1330,680 l28,-112 28,112 Z"/><path d="M1410,680 l22,-86 22,86 Z"/>
+  </g>
+  <path d="M0,820 L360,700 L700,810 L1050,690 L1400,810 L1720,710 L1920,770 L1920,1080 L0,1080 Z" fill="#02120e"/>
+  <ellipse cx="960" cy="1060" rx="950" ry="80" fill="#000000" opacity=".4"/>
+</svg>

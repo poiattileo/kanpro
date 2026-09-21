@@ -223,10 +223,17 @@ class PluginKanproBoard extends CommonDBTM {
             'xp-bliss'    => 'xp-bliss.svg',
             'win11-bloom' => 'win11-bloom.svg',
             'vista-aurora'=> 'vista-aurora.svg',
+            'win7-aurora' => 'win7-aurora.svg',
+            'win10-hero'  => 'win10-hero.svg',
+            'win98-clouds'=> 'win98-clouds.svg',
             'ubuntu'      => 'ubuntu.svg',
             'mint'        => 'mint.svg',
+            'fedora'      => 'fedora.svg',
+            'debian'      => 'debian.svg',
             'mac-waves'   => 'mac-waves.svg',
             'mac-night'   => 'mac-night.svg',
+            'mac-sonoma'  => 'mac-sonoma.svg',
+            'mac-sequoia' => 'mac-sequoia.svg',
         ];
     }
 

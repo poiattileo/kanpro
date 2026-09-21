@@ -2882,10 +2882,17 @@
         {key:'xp-bliss', file:'xp-bliss.svg', label:'Windows XP'},
         {key:'win11-bloom', file:'win11-bloom.svg', label:'Windows 11'},
         {key:'vista-aurora', file:'vista-aurora.svg', label:'Windows Vista'},
+        {key:'win7-aurora', file:'win7-aurora.svg', label:'Windows 7'},
+        {key:'win10-hero', file:'win10-hero.svg', label:'Windows 10'},
+        {key:'win98-clouds', file:'win98-clouds.svg', label:'Windows 98'},
         {key:'ubuntu', file:'ubuntu.svg', label:'Ubuntu'},
         {key:'mint', file:'mint.svg', label:'Mint'},
+        {key:'fedora', file:'fedora.svg', label:'Fedora'},
+        {key:'debian', file:'debian.svg', label:'Debian'},
         {key:'mac-waves', file:'mac-waves.svg', label:'macOS Ondas'},
         {key:'mac-night', file:'mac-night.svg', label:'macOS Noite'},
+        {key:'mac-sonoma', file:'mac-sonoma.svg', label:'macOS Sonoma'},
+        {key:'mac-sequoia', file:'mac-sequoia.svg', label:'macOS Sequoia'},
       ];
     },
     wallpaperThumbUrl(file){
