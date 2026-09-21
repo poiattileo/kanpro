@@ -261,47 +261,16 @@ class PluginKanproCard extends CommonDBTM {
         ]);
         foreach ($iter as $r) $data['members'][] = $r;
 
-        // checklists com items (+ nome do responsável de cada item)
+        // checklists com items
         $data['checklists'] = [];
-        $itemUserIds = [];
         $cls = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id], 'ORDER' => 'rank ASC']);
-        $clsArr = [];
         foreach ($cls as $cl) {
             $items = [];
             $its = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['plugin_kanpro_checklists_id' => $cl['id']], 'ORDER' => 'rank ASC']);
-            foreach ($its as $it) {
-                $items[] = $it;
-                if (!empty($it['users_id'])) $itemUserIds[(int)$it['users_id']] = true;
-            }
+            foreach ($its as $it) $items[] = $it;
             $cl['items'] = $items;
-            $clsArr[] = $cl;
+            $data['checklists'][] = $cl;
         }
-        // membros do quadro (atribuíveis nos itens) + nomes dos responsáveis
-        $data['assignable'] = [];
-        $needUsers = $itemUserIds;
-        $bmIter = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => (int)$data['plugin_kanpro_boards_id']]]);
-        foreach ($bmIter as $bm) $needUsers[(int)$bm['users_id']] = true;
-        $userNames = [];
-        if (!empty($needUsers)) {
-            $uIter = $DB->request(['SELECT' => ['id','name','realname','firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_keys($needUsers)]]);
-            foreach ($uIter as $u) {
-                $full = trim(($u['firstname'] ?? '') . ' ' . ($u['realname'] ?? ''));
-                if ($full === '') $full = $u['name'];
-                $userNames[(int)$u['id']] = $full;
-                $initials = strtoupper(substr($u['firstname'] ?? $u['name'] ?? '?', 0, 1) . substr($u['realname'] ?? '', 0, 1));
-                if (trim($initials) === '') $initials = strtoupper(substr($full, 0, 2));
-                $data['assignable'][] = ['users_id' => (int)$u['id'], 'name' => $full, 'initials' => $initials];
-            }
-        }
-        usort($data['assignable'], fn($a,$b) => strcmp($a['name'], $b['name']));
-        foreach ($clsArr as &$clRef) {
-            foreach ($clRef['items'] as &$itRef) {
-                $itRef['assignee_name'] = !empty($itRef['users_id']) ? ($userNames[(int)$itRef['users_id']] ?? '') : '';
-            }
-            unset($itRef);
-        }
-        unset($clRef);
-        $data['checklists'] = $clsArr;
 
         // comments
         $data['comments'] = [];

@@ -86,6 +86,10 @@ try {
     if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
         $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
     }
+    // garante coluna do chamado vinculado (Card-Chamado) sem depender do update do plugin
+    if ($DB->tableExists('glpi_plugin_kanpro_cards') && !$DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) {
+        $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`");
+    }
 } catch (Throwable $e) {}
 if (method_exists('PluginKanproBoard', 'getBoardThemes')) {
     $themes = PluginKanproBoard::getBoardThemes();
@@ -411,7 +415,6 @@ echo <<<HTML
             <button id="kp-maintenance-btn" class="kp-sidebar-btn" onclick="Kanpro.openMaintenanceFlow()" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d"><i class="ti ti-tool"></i> Manutenção</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.moveCardPicker()"><i class="ti ti-arrows-move"></i> Mover</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.copyCard()"><i class="ti ti-copy"></i> Copiar</button>
-            <button class="kp-sidebar-btn" onclick="Kanpro.saveAsTemplate()" title="Salvar este cartão como modelo para reutilizar"><i class="ti ti-template"></i> Modelo</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.archiveCard()"><i class="ti ti-archive"></i> Arquivar</button>
             <button class="kp-sidebar-btn" style="color:#eb5a46" onclick="Kanpro.deleteCard()"><i class="ti ti-trash"></i> Excluir</button>
           </div>

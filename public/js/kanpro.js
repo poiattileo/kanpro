@@ -19,8 +19,6 @@
     attCounts: K.attCounts || {},
     transferStatus: K.transferStatus || {},
     ticketMap: K.ticketMap || {},
-    tplCache: null,
-    _lastCardData: null,
     members: K.members || [],
     ajax_url: K.ajax_url || '/plugins/kanpro/front/ajax.php',
     openCardId: K.openCardId || null,
@@ -290,8 +288,6 @@
         <button class="kp-add-card" onclick="Kanpro.showAddCard(${list.id})"><i class="ti ti-plus"></i> Adicionar um cartão</button>
         <div class="kp-card-composer" style="display:none">
           <textarea placeholder="Digite um título para este cartão..." rows="3"></textarea>
-          <select class="kp-tpl-select" title="Criar a partir de um modelo" style="width:100%;margin-top:6px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;color:#5e6c84;background:#fff"><option value="">— Sem modelo —</option></select>
-          <div class="kp-tpl-manage"></div>
           <div class="kp-composer-actions">
             <button class="kp-btn-primary" onclick="Kanpro.confirmAddCard(${list.id}, this)">Adicionar cartão</button>
             <button class="kp-btn-ghost" onclick="Kanpro.hideAddCard(${list.id})">✕</button>
@@ -665,7 +661,6 @@
       const comp = listEl.querySelector('.kp-card-composer');
       comp.style.display='block';
       comp.querySelector('textarea').focus();
-      this.fillComposerTemplates(listId);
       // enter rápido
       const ta = comp.querySelector('textarea');
       ta.onkeydown = (e)=>{
@@ -683,45 +678,7 @@
       const ta = listEl.querySelector('.kp-card-composer textarea');
       const name = ta.value.trim();
       if(!name) return;
-      const tplSel = listEl.querySelector('.kp-tpl-select');
-      const tplId = tplSel ? parseInt(tplSel.value||'0', 10) : 0;
       btn.disabled=true;
-      if(tplId){
-        // cria cartão a partir do modelo (título digitado vale como nome)
-        this.ajax('apply_template', {lists_id: listId, template_id: tplId, name}).then(res=>{
-          btn.disabled=false;
-          if(res.success){
-            const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name, rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0};
-            this.cards.push(newCard);
-            this.cardLabels[newCard.id]=[];
-            this.cardMembers[newCard.id]=[];
-            this.commentCounts[newCard.id]=0;
-            this.attCounts[newCard.id]=0;
-            this.checkProgress[newCard.id]={total:0,done:0};
-            ta.value='';
-            if(tplSel) tplSel.value='';
-            ta.focus();
-            this.ajax('get_board_snapshot', {boards_id: this.board.id}).then(r=>{
-              if(r.success){
-                this.lists = r.lists || this.lists;
-                this.cards = r.cards || this.cards;
-                this.labels = r.labels || this.labels;
-                this.cardLabels = r.cardLabels || {};
-                this.cardMembers = r.cardMembers || {};
-                this.checkProgress = r.checkProgress || {};
-                this.maintenanceProgress = r.maintenanceProgress || {};
-                this.commentCounts = r.commentCounts || {};
-                this.attCounts = r.attCounts || {};
-                this.members = r.members || this.members;
-                this.transferStatus = r.transferStatus || {};
-              }
-              this.renderBoard();
-            });
-            this.updateStats();
-          } else alert(res.msg||'Erro');
-        });
-        return;
-      }
       this.ajax('add_card', {lists_id: listId, name}).then(res=>{
         btn.disabled=false;
         if(res.success){
@@ -787,7 +744,6 @@
       this.closePicker();
     },
     renderCardModal(data){
-      this._lastCardData = data;
       $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${data.id}</span>${this.escape(data.name)}`;
       $('#card-modal-listname').textContent = data.list_name||'Lista';
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
@@ -878,28 +834,12 @@
           </div>
           ${total?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:11px">${pct}%</span><div class="kp-progress"><div class="kp-progress-bar" style="width:${pct}%"></div></div></div>`:''}
           <div class="kp-checkitems" data-cl-id="${cl.id}">
-            ${cl.items.map(it=>{
-              let dueHtml = `<button onclick="Kanpro.dateCheckItem(${it.id})" title="Definir prazo" style="background:none;border:none;cursor:pointer;opacity:.55;font-size:12px"><i class="ti ti-calendar"></i></button>`;
-              if (it.due_date) {
-                const dd = new Date(String(it.due_date).replace(' ', 'T'));
-                const overdue = !isNaN(dd) && dd < new Date() && !it.is_checked;
-                const lbl = !isNaN(dd) ? String(dd.getDate()).padStart(2,'0') + '/' + String(dd.getMonth()+1).padStart(2,'0') : '';
-                dueHtml = `<button onclick="Kanpro.dateCheckItem(${it.id})" title="Prazo: ${this.escape(String(it.due_date)).slice(0,16)} — clique para alterar" style="background:${overdue ? '#ffebe6' : '#e6fcff'};color:${overdue ? '#bf2600' : '#0747a6'};border:1px solid ${overdue ? '#ff8b6b' : '#4c9aff'};border-radius:10px;font-size:11px;font-weight:700;padding:1px 7px;cursor:pointer;white-space:nowrap">${overdue ? '⚠ ' : '📅 '}${lbl}</button>`;
-              }
-              let assHtml = `<button onclick="Kanpro.assignCheckItem(${it.id})" title="Atribuir responsável" style="background:#dfe1e6;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:11px;color:#5e6c84;flex-shrink:0"><i class="ti ti-user-plus"></i></button>`;
-              if (it.users_id) {
-                const nm = it.assignee_name || ('#' + it.users_id);
-                const ini = this.escape(String(it.assignee_name || '?').trim().split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase());
-                assHtml = `<button onclick="Kanpro.assignCheckItem(${it.id})" title="${this.escape(nm)} — clique para trocar" class="kp-avatar sm" style="border:none;cursor:pointer;flex-shrink:0">${ini}</button>`;
-              }
-              return `
+            ${cl.items.map(it=>`
               <div class="kp-checkitem ${it.is_checked?'checked':''}" data-item-id="${it.id}">
                 <input type="checkbox" ${it.is_checked?'checked':''} onchange="Kanpro.toggleCheckItem(${it.id}, this.checked)">
                 <span style="flex:1;cursor:pointer" onclick="Kanpro.editCheckItem(${it.id})">${this.escape(it.name)}</span>
-                ${assHtml}${dueHtml}
-                <button onclick="Kanpro.convertCheckItem(${it.id})" title="Converter em cartão" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-arrow-right"></i></button>
                 <button onclick="Kanpro.deleteCheckItem(${it.id})" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-trash"></i></button>
-              </div>`;}).join('')}
+              </div>`).join('')}
           </div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <input type="text" placeholder="Adicionar um item" style="flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px" onkeydown="if(event.key==='Enter') Kanpro.addCheckItem(${cl.id}, this)">
@@ -2683,126 +2623,6 @@
       });
     },
 
-    // ---------- CHECKLIST TURBINADO ----------
-    _findCheckItem(itemId){
-      const data = this._lastCardData;
-      if(!data || !data.checklists) return null;
-      for(const cl of data.checklists){
-        for(const it of (cl.items||[])){
-          if(String(it.id)===String(itemId)) return it;
-        }
-      }
-      return null;
-    },
-    assignCheckItem(itemId){
-      const users = (this._lastCardData && this._lastCardData.assignable) || [];
-      const it = this._findCheckItem(itemId);
-      const cur = it ? parseInt(it.users_id||0, 10) : 0;
-      const opts = [`<div class="kp-picker-item" data-id="0" onclick="Kanpro.doAssignCheckItem(${itemId},0)" style="display:flex;gap:8px;align-items:center;padding:8px;border-radius:6px;cursor:pointer"><span class="kp-avatar sm" style="background:#dfe1e6;color:#5e6c84">–</span><span>Sem responsável${cur===0?' ✔':''}</span></div>`]
-        .concat(users.map(u=>`<div class="kp-picker-item" data-id="${u.users_id}" data-search="${this.escape(u.name)}" onclick="Kanpro.doAssignCheckItem(${itemId},${u.users_id})" style="display:flex;gap:8px;align-items:center;padding:8px;border-radius:6px;cursor:pointer"><span class="kp-avatar sm">${this.escape(u.initials)}</span><span>${this.escape(u.name)}${cur===u.users_id?' ✔':''}</span></div>`)).join('');
-      this.showPicker({title:'Responsável do item', html:`<input type="text" placeholder="🔍 Buscar..." oninput="Kanpro.filterPicker(this.value)" style="width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;margin-bottom:8px;box-sizing:border-box"><div style="display:grid;gap:2px;max-height:260px;overflow-y:auto">${opts}</div>`});
-    },
-    doAssignCheckItem(itemId, usersId){
-      this.closePicker();
-      this.ajax('assign_checkitem', {id: itemId, users_id: usersId}).then(res=>{
-        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
-        else alert(res.msg||'Erro');
-      });
-    },
-    dateCheckItem(itemId){
-      const it = this._findCheckItem(itemId);
-      const cur = it && it.due_date ? String(it.due_date).slice(0,16).replace(' ', 'T') : '';
-      this.showPicker({title:'Prazo do item', html:`
-        <div style="display:grid;gap:10px">
-          <label style="font-size:12px;color:#5e6c84">Data e hora (opcional)
-            <input id="kp-item-due" type="datetime-local" value="${cur}" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box">
-          </label>
-          <div style="display:flex;gap:8px">
-            <button onclick="Kanpro.doDateCheckItem(${itemId},true)" style="flex:1;background:#eaecf0;border:none;padding:8px;border-radius:6px;cursor:pointer">Limpar</button>
-            <button onclick="Kanpro.doDateCheckItem(${itemId},false)" style="flex:1;background:#0079bf;color:#fff;border:none;padding:8px;border-radius:6px;cursor:pointer;font-weight:700">Salvar</button>
-          </div>
-        </div>`});
-    },
-    doDateCheckItem(itemId, clear){
-      let val = '';
-      if(!clear){
-        const inp = document.getElementById('kp-item-due');
-        val = inp ? inp.value.replace('T', ' ') : '';
-        if(val && val.length===16) val += ':00';
-      }
-      this.closePicker();
-      this.ajax('date_checkitem', {id: itemId, due_date: val}).then(res=>{
-        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
-        else alert(res.msg||'Erro');
-      });
-    },
-    async convertCheckItem(itemId){
-      const it = this._findCheckItem(itemId);
-      if(!await this.kpConfirm('Converter "' + (it ? it.name : 'item') + '" em cartão na mesma lista? O item será removido do checklist.')) return;
-      this.ajax('convert_checkitem_to_card', {id: itemId}).then(res=>{
-        if(res.success){
-          const data = this._lastCardData || {};
-          this.cards.push({id: res.new_card_id, plugin_kanpro_lists_id: data.plugin_kanpro_lists_id, plugin_kanpro_boards_id: this.board.id, name: it ? it.name : '', rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0});
-          this.cardLabels[res.new_card_id]=[];
-          this.cardMembers[res.new_card_id]=[];
-          this.checkProgress[res.new_card_id]={total:0,done:0};
-          this.renderBoard();
-          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
-        } else alert(res.msg||'Erro');
-      });
-    },
-
-    // ---------- MODELOS DE CARTÃO ----------
-    loadTemplates(){
-      return this.ajax('list_templates', {boards_id: this.board.id}).then(res=>{
-        if(res.success){ this.tplCache = res.data || []; }
-        return this.tplCache || [];
-      });
-    },
-    async saveAsTemplate(){
-      if(!this.currentCardId) return;
-      const name = await this.kpPrompt('Nome do modelo:', '');
-      if(!name) return;
-      const global = await this.kpConfirm('Deixar este modelo disponível em TODOS os quadros?\n\n(Cancelar = só neste quadro)');
-      this.ajax('save_template', {cards_id: this.currentCardId, name: name.trim(), scope: global ? 'global' : 'board'}).then(res=>{
-        if(res.success){ this.tplCache = null; alert('Modelo salvo! Use no "Adicionar cartão" das listas.'); }
-        else alert(res.msg||'Erro');
-      });
-    },
-    fillComposerTemplates(listId){
-      const listEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
-      if(!listEl) return;
-      const sel = listEl.querySelector('.kp-tpl-select');
-      const mgr = listEl.querySelector('.kp-tpl-manage');
-      if(!sel) return;
-      sel.innerHTML = '<option value="">— Sem modelo —</option>';
-      if(mgr) mgr.innerHTML = '';
-      this.loadTemplates().then(tpls=>{
-        const listEl2 = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
-        if(!listEl2) return;
-        const sel2 = listEl2.querySelector('.kp-tpl-select');
-        const mgr2 = listEl2.querySelector('.kp-tpl-manage');
-        if(!sel2) return;
-        (tpls||[]).forEach(t=>{
-          const o = document.createElement('option');
-          o.value = t.id;
-          o.textContent = (t.global ? '🌐 ' : '📌 ') + t.name + ` (${t.checklists||0} chk • ${t.labels||0} etiq)`;
-          sel2.appendChild(o);
-        });
-        if(mgr2 && (tpls||[]).length){
-          mgr2.innerHTML = '<div style="margin-top:6px;border-top:1px dashed #dfe1e6;padding-top:6px;display:grid;gap:4px">' +
-            tpls.map(t=>`<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5e6c84"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape((t.global?'🌐 ':'📌 ')+t.name)}</span><button onclick="Kanpro.deleteTemplate(${t.id},${listId})" title="Excluir modelo" style="background:none;border:none;cursor:pointer;color:#eb5a46"><i class="ti ti-trash"></i></button></div>`).join('') + '</div>';
-        }
-      });
-    },
-    deleteTemplate(tplId, listId){
-      this.ajax('delete_template', {id: tplId}).then(res=>{
-        if(res.success){ this.tplCache = null; this.fillComposerTemplates(listId); }
-        else alert(res.msg||'Erro');
-      });
-    },
-
-    // Comments
     addComment(){
       const val = $('#card-comment-input').value.trim();
       if(!val) return;

@@ -37,10 +37,13 @@ if (!is_file($path)) {
     die('Arquivo não encontrado');
 }
 
-// mime
+// mime (svg explícito — mime_content_type varia por servidor e quebrava a imagem)
 $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-$map = ['jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','webp'=>'image/webp','gif'=>'image/gif'];
-$mime = $map[$ext] ?? mime_content_type($path) ?: 'application/octet-stream';
+$map = ['jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','webp'=>'image/webp','gif'=>'image/gif','svg'=>'image/svg+xml'];
+$mime = $map[$ext] ?? null;
+if ($mime === null) {
+    try { $mime = mime_content_type($path) ?: 'application/octet-stream'; } catch (Throwable $e) { $mime = 'application/octet-stream'; }
+}
 if (strpos($mime, 'image/') !== 0) $mime = 'image/jpeg';
 
 $etag = md5_file($path);

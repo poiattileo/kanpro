@@ -69,19 +69,30 @@ if (count($iterator) === 0) {
         $archived_badge = $row['is_archived'] ? "<span style='background:#ff5630;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px'>Arquivado</span>" : '';
 
         echo "<div style='border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.15);background:#fff;display:flex;flex-direction:column;transition:transform .15s' onmouseover=\"this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.15)'\" onmouseout=\"this.style.transform='none';this.style.boxShadow='0 1px 3px rgba(0,0,0,.15)'\">";
-        // header com cor/degradê ou imagem de fundo
-        $bgColor = htmlspecialchars($row['color'] ?? '#0079bf', ENT_QUOTES);
+        // header com cor/degradê ou imagem de fundo — valida a cor (degradê truncado em installs antigos quebrava o CSS e deixava a capa branca)
+        $bgColorRaw = $row['color'] ?? '#0079bf';
+        $bgColor = '#0079bf';
+        if (is_string($bgColorRaw)) {
+            $bgColorRaw = trim($bgColorRaw);
+            if (preg_match('/^#[0-9a-fA-F]{6}$/', $bgColorRaw)) {
+                $bgColor = $bgColorRaw;
+            } elseif (strpos($bgColorRaw, 'linear-gradient') === 0 && substr($bgColorRaw, -1) === ')') {
+                $bgColor = $bgColorRaw;
+            }
+        }
+        $bgColorEsc = htmlspecialchars($bgColor, ENT_QUOTES);
         $bgImg = $row['background'] ?? '';
+        $bgImgTag = '';
         if (!empty($bgImg) && !empty($row['id'])) {
             $bgUrl = htmlspecialchars(PluginKanproBoard::getBackgroundImageUrl((int)$row['id'], $bgImg), ENT_QUOTES);
-            $headerBg = "url('{$bgUrl}') center / cover no-repeat, {$bgColor}";
-        } else {
-            $headerBg = $bgColor;
+            // <img> com onerror: se a imagem falhar (arquivo sumido, 404), remove e revela a cor — capa nunca fica branca
+            $bgImgTag = "<img src='{$bgUrl}' alt='' loading='lazy' onerror='this.remove()' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover'>";
         }
-        echo "<a href='{$kanban_url}' style='display:block;height:110px;background:{$headerBg};padding:12px;color:#fff;text-decoration:none;position:relative'>";
-        echo "<div style='font-weight:700;font-size:16px;line-height:1.2;display:flex;justify-content:space-between;align-items:flex-start'><span>" . htmlspecialchars($row['name']) . " {$star}</span> {$archived_badge}</div>";
-        if (!empty($row['comment'])) echo "<div style='font-size:12px;opacity:.9;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" . htmlspecialchars(mb_strimwidth($row['comment'], 0, 80, '…')) . "</div>";
-        echo "<div style='position:absolute;bottom:10px;left:12px;right:12px;display:flex;gap:4px;flex-wrap:wrap'>{$lists_preview}</div>";
+        $headerBg = $bgColorEsc;
+        echo "<a href='{$kanban_url}' style='display:block;height:110px;background:{$headerBg};padding:12px;color:#fff;text-decoration:none;position:relative;overflow:hidden'>{$bgImgTag}";
+        echo "<div style='font-weight:700;font-size:16px;line-height:1.2;display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:1;'><span>" . htmlspecialchars($row['name']) . " {$star}</span> {$archived_badge}</div>";
+        if (!empty($row['comment'])) echo "<div style='font-size:12px;opacity:.9;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative;z-index:1;'>" . htmlspecialchars(mb_strimwidth($row['comment'], 0, 80, '…')) . "</div>";
+        echo "<div style='position:absolute;bottom:10px;left:12px;right:12px;display:flex;gap:4px;flex-wrap:wrap;z-index:1;'>{$lists_preview}</div>";
         echo "</a>";
         echo "<div style='padding:12px;display:flex;justify-content:space-between;align-items:center;background:#fff'>";
         echo "<div style='display:flex;gap:12px;font-size:12px;color:#6b778c'>";

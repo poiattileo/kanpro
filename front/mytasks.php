@@ -94,6 +94,48 @@ $actOd = $filter_overdue ? 'background:#de350b;color:#fff;border-color:#de350b' 
 echo "<a href='" . $qsBase(['overdue' => $filter_overdue ? 0 : 1]) . "' class='btn btn-sm' style='border:1px solid #dfe1e6;{$actOd}'><i class='ti ti-alert-triangle'></i> Só atrasados</a>";
 echo "</div>";
 
+// 🔔 Atividade recente nos meus cartões (feita por outras pessoas) — notificações
+$recentActs = [];
+if (!empty($memberCardIds)) {
+    $aIter = $DB->request([
+        'SELECT' => ['a.*', 'u.realname', 'u.firstname', 'u.name AS login', 'c.name AS card_name', 'c.plugin_kanpro_boards_id AS bid'],
+        'FROM'   => 'glpi_plugin_kanpro_activities AS a',
+        'LEFT JOIN' => [
+            'glpi_users AS u' => ['ON' => ['u' => 'id', 'a' => 'users_id']],
+            'glpi_plugin_kanpro_cards AS c' => ['ON' => ['c' => 'id', 'a' => 'plugin_kanpro_cards_id']],
+        ],
+        'WHERE'  => ['a.plugin_kanpro_cards_id' => $memberCardIds, 'a.users_id' => ['<>', $uid]],
+        'ORDER'  => 'a.date_creation DESC',
+        'LIMIT'  => 20,
+    ]);
+    foreach ($aIter as $r) $recentActs[] = $r;
+}
+if (!empty($recentActs)) {
+    echo "<div style='background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:16px'>";
+    echo "<div style='font-weight:700;font-size:14px;color:#92400e;margin-bottom:10px'><i class='ti ti-bell'></i> Atividade recente nos seus cartões</div>";
+    echo "<div style='display:grid;gap:8px'>";
+    foreach ($recentActs as $a) {
+        $actor = trim(($a['firstname'] ?? '') . ' ' . ($a['realname'] ?? ''));
+        if ($actor === '') $actor = $a['login'] ?? ('#' . (int)$a['users_id']);
+        $ts = strtotime($a['date_creation'] ?? '');
+        $diff = $now - $ts;
+        if ($diff < 60) $ago = 'agora mesmo';
+        elseif ($diff < 3600) $ago = floor($diff / 60) . ' min atrás';
+        elseif ($diff < 86400) $ago = floor($diff / 3600) . ' h atrás';
+        elseif ($diff < 172800) $ago = 'ontem';
+        elseif ($diff < 86400 * 7) $ago = floor($diff / 86400) . ' dias atrás';
+        else $ago = date('d/m/Y', $ts);
+        $cardUrl = 'kanban.php?boards_id=' . (int)$a['bid'] . '&open_card=' . (int)$a['plugin_kanpro_cards_id'];
+        echo "<div style='display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#573b00'>";
+        echo "<i class='ti ti-activity' style='margin-top:2px;flex-shrink:0'></i>";
+        echo "<div style='flex:1;min-width:0'><strong>" . htmlspecialchars($actor) . "</strong> " . htmlspecialchars($a['details'] ?: $a['action']);
+        echo " em <a href='{$cardUrl}' style='font-weight:700;color:#92400e;'>#" . (int)$a['plugin_kanpro_cards_id'] . ' ' . htmlspecialchars(mb_strimwidth($a['card_name'] ?? '', 0, 40, '…')) . "</a>";
+        echo " <span style='color:#a08c5b;font-size:12px'>• {$ago}</span></div>";
+        echo "</div>";
+    }
+    echo "</div></div>";
+}
+
 if (empty($tasks)) {
     echo "<div style='text-align:center;padding:60px 20px;background:#f4f5f7;border-radius:8px'>";
     echo "<i class='ti ti-checkbox' style='font-size:48px;color:#97a0af'></i>";
