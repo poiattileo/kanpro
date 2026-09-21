@@ -2299,9 +2299,11 @@
       const search=document.getElementById("rename-entity-search");
       const err=document.getElementById("rename-entity-error");
       const btn=document.getElementById("rename-entity-save");
-      let entities_id = hid ? parseInt(hid.value||"0") : 0;
+      let entities_id = hid ? parseInt(hid.value||'', 10) : NaN;
       let selectedName = hid ? (hid.dataset.name||"") : "";
-      if(!entities_id){
+      // id 0 é válido (entidade raiz renomeada) — só NaN/negativo é "nada selecionado"
+      const noneSelected = !Number.isInteger(entities_id) || entities_id < 0;
+      if(noneSelected){
         // fallback: resolve pelo texto (caso o clique não tenha fixado o id — ex: nome digitado por extenso)
         const typed = (search ? search.value : '').trim();
         if(typed){
@@ -2312,8 +2314,8 @@
             const short=raw.includes(' > ') ? raw.split(' > ').pop().trim() : raw;
             return norm(short)===ntyped || norm(raw)===ntyped || norm(e.name||'')===ntyped;
           });
-          if(found && parseInt(found.id)){
-            entities_id = parseInt(found.id);
+          if(found && found.id !== undefined && found.id !== null && String(found.id).trim() !== ''){
+            entities_id = parseInt(found.id, 10);
             const fraw=(found.completename||found.name||'');
             selectedName = fraw.includes(' > ') ? fraw.split(' > ').pop().trim() : fraw;
             if(hid){ hid.value=String(entities_id); hid.dataset.name=selectedName; }
@@ -2321,7 +2323,7 @@
           }
         }
       }
-      if(!entities_id){
+      if(!Number.isInteger(entities_id) || entities_id < 0){
         if(err){ err.textContent="Selecione a entidade."; err.style.display="block"; }
         if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showRenameEntityDropdown(); }
         return;
