@@ -89,6 +89,8 @@
       this.startPolling();
       // clicar fora fecha picker, board-menu e card-modal
       document.addEventListener('click', e=>{
+        // se o elemento clicado foi removido do DOM (ex: removeMaintenanceRow remove a linha), não fecha o picker
+        if(!document.contains(e.target)) return;
         const picker = document.getElementById('kanpro-picker');
         if(picker && picker.style.display!=='none' && !picker.contains(e.target) && !e.target.closest('[onclick*="open"]') && !e.target.closest('[onclick*="Picker"]') && !e.target.closest('.kp-sidebar-btn')){
           // evita fechar se clique é no botão que abriu (já tratado por showPicker)
