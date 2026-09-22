@@ -85,6 +85,7 @@
       this.renderMemberAvatars();
       this.renderBoardMenuDetails();
       this.updateStats();
+      this.applyDarkMode();
       if(this.openCardId){ this.openCard(this.openCardId); }
       this.startPolling();
       // clicar fora fecha picker, board-menu e card-modal
@@ -95,7 +96,7 @@
         if(picker && picker.style.display!=='none' && !picker.contains(e.target) && !e.target.closest('[onclick*="open"]') && !e.target.closest('[onclick*="Picker"]') && !e.target.closest('.kp-sidebar-btn')){
           // evita fechar se clique é no botão que abriu (já tratado por showPicker)
           const isPickerBtn = e.target.closest('button');
-          if(!isPickerBtn || !isPickerBtn.textContent.match(/Membros|Etiquetas|Datas|Capa|Mover|Convidar|Filtrar/)){
+          if(!isPickerBtn || !isPickerBtn.textContent.match(/Membros|Etiquetas|Datas|Capa|Mover|Filtrar/)){
             // só fecha se não for dentro do picker
             if(!picker.contains(e.target)) this.closePicker();
           }
@@ -815,7 +816,7 @@
       // description
       const descEl = $('#card-modal-desc');
       const descEdit = $('#card-desc-edit');
-      descEl.textContent = data.description || 'Adicionar uma descrição mais detalhada...';
+      descEl.innerHTML = data.description ? this.parseMarkdown(data.description) : 'Adicionar uma descrição mais detalhada...';
       descEl.style.opacity = data.description ? '1' : '0.6';
       descEl.style.fontStyle = data.description ? 'normal' : 'italic';
       descEdit.value = data.description || '';
@@ -889,7 +890,7 @@
           <div class="kp-avatar">${this.escape((c.firstname?.[0]||c.user_name?.[0]||'?').toUpperCase())}</div>
           <div style="flex:1;background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13)">
             <div style="font-weight:700;font-size:13px">${this.escape(c.realname||c.firstname||c.user_name||'Usuário')} <span style="font-weight:400;color:#5e6c84;font-size:11px">${this.formatDate(c.date_creation)}</span></div>
-            <div style="margin-top:4px;white-space:pre-wrap;word-break:break-word">${this.escape(c.content)}</div>
+            <div style="margin-top:4px;word-break:break-word">${this.parseMarkdown(c.content)}</div>
             <div style="margin-top:6px;display:flex;gap:8px;font-size:12px"><a href="#" onclick="Kanpro.editComment(${c.id});return false">Editar</a> <a href="#" onclick="Kanpro.deleteComment(${c.id});return false" style="color:#eb5a46">Excluir</a></div>
           </div>
         </div>
@@ -2410,7 +2411,7 @@
       const val = $('#card-desc-edit').value;
       this.ajax('update_card', {id: this.currentCardId, description: val}).then(res=>{
         if(res.success){
-          $('#card-modal-desc').textContent = val || 'Adicionar uma descrição mais detalhada...';
+          $('#card-modal-desc').innerHTML = val ? this.parseMarkdown(val) : 'Adicionar uma descrição mais detalhada...';
           $('#card-modal-desc').style.opacity = val ? '1':'0.6';
           const card = this.cards.find(c=>c.id==this.currentCardId);
           if(card) card.description=val;
@@ -2432,7 +2433,7 @@
       // se vazio, tenta usar lista fixa do backend (users_dropdown injetado? não temos, então busca via DOM)
       // Vamos buscar via ajax? Adiciona opção de buscar
       let html = `<input type="text" placeholder="Buscar membros..." oninput="Kanpro.filterPicker(this.value)" style="width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;margin-bottom:8px"><div style="max-height:240px;overflow:auto">`;
-      if(allUsers.length===0) html += `<div style="color:#5e6c84;font-size:13px">Nenhum membro no quadro. Convide membros primeiro no menu do quadro.</div>`;
+      if(allUsers.length===0) html += `<div style="color:#5e6c84;font-size:13px">Nenhum membro no quadro. O acesso é gerenciado na engrenagem da tela "Seus Quadros".</div>`;
       else {
         html += allUsers.map(u=>`
           <label class="kp-picker-item" data-search="${this.escape(u.name)}" style="cursor:pointer">
@@ -2443,7 +2444,7 @@
           </label>
         `).join('');
       }
-      html += `</div><div style="margin-top:8px"><button onclick="Kanpro.openInvite()" style="background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;width:100%"><i class="ti ti-user-plus"></i> Convidar para o quadro</button></div>`;
+      html += `</div><div style="margin-top:8px;font-size:11px;color:#5e6c84;text-align:center">O acesso ao quadro é gerenciado na engrenagem da tela "Seus Quadros".</div>`;
       this.showPicker({title:'Membros', html, x: null, y: null}); // centraliza se null
     },
 
@@ -2676,7 +2677,8 @@
       });
     },
     async editComment(id){
-      const cur = await this.kpPrompt('Editar comentário:');
+      const existing = (this._lastModalData?.comments || []).find(c=> String(c.id)===String(id));
+      const cur = await this.kpPrompt('Editar comentário:', existing ? existing.content : '');
       if(cur===null) return;
       this.ajax('update_comment', {id, content: cur}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
@@ -3194,105 +3196,6 @@
         window.open(url, '_blank');
       }
     },
-    openInvite(){
-      const memberIds = new Set(this.members.map(m=> String(m.users_id)));
-      const all = (K.allUsers || []);
-      const available = all.filter(u=> !memberIds.has(String(u.id)));
-      const html = `
-        <div style="display:grid;gap:10px">
-          <label style="font-size:12px;font-weight:600;color:#5e6c84">Papel no quadro
-            <select id="invite-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff"><option value="member">👤 Membro</option><option value="admin">⭐ Administrador</option><option value="observer">👁️ Observador</option></select>
-          </label>
-          <input id="invite-search" type="text" placeholder="🔍 Buscar por nome ou login..." oninput="Kanpro.filterInvite(this.value)" style="padding:10px;border:1px solid #dfe1e6;border-radius:6px;outline:none">
-          <div id="invite-list" style="max-height:260px;overflow-y:auto;display:grid;gap:6px;border:1px solid #dfe1e6;border-radius:8px;padding:6px;background:#f9fafb"></div>
-          <div style="font-size:11px;color:#5e6c84;text-align:center">${available.length} disponível(is) · ${all.length} no total · digite para filtrar</div>
-          <hr style="border:none;border-top:1px solid #dfe1e6;margin:2px 0">
-          <div style="font-size:12px;font-weight:700;color:#172b4d">Membros atuais (${this.members.length})</div>
-          <div id="invite-current" style="display:grid;gap:6px;max-height:140px;overflow-y:auto"></div>
-        </div>`;
-      this.showPicker({title:'Convidar para o quadro', html});
-      // picker responsivo: ocupa viewport mas sem cortar botão à direita
-      const picker = document.getElementById('kanpro-picker');
-      const body = document.getElementById('picker-body');
-      if(picker){
-        const w = Math.min(520, window.innerWidth - 32);
-        picker.style.minWidth = w + 'px';
-        picker.style.maxWidth = w + 'px';
-        picker.style.width = w + 'px';
-        picker.style.left = '50%';
-        picker.style.right = 'auto';
-        picker.style.transform = 'translate(-50%,-50%)';
-        picker.style.maxHeight = '90vh';
-        picker.style.overflow = 'hidden';
-        picker.style.display = 'flex';
-        picker.style.flexDirection = 'column';
-      }
-      if(body){ body.style.maxHeight = '70vh'; body.style.overflowY = 'auto'; body.style.minHeight = '0'; }
-      setTimeout(()=>{
-        const cur = document.getElementById('invite-current');
-        if(cur) cur.innerHTML = this.members.map(m=> `<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px"><span style="display:flex;align-items:center;gap:8px"><span class="kp-avatar sm">${this.escape(m.initials)}</span><span style="font-size:13px">${this.escape(m.name)}</span> <small style="background:#dfe1e6;padding:2px 6px;border-radius:10px;font-size:11px">${m.role}</small></span><button onclick="event.stopPropagation();Kanpro.removeMember(${m.users_id})" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-x" style="font-size:14px"></i></button></div>`).join('') || '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:8px;border:1px dashed #dfe1e6;border-radius:8px">Nenhum membro além de você</div>';
-        this.renderInviteList('');
-        const inp = document.getElementById('invite-search');
-        if(inp) inp.focus();
-      }, 50);
-    },
-    renderInviteList(filter){
-      const q = (filter||'').toLowerCase().trim();
-      const memberIds = new Set(this.members.map(m=> String(m.users_id)));
-      const all = (K.allUsers || []);
-      const list = document.getElementById('invite-list');
-      if(!list) return;
-      let filtered = all.filter(u=> !memberIds.has(String(u.id)));
-      if(q) filtered = filtered.filter(u=> u.name.toLowerCase().includes(q) || u.login.toLowerCase().includes(q));
-      if(filtered.length===0){
-        list.innerHTML = '<div style="padding:20px;text-align:center;color:#5e6c84"><i class="ti ti-search-off" style="font-size:24px"></i><div style="margin-top:6px;font-size:13px">Nenhum usuário encontrado</div><div style="font-size:11px">Tente outro termo</div></div>';
-        return;
-      }
-      list.innerHTML = filtered.slice(0,60).map(u=> `
-        <div onclick="Kanpro.confirmInviteId(${u.id})" style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;gap:10px;cursor:pointer">
-          <span style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;overflow:hidden"><span class="kp-avatar sm" style="flex-shrink:0">${this.escape(u.initials)}</span><span style="min-width:0;flex:1;overflow:hidden"><div style="font-size:13px;font-weight:600;color:#172b4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(u.name)}</div><div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${this.escape(u.login)}</div></span></span>
-          <button onclick="event.stopPropagation();Kanpro.confirmInviteId(${u.id}, this)" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.15)">Adicionar</button>
-        </div>`).join('') + (filtered.length>60 ? `<div style="text-align:center;font-size:11px;color:#5e6c84;padding:6px;background:#fff;border:1px dashed #dfe1e6;border-radius:8px">+${filtered.length-60} mais — refine a busca</div>` : '');
-    },
-    filterInvite(q){ this.renderInviteList(q); },
-    confirmInviteId(uid, btn){
-      const role = document.getElementById('invite-role')?.value || 'member';
-      if(btn){ btn.disabled=true; btn.textContent='...'; }
-      console.log('KanPro invite', uid, role, this.ajax_url);
-      this.ajax('invite_member', {boards_id: this.board.id, users_id: uid, role}).then(res=>{
-        if(btn){ btn.disabled=false; btn.textContent='Adicionar'; }
-        if(res.success){
-          const u = (K.allUsers||[]).find(x=> x.id==uid);
-          if(u) this.members.push({users_id: uid, name: u.name, initials: u.initials, role});
-          this.renderMemberAvatars();
-          this.renderBoardMenuDetails();
-          // re-render lista sem fechar picker (evita flicker)
-          this.renderInviteList(document.getElementById('invite-search')?.value || '');
-          const cur = document.getElementById('invite-current');
-          if(cur) cur.innerHTML = this.members.map(m=> `<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px"><span style="display:flex;align-items:center;gap:8px"><span class="kp-avatar sm">${this.escape(m.initials)}</span><span style="font-size:13px">${this.escape(m.name)}</span> <small style="background:#dfe1e6;padding:2px 6px;border-radius:10px;font-size:11px">${m.role}</small></span><button onclick="event.stopPropagation();Kanpro.removeMember(${m.users_id})" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-x"></i></button></div>`).join('');
-        } else {
-          console.warn('invite failed', res);
-          if(res.msg && res.msg.includes('Sem permissão')){
-            alert('Sem permissão (precisa UPDATE em Perfil → KanPro). Saia e entre novamente.');
-          } else if(res.msg && res.msg.includes('já é membro')){
-            alert('Usuário já é membro do quadro.');
-            this.renderInviteList(document.getElementById('invite-search')?.value || '');
-          } else alert(res.msg||'Erro ao convidar (ver console)');
-        }
-      });
-    },
-    confirmInvite(){
-      // legado: mantém para compat, mas agora usa lista
-      const input = document.getElementById('invite-search');
-      alert('Selecione um usuário na lista acima e clique em Adicionar.');
-      if(input) input.focus();
-    },
-    async removeMember(uid){
-      if(!await this.kpConfirm('Remover membro?')) return;
-      this.ajax('remove_member', {boards_id: this.board.id, users_id: uid}).then(res=>{
-        if(res.success) location.reload();
-      });
-    },
     loadBoardActivity(){
       this.ajax('get_board_activity', {boards_id: this.board.id}).then(res=>{
         if(res.success){
@@ -3552,6 +3455,33 @@
       this.ajax('add_label', {boards_id: this.board.id, name: name||'', color}).then(res=>{
         if(res.success){ this.labels.push({id:res.id, plugin_kanpro_boards_id:this.board.id, name:name||'', color}); this.renderBoardMenuDetails(); this.renderBoard(); alert('Etiqueta criada!'); }
       });
+    },
+    /* ---------- MARKDOWN SIMPLES ---------- */
+    parseMarkdown(text){
+      if(!text) return '';
+      let html = this.escape(text)
+        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(mm, txt, url){
+          if (/^\s*(javascript|data|vbscript)\s*:/i.test(url)) return txt;
+          return '<a href="' + url + '" target="_blank" rel="noopener">' + txt + '</a>';
+        })
+        .replace(/\n/g, '<br>');
+      return html;
+    },
+    /* ---------- DARK MODE ---------- */
+    toggleDarkMode(){
+      const dark = !document.body.classList.contains('kanpro-dark');
+      this.applyDarkMode(dark);
+      try { localStorage.setItem('kanpro_dark', dark ? '1' : '0'); } catch(e){}
+    },
+    applyDarkMode(force){
+      const dark = (force !== undefined) ? force : (function(){ try { return localStorage.getItem('kanpro_dark')==='1'; } catch(e){ return false; } })();
+      document.body.classList.toggle('kanpro-dark', !!dark);
+      const btn = document.getElementById('kanpro-dark-btn');
+      if(btn) btn.innerHTML = dark ? '<i class="ti ti-sun"></i>' : '<i class="ti ti-moon"></i>';
     }
   };
 

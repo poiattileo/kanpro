@@ -54,7 +54,9 @@ function plugin_kanpro_install(): bool {
         if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
         }
-    } catch (Throwable $e) {}
+    } catch (Throwable $e) {
+        Toolbox::logError("KanPro migration (boards color): " . $e->getMessage());
+    }
 
     // --- LISTS (Colunas) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_lists')) {
@@ -327,7 +329,9 @@ function plugin_kanpro_install(): bool {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` MODIFY `status` VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente'");
                 $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='pendente' WHERE `status`='pending'");
                 $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `status`='inservivel' WHERE `status`='defect' OR `status`='nok'");
-            } catch (Throwable $e) {}
+            } catch (Throwable $e) {
+                Toolbox::logError("KanPro migration (maintenance_machines status): " . $e->getMessage());
+            }
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'diary')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `diary` TEXT DEFAULT NULL AFTER `label`");

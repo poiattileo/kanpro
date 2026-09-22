@@ -10,7 +10,9 @@ try {
     if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
         $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
     }
-} catch (Throwable $e) {}
+} catch (Throwable $e) {
+    Toolbox::logError("KanPro board.form migration: " . $e->getMessage());
+}
 
 if (!function_exists('kanpro_normalize_board_color_input')) {
 // Normaliza cor/tema vinda do picker (hex ou linear-gradient). Aceita sólidos e degradês.

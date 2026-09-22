@@ -38,6 +38,59 @@ function needEdit() {
     }
 }
 
+// ---------- Helpers Membros do Quadro ----------
+// Quem pode gerenciar acesso: criador do quadro, admin do quadro ou UPDATE global (bootstrap de quadros legados).
+function kanpro_my_board_role($bid) {
+    global $DB;
+    $uid = (int)Session::getLoginUserID();
+    $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $uid]])->current();
+    return $row ? ($row['role'] ?? 'member') : null;
+}
+function kanpro_is_board_creator($bid) {
+    $b = new PluginKanproBoard();
+    if (!$b->getFromDB($bid)) return false;
+    return (int)($b->fields['users_id'] ?? 0) === (int)Session::getLoginUserID();
+}
+function kanpro_can_manage_members($bid) {
+    if (kanpro_is_board_creator($bid)) return true;
+    if (kanpro_my_board_role($bid) === 'admin') return true;
+    // fallback: UPDATE global (administradores do GLPI + quadros legados sem membros)
+    if (Session::haveRight('plugin_kanpro', UPDATE)) return true;
+    return false;
+}
+function kanpro_need_manage_members($bid) {
+    if (!kanpro_can_manage_members($bid)) {
+        jexit(['success'=>false,'msg'=>'Somente o criador ou administradores do quadro podem gerenciar o acesso.']);
+    }
+}
+// Conta outros gestores (criador ou admins) além de $excludeUid — evita lockout.
+function kanpro_count_other_managers($bid, $excludeUid) {
+    global $DB;
+    $count = 0;
+    $b = new PluginKanproBoard();
+    if ($b->getFromDB($bid) && (int)($b->fields['users_id'] ?? 0) !== (int)$excludeUid && (int)($b->fields['users_id'] ?? 0) > 0) {
+        $count++;
+    }
+    $admins = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'role' => 'admin']]);
+    foreach ($admins as $a) {
+        if ((int)$a['users_id'] !== (int)$excludeUid) $count++;
+    }
+    return $count;
+}
+function kanpro_user_brief($uid) {
+    $u = new User();
+    $name = 'Usuário #' . $uid;
+    $initials = '?';
+    $login = '';
+    if ($u->getFromDB($uid)) {
+        $name = $u->getFriendlyName();
+        $login = $u->fields['name'] ?? '';
+        $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1) . substr($u->fields['realname'] ?? '', 0, 1));
+        if (trim($initials) === '') $initials = strtoupper(substr($name, 0, 2));
+    }
+    return ['users_id' => (int)$uid, 'name' => $name, 'login' => $login, 'initials' => $initials];
+}
+
 // ---------- Helpers Manutenção ----------
 function kanpro_verify_password($input) {
     global $DB;
@@ -507,23 +560,95 @@ switch ($action) {
         jexit(['success'=>true,'background'=>$rel,'url'=>PluginKanproBoard::getBackgroundImageUrl($bid, $rel)]);
 
     case 'invite_member':
-        needEdit();
         $bid = (int)($_POST['boards_id'] ?? 0);
         $uid = (int)($_POST['users_id'] ?? 0);
         $role = $_POST['role'] ?? 'member';
-        if (!$uid) jexit(['success'=>false,'msg'=>'Usuário inválido']);
+        if (!in_array($role, ['admin','member','observer'], true)) $role = 'member';
+        if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
+        kanpro_need_manage_members($bid);
         $DB->insert('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid,'role'=>$role,'date_creation'=>date('Y-m-d H:i:s')]);
         // ignora duplicado
         if ($DB->error() && strpos($DB->error(), 'Duplicate')!==false) jexit(['success'=>false,'msg'=>'Usuário já é membro']);
-        PluginKanproBoard::logActivity($bid, null, null, 'member_add', "Membro {$uid} adicionado");
+        PluginKanproBoard::logActivity($bid, null, null, 'member_add', "Membro {$uid} adicionado ({$role})");
         jexit(['success'=>true]);
 
     case 'remove_member':
-        needEdit();
         $bid = (int)($_POST['boards_id'] ?? 0);
         $uid = (int)($_POST['users_id'] ?? 0);
+        if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
+        kanpro_need_manage_members($bid);
+        // não permite remover o criador nem se auto-remover sendo o último gestor
+        $bchk = new PluginKanproBoard();
+        if ($bchk->getFromDB($bid) && (int)($bchk->fields['users_id'] ?? 0) === $uid) {
+            jexit(['success'=>false,'msg'=>'O criador do quadro não pode ser removido.']);
+        }
+        if ($uid === (int)Session::getLoginUserID() && kanpro_count_other_managers($bid, $uid) === 0) {
+            jexit(['success'=>false,'msg'=>'Você é o último gestor. Promova outra pessoa a admin antes de sair.']);
+        }
         $DB->delete('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
+        PluginKanproBoard::logActivity($bid, null, null, 'member_remove', "Membro {$uid} removido");
         jexit(['success'=>true]);
+
+    case 'set_member_role':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $uid = (int)($_POST['users_id'] ?? 0);
+        $role = $_POST['role'] ?? 'member';
+        if (!in_array($role, ['admin','member'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin ou member)']);
+        if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
+        kanpro_need_manage_members($bid);
+        $bchk = new PluginKanproBoard();
+        if ($bchk->getFromDB($bid) && (int)($bchk->fields['users_id'] ?? 0) === $uid) {
+            jexit(['success'=>false,'msg'=>'O criador do quadro já tem acesso total.']);
+        }
+        $exists = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
+        if (!$exists) jexit(['success'=>false,'msg'=>'Usuário não é membro do quadro']);
+        // não permite se rebaixar sendo o último gestor
+        if ($role !== 'admin' && $uid === (int)Session::getLoginUserID() && kanpro_count_other_managers($bid, $uid) === 0) {
+            jexit(['success'=>false,'msg'=>'Você é o último gestor. Promova outra pessoa a admin antes.']);
+        }
+        $DB->update('glpi_plugin_kanpro_boards_members', ['role'=>$role], ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
+        PluginKanproBoard::logActivity($bid, null, null, 'member_role', "Membro {$uid} agora é {$role}");
+        jexit(['success'=>true]);
+
+    case 'get_board_members':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $bchk = new PluginKanproBoard();
+        if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        $creatorId = (int)($bchk->fields['users_id'] ?? 0);
+        $me = (int)Session::getLoginUserID();
+        $members = [];
+        $memberIds = [];
+        $miter = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid], 'ORDER' => 'date_creation ASC']);
+        foreach ($miter as $m) {
+            $brief = kanpro_user_brief((int)$m['users_id']);
+            $brief['role'] = $m['role'];
+            $brief['is_creator'] = ((int)$m['users_id'] === $creatorId);
+            $members[] = $brief;
+            $memberIds[(int)$m['users_id']] = true;
+        }
+        // garante que o criador apareça na lista mesmo sem linha em boards_members (quadros legados)
+        if ($creatorId > 0 && !isset($memberIds[$creatorId])) {
+            $brief = kanpro_user_brief($creatorId);
+            $brief['role'] = 'admin';
+            $brief['is_creator'] = true;
+            array_unshift($members, $brief);
+            $memberIds[$creatorId] = true;
+        }
+        // usuários disponíveis para adicionar
+        $available = [];
+        $uiter = $DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['is_deleted' => 0, 'is_active' => 1], 'ORDER' => 'realname ASC, firstname ASC', 'LIMIT' => 300]);
+        foreach ($uiter as $u) {
+            if (isset($memberIds[(int)$u['id']])) continue;
+            $display = trim(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? ''));
+            if ($display === '') $display = $u['name'];
+            $initials = strtoupper(substr($u['firstname'] ?? $u['name'] ?? '?', 0, 1) . substr($u['realname'] ?? '', 0, 1));
+            if (trim($initials) === '') $initials = strtoupper(substr($display, 0, 2));
+            $available[] = ['id' => (int)$u['id'], 'name' => $display . ' (' . $u['name'] . ')', 'login' => $u['name'], 'initials' => $initials];
+        }
+        jexit(['success'=>true, 'board_name'=>$bchk->fields['name'] ?? '', 'members'=>$members,
+            'my_role'=>kanpro_my_board_role($bid), 'is_creator'=>($me === $creatorId),
+            'can_manage'=>kanpro_can_manage_members($bid), 'available'=>$available]);
 
     // --- LABELS ---
     case 'add_label':

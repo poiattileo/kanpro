@@ -1,5 +1,4 @@
 <?php
-file_put_contents('/tmp/kanpro_kanban_top.log', date('Y-m-d H:i:s')." TOPO EXECUTADO GET=".json_encode($_GET)."\n", FILE_APPEND);
 if (function_exists('opcache_invalidate')) {
     @opcache_invalidate(__FILE__, true);
     @opcache_invalidate(GLPI_ROOT . '/plugins/kanpro/inc/board.class.php', true);
@@ -90,7 +89,9 @@ try {
     if ($DB->tableExists('glpi_plugin_kanpro_cards') && !$DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) {
         $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`");
     }
-} catch (Throwable $e) {}
+} catch (Throwable $e) {
+    Toolbox::logError("KanPro kanban auto-migration: " . $e->getMessage());
+}
 if (method_exists('PluginKanproBoard', 'getBoardThemes')) {
     $themes = PluginKanproBoard::getBoardThemes();
 } elseif (method_exists('PluginKanproBoard', 'getBackgroundColors')) {
@@ -182,7 +183,9 @@ if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
                     $cc = $mid2cid[(int)$nr['machine_id']] ?? 0;
                     if ($cc) $notes_by_card[$cc] = ($notes_by_card[$cc] ?? 0) + (int)$nr['total'];
                 }
-            } catch (Throwable $e) {}
+            } catch (Throwable $e) {
+                Toolbox::logError("KanPro kanban notes_by_card: " . $e->getMessage());
+            }
         }
     }
     foreach ($maint_by_card as $cid => $machines) {
@@ -274,6 +277,21 @@ echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
 #page { padding:0 !important; }
+/* Dark mode */
+.kanpro-dark #kanpro-app,
+.kanpro-dark #kanpro-picker,
+.kanpro-dark #kanpro-card-modal > div { filter: invert(0.9) hue-rotate(180deg); }
+.kanpro-dark #kanpro-app img,
+.kanpro-dark #kanpro-app .kp-avatar,
+.kanpro-dark #kanpro-app .ti,
+.kanpro-dark #kanpro-app .kp-card-cover,
+.kanpro-dark #kanpro-picker img,
+.kanpro-dark #kanpro-picker .kp-avatar,
+.kanpro-dark #kanpro-picker .ti,
+.kanpro-dark #kanpro-card-modal img,
+.kanpro-dark #kanpro-card-modal .kp-avatar,
+.kanpro-dark #kanpro-card-modal .ti { filter: invert(1) hue-rotate(180deg); }
+.kanpro-dark #kanpro-card-modal { background: rgba(0,0,0,.8); }
 </style>
 <div id="kanpro-app" style="display:flex;flex-direction:column;height:calc(100vh - 80px);background: {$board_bg_style};margin:-15px -15px 0 -15px;position:relative;background-size:cover;background-position:center">
 
@@ -288,8 +306,8 @@ echo <<<HTML
     <div style="display:flex;align-items:center;gap:8px">
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
-      <button onclick="Kanpro.openInvite()" style="background:#fff;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600"><i class="ti ti-user-plus"></i> Convidar</button>
       {$assinatura_btn}
+      <button onclick="Kanpro.toggleDarkMode()" id="kanpro-dark-btn" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Alternar modo escuro"><i class="ti ti-moon"></i></button>
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
       <button onclick="Kanpro.openGlobalSearch()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer" title="Buscar em todos os quadros"><i class="ti ti-search"></i> Busca global</button>
       <div style="position:relative">
@@ -352,8 +370,9 @@ echo <<<HTML
         <!-- Descrição -->
         <div style="margin-bottom:20px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-align-left"></i><strong>Descrição</strong><button onclick="Kanpro.editDescription()" style="margin-left:8px;background:#eaecf0;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Editar</button></div>
-          <div id="card-modal-desc" style="background:#fff;padding:12px;border-radius:4px;min-height:56px;color:#172b4d;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 1px rgba(9,30,66,.13)"></div>
+          <div id="card-modal-desc" style="background:#fff;padding:12px;border-radius:4px;min-height:56px;color:#172b4d;word-break:break-word;box-shadow:0 1px 1px rgba(9,30,66,.13)"></div>
           <textarea id="card-desc-edit" style="display:none;width:100%;min-height:80px;padding:10px;border:2px solid #0079bf;border-radius:4px;resize:vertical"></textarea>
+          <div style="font-size:11px;color:#5e6c84;margin-top:4px">Suporta Markdown: <code>**negrito**</code> <code>*itálico*</code> <code>`código`</code> <code>[texto](link)</code></div>
           <div id="card-desc-actions" style="display:none;margin-top:8px;gap:8px">
             <button onclick="Kanpro.saveDescription()" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">Salvar</button>
             <button onclick="Kanpro.cancelDescription()" style="background:none;border:none;cursor:pointer;font-size:18px">✕</button>
@@ -380,7 +399,7 @@ echo <<<HTML
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <div style="width:32px;height:32px;border-radius:50%;background:#dfe1e6;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">EU</div>
             <div style="flex:1">
-              <textarea id="card-comment-input" placeholder="Escrever um comentário..." style="width:100%;padding:10px;border:none;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);min-height:40px;resize:vertical"></textarea>
+              <textarea id="card-comment-input" placeholder="Escrever um comentário... (**negrito**, *itálico*, `código`)" style="width:100%;padding:10px;border:none;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);min-height:40px;resize:vertical"></textarea>
               <button onclick="Kanpro.addComment()" style="margin-top:8px;background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer">Salvar</button>
             </div>
           </div>
