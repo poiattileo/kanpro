@@ -292,21 +292,14 @@ echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
 #page { padding:0 !important; }
-/* Dark mode — o filtro vai nos filhos para não alterar o papel de parede do quadro */
-.kanpro-dark #kanpro-app > *,
-.kanpro-dark #kanpro-picker,
-.kanpro-dark #kanpro-card-modal > div { filter: invert(0.9) hue-rotate(180deg); }
-.kanpro-dark #kanpro-app img,
-.kanpro-dark #kanpro-app .kp-avatar,
-.kanpro-dark #kanpro-app .ti,
-.kanpro-dark #kanpro-app .kp-card-cover,
-.kanpro-dark #kanpro-picker img,
-.kanpro-dark #kanpro-picker .kp-avatar,
-.kanpro-dark #kanpro-picker .ti,
-.kanpro-dark #kanpro-card-modal img,
-.kanpro-dark #kanpro-card-modal .kp-avatar,
-.kanpro-dark #kanpro-card-modal .ti { filter: invert(1) hue-rotate(180deg); }
-.kanpro-dark #kanpro-card-modal { background: rgba(0,0,0,.8); }
+/* Dark mode — só nas listas e nos botões Filtrar/Calendário/Minhas tarefas */
+.kanpro-dark .kp-list,
+.kanpro-dark #kanpro-filter-btn,
+.kanpro-dark #kanpro-calendar-btn,
+.kanpro-dark #kanpro-mytasks-btn { filter: invert(0.9) hue-rotate(180deg); }
+.kanpro-dark .kp-list img,
+.kanpro-dark .kp-list .kp-avatar,
+.kanpro-dark .kp-list .ti { filter: invert(1) hue-rotate(180deg); }
 </style>
 <div id="kanpro-app" style="display:flex;flex-direction:column;height:calc(100vh - 80px);background: {$board_bg_style};margin:-15px -15px 0 -15px;position:relative;background-size:cover;background-position:center">
 
@@ -334,9 +327,9 @@ echo <<<HTML
 
   <!-- Barra de ações secundária -->
   <div style="display:flex;gap:8px;padding:8px 16px;align-items:center;flex-wrap:wrap">
-    <button onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
-    <button onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
-    <a href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/mytasks.php" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-user-check"></i> Minhas tarefas</a>
+    <button id="kanpro-filter-btn" onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
+    <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
+    <a id="kanpro-mytasks-btn" href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/mytasks.php" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-user-check"></i> Minhas tarefas</a>
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
 
