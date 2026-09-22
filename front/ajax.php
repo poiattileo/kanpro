@@ -617,6 +617,12 @@ switch ($action) {
         if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
         $creatorId = (int)($bchk->fields['users_id'] ?? 0);
         $me = (int)Session::getLoginUserID();
+        // só quem pode ver o quadro pode listar membros (criador, membro ou quadro legado sem membros)
+        $__myRole = kanpro_my_board_role($bid);
+        $__hasAny = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $bid]) > 0;
+        if ($me !== $creatorId && $__myRole === null && $__hasAny) {
+            jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        }
         $members = [];
         $memberIds = [];
         $miter = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid], 'ORDER' => 'date_creation ASC']);

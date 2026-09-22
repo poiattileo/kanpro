@@ -11,6 +11,18 @@ global $DB;
 $show_archived = isset($_GET['archived']) && $_GET['archived'] == 1;
 $search = $_GET['search'] ?? '';
 
+// Controle de acesso por membros (engrenagem): só criador/membros veem o quadro.
+// Quadros legados sem nenhum membro seguem abertos até a primeira pessoa ser cadastrada.
+$__me = (int)Session::getLoginUserID();
+$__myBoards = [];
+foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['users_id' => $__me]]) as $__r) {
+    $__myBoards[(int)$__r['plugin_kanpro_boards_id']] = true;
+}
+$__restricted = [];
+foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'GROUPBY' => ['plugin_kanpro_boards_id']]) as $__r) {
+    $__restricted[(int)$__r['plugin_kanpro_boards_id']] = true;
+}
+
 $where = ['entities_id' => $entities];
 if (!$show_archived) $where['is_archived'] = 0;
 if (!empty($search)) $where['name'] = ['LIKE', "%{$search}%"];
@@ -51,6 +63,11 @@ if (count($iterator) === 0) {
     echo "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px'>";
     foreach ($iterator as $row) {
         $bid = (int)$row['id'];
+        // trava de visibilidade: criador, membro ou quadro legado sem membros
+        $__creator = (int)($row['users_id'] ?? 0);
+        if ($__creator !== $__me && !isset($__myBoards[$bid]) && isset($__restricted[$bid])) {
+            continue;
+        }
         $kanban_url = "kanban.php?boards_id={$bid}";
         $edit_url   = "board.form.php?id={$bid}";
         $card_count = PluginKanproBoard::countCardsInBoard($bid);

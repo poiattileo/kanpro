@@ -17,6 +17,21 @@ if (!$board->getFromDB($boards_id)) {
     Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
 }
 
+// Trava de visibilidade por membros (engrenagem em Seus Quadros): só criador/membros abrem.
+// Quadros legados sem nenhum membro seguem abertos até a primeira pessoa ser cadastrada.
+$__me = (int)Session::getLoginUserID();
+$__creator = (int)($board->fields['users_id'] ?? 0);
+$__canView = ($__me > 0 && $__me === $__creator);
+if (!$__canView) {
+    $__isMember = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $__me]) > 0;
+    $__hasMembers = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id]) > 0;
+    $__canView = $__isMember || !$__hasMembers;
+}
+if (!$__canView) {
+    Session::addMessageAfterRedirect('Você não tem acesso a este quadro.', false, ERROR);
+    Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
+}
+
 $canedit = Session::haveRight('plugin_kanpro', UPDATE) ? 1 : 0;
 $cancreate = Session::haveRight('plugin_kanpro', CREATE) ? 1 : 0;
 
