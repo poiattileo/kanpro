@@ -243,6 +243,12 @@
     renderBoard(){
       const board = $('#kanpro-board');
       if(!board) return;
+      // preserva scroll de cada lista (evita pulo pro topo a cada render/polling)
+      const scrolls = {};
+      board.querySelectorAll('.kp-list-cards').forEach(el=>{
+        const lid = el.dataset.listId || (el.closest('.kp-list')?.dataset.listId);
+        if(lid) scrolls[lid] = el.scrollTop;
+      });
       board.innerHTML = '';
       // ordena listas por rank
       this.lists.sort((a,b)=> parseFloat(a.rank)-parseFloat(b.rank));
@@ -268,6 +274,15 @@
           </div>
         </div>`;
       board.appendChild(addListWrap);
+
+      // restaura scroll das listas
+      board.querySelectorAll('.kp-list').forEach(listEl=>{
+        const lid = listEl.dataset.listId;
+        if(lid && scrolls[lid] !== undefined){
+          const box = listEl.querySelector('.kp-list-cards');
+          if(box) box.scrollTop = scrolls[lid];
+        }
+      });
 
       this.enableDragAndDrop();
       this.updateAssinaturaButton();
@@ -692,11 +707,15 @@
           this.commentCounts[newCard.id]=0;
           this.attCounts[newCard.id]=0;
           this.checkProgress[newCard.id]={total:0,done:0};
-          ta.value='';
-          ta.focus();
           this.renderBoard();
           this.updateStats();
-          // mantém composer aberto para adicionar vários
+          // reabre o composer na mesma lista e rola até o fim para continuar criando embaixo
+          const newListEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
+          if(newListEl){
+            const box = newListEl.querySelector('.kp-list-cards');
+            if(box) box.scrollTop = box.scrollHeight;
+            this.showAddCard(listId);
+          }
         } else alert(res.msg||'Erro');
       });
     },
