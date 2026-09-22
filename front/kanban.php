@@ -292,8 +292,8 @@ echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
 #page { padding:0 !important; }
-/* Dark mode */
-.kanpro-dark #kanpro-app,
+/* Dark mode — o filtro vai nos filhos para não alterar o papel de parede do quadro */
+.kanpro-dark #kanpro-app > *,
 .kanpro-dark #kanpro-picker,
 .kanpro-dark #kanpro-card-modal > div { filter: invert(0.9) hue-rotate(180deg); }
 .kanpro-dark #kanpro-app img,
