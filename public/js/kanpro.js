@@ -1315,6 +1315,9 @@
       const missingStatus = machines.filter(m=> !m.status || String(m.status).trim()==="").length;
       const hasMissing = missingStatus>0;
       const pendenteCount = machines.filter(m=> (m.status||"")==="pendente" || (m.status||"")==="pending").length;
+      // inventário em massa
+      const needsCount = machines.filter(m=> String(m.needs_inventory)==="1" || m.needs_inventory===1).length;
+      const allNeed = total>0 && needsCount===total;
       // botão finalizar: desabilita apenas se faltar status
       let finalizeBtnHtml = "";
       if (hasMissing) {
@@ -1331,6 +1334,7 @@
             <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d">Manutenção — Checklist por Máquina</strong> <span style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${missingStatus} sem Status</span>`:""}</div>
             <div style="display:flex;gap:6px;align-items:center">
               <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
+              ${total? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
               ${finalizeBtnHtml}
             </div>
           </div>
@@ -2044,6 +2048,14 @@
         if(res.success){
           this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
         }
+      });
+    },
+    setAllNeedsInventory(val){
+      this.ajax('set_all_needs_inventory', {cards_id: this.currentCardId, needs_inventory: val}).then(res=>{
+        if(res.success){
+          this.showToast(val ? `📋 ${res.updated||0} máquinas: precisa inventariar` : 'Marcas de inventário removidas');
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        } else alert(res.msg||'Erro');
       });
     },
     toggleMaintenanceNeeds(mid){

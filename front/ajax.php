@@ -2072,6 +2072,22 @@ switch ($action) {
         if (array_key_exists('needs_inventory', $updates)) kanpro_sync_inventory_label((int)$row['plugin_kanpro_cards_id']);
         jexit(['success'=>true,'machine'=>$newRow]);
 
+    case 'set_all_needs_inventory':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $val = !empty($_POST['needs_inventory']) ? 1 : 0;
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $upd = ['needs_inventory'=>$val, 'date_mod'=>date('Y-m-d H:i:s'), 'users_id'=>Session::getLoginUserID()];
+        if (!$val) $upd['is_inventoried'] = 0;
+        $DB->update('glpi_plugin_kanpro_maintenance_machines', $upd, ['plugin_kanpro_cards_id'=>$cid]);
+        kanpro_sync_inventory_label($cid);
+        $n = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
+        PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_update', $val ? "Todas as {$n} máquinas marcadas como PRECISA INVENTARIAR" : "Marcas de 'precisa inventariar' removidas de {$n} máquinas");
+        jexit(['success'=>true,'updated'=>$n]);
+
     case 'add_maintenance_machines':
         needEdit();
         kanpro_ensure_maintenance_tables();
