@@ -610,7 +610,7 @@
 
       let membersHtml = '';
       if(members.length){
-        membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>`<span class="kp-avatar sm" title="${this.escape(m.name)}">${this.escape(m.initials)}</span>`).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
+        membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
       }
 
       div.innerHTML = `
@@ -1068,7 +1068,7 @@
         membersWrap.style.display='block';
         membersList.innerHTML = data.members.map(m=>{
           const initials = (m.firstname?.[0]||m.name?.[0]||'?').toUpperCase();
-          return `<span class="kp-avatar" title="${this.escape(m.realname||m.name)}">${this.escape(initials)}</span>`;
+          return this.avatarHtml(m.picture_url, initials, m.realname||m.name);
         }).join('') + `<button onclick="Kanpro.openMembersPicker()" style="width:28px;height:28px;border-radius:50%;border:none;background:#dfe1e6;cursor:pointer"><i class="ti ti-plus"></i></button>`;
       } else { membersWrap.style.display='none'; membersList.innerHTML=''; }
 
@@ -1188,10 +1188,11 @@
         const pinned = c.is_pinned==1;
         return `
         <div style="display:flex;gap:8px">
-          <div class="kp-avatar">${this.escape((c.firstname?.[0]||c.user_name?.[0]||'?').toUpperCase())}</div>
+          <div>${this.avatarHtml(c.picture_url, (c.firstname?.[0]||c.user_name?.[0]||'?').toUpperCase(), c.realname||c.firstname||c.user_name||'Usuário')}</div>
           <div style="flex:1;background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);${pinned?'border:1px solid #ffab00;background:#fffae6;':''}">
             <div style="font-weight:700;font-size:13px">${this.escape(c.realname||c.firstname||c.user_name||'Usuário')} <span style="font-weight:400;color:#5e6c84;font-size:11px">${this.formatDate(c.date_creation)}</span>${pinned?' <span style="background:#ffab00;color:#172b4d;padding:1px 8px;border-radius:10px;font-size:10px">📌 Fixado</span>':''}</div>
-            <div style="margin-top:4px;word-break:break-word">${this.highlightMentions(this.parseMarkdown(c.content))}</div>
+                        <div style="margin-top:4px;word-break:break-word">${this.highlightMentions(this.parseMarkdown(c.content))}</div>
+
             <div style="margin-top:6px;display:flex;gap:8px;font-size:12px"><a href="#" onclick="Kanpro.editComment(${c.id});return false">Editar</a> <a href="#" onclick="Kanpro.pinComment(${c.id});return false">${pinned?'Desafixar':'Fixar'}</a> <a href="#" onclick="Kanpro.deleteComment(${c.id});return false" style="color:#eb5a46">Excluir</a></div>
           </div>
         </div>
@@ -2893,7 +2894,7 @@
         html += allUsers.map(u=>`
           <label class="kp-picker-item" data-search="${this.escape(u.name)}" style="cursor:pointer">
             <input type="checkbox" ${memberIds.has(u.users_id)?'checked':''} onchange="Kanpro.toggleCardMember(${cardId}, ${u.users_id}, this.checked)"> 
-            <span class="kp-avatar sm">${this.escape(u.initials)}</span> 
+            ${this.avatarHtml(u.picture_url, u.initials, u.name, 'sm')} 
             <span style="flex:1">${this.escape(u.name)} <small style="color:#5e6c84">${this.escape(u.role||'')}</small></span>
             ${memberIds.has(u.users_id)?'<i class="ti ti-check" style="color:#61bd4f"></i>':''}
           </label>
@@ -3772,13 +3773,13 @@
     renderMemberAvatars(){
       const wrap = $('#board-members-avatars');
       if(!wrap) return;
-      wrap.innerHTML = this.members.slice(0,5).map(m=> `<span class="kp-avatar" style="margin-left:-6px;border:2px solid #fff" title="${this.escape(m.name)}">${this.escape(m.initials)}</span>`).join('') + (this.members.length>5? `<span class="kp-avatar" style="background:#091e42;color:#fff;margin-left:-6px">+${this.members.length-5}</span>`:'');
+      wrap.innerHTML = this.members.slice(0,5).map(m=> this.avatarHtml(m.picture_url, m.initials, m.name, '', 'margin-left:-6px;border:2px solid #fff')).join('') + (this.members.length>5? `<span class="kp-avatar" style="background:#091e42;color:#fff;margin-left:-6px">+${this.members.length-5}</span>`:'');
     },
     renderBoardMenuDetails(){
       const labWrap = $('#board-menu-labels');
       if(labWrap) labWrap.innerHTML = this.labels.map(l=> `<div style="display:flex;justify-content:space-between;align-items:center;background:${this.escape(l.color)};color:#fff;padding:6px 10px;border-radius:4px"><span>${this.escape(l.name||'Sem nome')}</span><span style="font-size:11px;opacity:.8">${this.cardLabelsCount(l.id)} cartões</span></div>`).join('') || '<small style="color:#5e6c84">Nenhuma etiqueta</small>';
       const memWrap = $('#board-menu-members');
-      if(memWrap) memWrap.innerHTML = this.members.map(m=> `<div style="display:flex;align-items:center;gap:8px;background:#fff;padding:6px 8px;border-radius:4px"><span class="kp-avatar sm">${this.escape(m.initials)}</span><span style="flex:1">${this.escape(m.name)}</span><small style="background:#dfe1e6;padding:2px 6px;border-radius:10px">${m.role}</small></div>`).join('') || '<small style="color:#5e6c84">Só você</small>';
+      if(memWrap) memWrap.innerHTML = this.members.map(m=> `<div style="display:flex;align-items:center;gap:8px;background:#fff;padding:6px 8px;border-radius:4px">${this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')}<span style="flex:1">${this.escape(m.name)}</span><small style="background:#dfe1e6;padding:2px 6px;border-radius:10px">${m.role}</small></div>`).join('') || '<small style="color:#5e6c84">Só você</small>';
     },
     cardLabelsCount(labelId){
       let c=0;
@@ -4232,6 +4233,12 @@
         if(part.startsWith('<')) return part;
         return part.replace(re, '$1<span style="background:#e6fcff;color:#0747a6;font-weight:700;padding:0 4px;border-radius:4px">@$2</span>');
       }).join('');
+    },
+    /* ---------- avatar com foto do GLPI (fallback: inicial) ---------- */
+    avatarHtml(pictureUrl, initials, title, extraClass, extraStyle){
+      const pic = pictureUrl
+        ? `<img src="${pictureUrl}" alt="" loading="lazy" onerror="this.remove()">` : '';
+      return `<span class="kp-avatar ${extraClass||''}" title="${this.escape(title||'')}"${extraStyle?` style="${extraStyle}"`:''}>${pic}${this.escape(initials||'?')}</span>`;
     },
     /* ---------- MARKDOWN SIMPLES ---------- */
     parseMarkdown(text){

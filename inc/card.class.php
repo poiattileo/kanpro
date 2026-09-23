@@ -236,7 +236,7 @@ class PluginKanproCard extends CommonDBTM {
 
     // Dados completos do cartão para modal
     static function getFullData($cards_id): ?array {
-        global $DB;
+        global $DB, $CFG_GLPI;
         $card = new self();
         if (!$card->getFromDB($cards_id)) return null;
         $data = $card->fields;
@@ -259,7 +259,10 @@ class PluginKanproCard extends CommonDBTM {
             'LEFT JOIN' => ['glpi_users AS u' => ['ON' => ['u' => 'id', 'cm' => 'users_id']]],
             'WHERE'  => ['cm.plugin_kanpro_cards_id' => $cards_id],
         ]);
-        foreach ($iter as $r) $data['members'][] = $r;
+        foreach ($iter as $r) {
+            $r['picture_url'] = (!empty($r['picture']) ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $r['picture'] : '');
+            $data['members'][] = $r;
+        }
 
         // checklists com items
         $data['checklists'] = [];
@@ -281,7 +284,10 @@ class PluginKanproCard extends CommonDBTM {
             'WHERE'  => ['c.plugin_kanpro_cards_id' => $cards_id],
             'ORDER'  => 'c.is_pinned DESC, c.date_creation ASC',
         ]);
-        foreach ($coms as $c) $data['comments'][] = $c;
+        foreach ($coms as $c) {
+            $c['picture_url'] = (!empty($c['picture']) ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $c['picture'] : '');
+            $data['comments'][] = $c;
+        }
 
         // attachments
         $data['attachments'] = [];

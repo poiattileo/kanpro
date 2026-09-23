@@ -69,6 +69,7 @@ foreach ($members_raw as $m) {
         'role'     => $m['role'],
         'name'     => $uname,
         'initials' => $initials,
+        'picture_url' => (($u->fields['picture'] ?? '') !== '' ? $CFG_GLPI['root_doc'] . '/front/document.send.php?file=_pictures/' . $u->fields['picture'] : ''),
     ];
 }
 
@@ -170,7 +171,8 @@ foreach ($cm_iter as $r) {
         $uname = $u->getFriendlyName();
         $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1));
     }
-    $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $r['users_id'], 'name' => $uname, 'initials' => $initials];
+    $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $r['users_id'], 'name' => $uname, 'initials' => $initials,
+        'picture_url' => (($u->fields['picture'] ?? '') !== '' ? $CFG_GLPI['root_doc'] . '/front/document.send.php?file=_pictures/' . $u->fields['picture'] : '')];
 }
 $card_labels_json = json_encode($card_labels_map, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $card_members_json = json_encode($card_members_map, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);

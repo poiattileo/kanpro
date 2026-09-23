@@ -28,7 +28,7 @@ if (!Session::haveRight('plugin_kanpro', READ)) {
 }
 
 $action = $_REQUEST['action'] ?? '';
-global $DB;
+global $DB, $CFG_GLPI;
 
 function jexit($data) { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 function needEdit() {
@@ -872,7 +872,8 @@ switch ($action) {
                 $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1) . substr($u->fields['realname'] ?? '', 0, 1));
                 if (trim($initials) === '') $initials = strtoupper(substr($uname, 0, 2));
             }
-            $members_list[] = ['users_id' => $m['users_id'], 'role' => $m['role'], 'name' => $uname, 'initials' => $initials];
+            $members_list[] = ['users_id' => $m['users_id'], 'role' => $m['role'], 'name' => $uname, 'initials' => $initials,
+                'picture_url' => (($u->fields['picture'] ?? '') !== '' ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $u->fields['picture'] : '')];
         }
 
         $all_cards = [];
@@ -901,7 +902,8 @@ switch ($action) {
                 $uname = $u->getFriendlyName();
                 $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1));
             }
-            $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $r['users_id'], 'name' => $uname, 'initials' => $initials];
+            $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $r['users_id'], 'name' => $uname, 'initials' => $initials,
+                'picture_url' => (($u->fields['picture'] ?? '') !== '' ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $u->fields['picture'] : '')];
         }
 
         $check_progress = [];
