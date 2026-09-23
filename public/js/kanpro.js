@@ -118,7 +118,7 @@
       });
       // ESC fecha tudo + atalhos (N novo cartão, F filtrar, setas navegar, Enter abrir, Ctrl+K busca)
       document.addEventListener('keydown', e=>{
-        if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); this.clearCardSelection(); return; }
+        if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); this.closeCalendarView(); this.clearCardSelection(); return; }
         if ((e.ctrlKey || e.metaKey) && (e.key==='k' || e.key==='K')) {
           e.preventDefault();
           if(document.getElementById('kp-quickfind')) this.closeQuickFind();
@@ -3856,13 +3856,17 @@
         document.body.appendChild(cal);
       }
       cal.style.display='block';
+      if(!cal.dataset.bound){
+        cal.dataset.bound = '1';
+        cal.addEventListener('click', e=>{ if(e.target===cal) Kanpro.closeCalendarView(); });
+      }
       // gera calendário do mês atual
       const now = new Date();
       const year = now.getFullYear(), month = now.getMonth();
       const firstDay = new Date(year, month, 1).getDay();
       const daysInMonth = new Date(year, month+1, 0).getDate();
       const daysInPrev = new Date(year, month, 0).getDate();
-      let html = `<div style="max-width:1000px;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h2 style="margin:0">📅 Calendário — ${now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</h2><button onclick="document.getElementById('kanpro-calendar').style.display='none'" style="background:#172b4d;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">✕ Fechar</button></div>`;
+      let html = `<div style="max-width:1000px;margin:0 auto;background:#f4f5f7;border-radius:10px;padding:20px;box-shadow:0 12px 32px rgba(0,0,0,.35)"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h2 style="margin:0">📅 Calendário — ${now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</h2><button onclick="Kanpro.closeCalendarView()" style="background:#172b4d;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">✕ Fechar</button></div>`;
       html+=`<div class="kp-cal-grid">`;
       ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].forEach(d=> html+=`<div class="kp-cal-header">${d}</div>`);
       // prev month filler
@@ -3883,6 +3887,10 @@
       for(let i=1;i<=remaining;i++) html+=`<div class="kp-cal-cell other"><div class="kp-cal-daynum">${i}</div></div>`;
       html+=`</div></div>`;
       cal.innerHTML=html;
+    },
+    closeCalendarView(){
+      const cal = document.getElementById('kanpro-calendar');
+      if(cal) cal.style.display='none';
     },
 
     // Helpers
