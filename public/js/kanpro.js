@@ -1423,7 +1423,7 @@
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isUrgent?"#fff1f0":"#fff"};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
             <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;background:${isUrgent?"#ffecec":isDone?"#e3fcef":"#f4f5f7"};flex-wrap:wrap">
               <div style="display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:0">
-                ${selectMode ? `<input type="checkbox" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
+                ${selectMode ? `<input type="checkbox" data-mid="${m.id}" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
                 <span style="background:${isUrgent?"#eb5a46":"#091e42"};color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}</div>
@@ -2075,7 +2075,8 @@
     /* ---------- seleção em massa (manutenção) ---------- */
     toggleMaintSelectMode(){
       this._maintSelectMode = !this._maintSelectMode;
-      if(!this._maintSelectMode && this._maintSelected) this._maintSelected.clear();
+      if(!this._maintSelected) this._maintSelected = new Set();
+      this._maintSelected.clear(); // seleção sempre começa zerada ao (re)abrir o modo
       if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
     },
     toggleMaintSelect(mid, checked){
@@ -2095,7 +2096,11 @@
     maintSelectedIds(){
       const machines = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
       const valid = new Set(machines.map(m=> String(m.id)));
-      return [...(this._maintSelected||[])].filter(id=> valid.has(String(id)));
+      const fromSet = [...(this._maintSelected||[])].filter(id=> valid.has(String(id)));
+      // fonte da verdade extra: checkboxes marcados no DOM (cobre qualquer dessincronia)
+      const fromDom = [...document.querySelectorAll('#card-modal-maintenance input[type="checkbox"][data-mid]:checked')]
+        .map(el=> String(el.dataset.mid)).filter(id=> valid.has(id));
+      return [...new Set([...fromSet, ...fromDom])];
     },
     bulkAfterSuccess(msg){
       if(this._maintSelected) this._maintSelected.clear();
@@ -2105,20 +2110,20 @@
     bulkApplyStatus(){
       const sel = document.getElementById('maint-bulk-status');
       const st = sel ? sel.value : '';
-      if(!st){ alert('Escolha um Status Final.'); return; }
+      if(!st){ this.showToast('Escolha um Status Final'); return; }
       const ids = this.maintSelectedIds();
-      if(!ids.length){ alert('Selecione ao menos uma máquina.'); return; }
+      if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), status: st}).then(res=>{
         if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas atualizadas`);
-        else alert(res.msg||'Erro');
+        else this.showToast(res.msg||'Erro');
       });
     },
     bulkSetDone(val){
       const ids = this.maintSelectedIds();
-      if(!ids.length){ alert('Selecione ao menos uma máquina.'); return; }
+      if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_done: val}).then(res=>{
         if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas atualizadas`);
-        else alert(res.msg||'Erro');
+        else this.showToast(res.msg||'Erro');
       });
     },
     setAllNeedsInventory(val){
