@@ -4,6 +4,7 @@ if (function_exists('opcache_invalidate')) {
     @opcache_invalidate(GLPI_ROOT . '/plugins/kanpro/inc/board.class.php', true);
 }
 include('../../../inc/includes.php');
+include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
 Session::checkRight('plugin_kanpro', READ);
 
 $boards_id = (int)($_GET['boards_id'] ?? $_GET['id'] ?? 0);
@@ -295,8 +296,8 @@ $open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
 $open_card_id_json = json_encode($open_card_id ?: null);
 $current_user_id = (int) Session::getLoginUserID();
 
-// "Agindo como": identidade para atribuição no chamado (login compartilhado)
-$acting_id = (int)($_SESSION['kanpro_acting_user'] ?? 0);
+// "Agindo como": identidade para atribuição no chamado (auto: mapa login compartilhado)
+$acting_id = kanpro_acting_user_id();
 if ($acting_id <= 0) $acting_id = $current_user_id;
 $acting_opts = "<option value=''>— logado —</option>";
 foreach (($all_users_for_picker ?? []) as $au) {

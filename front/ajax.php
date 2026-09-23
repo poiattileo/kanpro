@@ -1,6 +1,7 @@
 <?php
 if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
 include('../../../inc/includes.php');
+include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
 @ob_clean();
 header('Content-Type: application/json; charset=UTF-8');
 // debug log para 403
@@ -422,21 +423,7 @@ function kanpro_create_ticket_from_card(int $cards_id): array {
     return ['ok' => true, 'id' => $tid, 'ticket' => kanpro_ticket_info($tid)];
 }
 
-// Usuário para atribuição no chamado: "Agindo como" (sessão) ou o logado.
-// Necessário quando a equipe compartilha o login (ex: todos usam "glpi").
-function kanpro_acting_user_id(): int {
-    $auid = (int)($_SESSION['kanpro_acting_user'] ?? 0);
-    if ($auid > 0) {
-        try {
-            $u = new User();
-            if ($u->getFromDB($auid) && empty($u->fields['is_deleted']) && ($u->fields['is_active'] ?? 1)) {
-                return $auid;
-            }
-        } catch (Throwable $e) {}
-        unset($_SESSION['kanpro_acting_user']);
-    }
-    return (int)Session::getLoginUserID();
-}
+// Usuário para atribuição no chamado: ver inc/acting.php (kanpro_acting_user_id).
 
 // ID do chamado vinculado ao cartão (0 se nenhum ou inválido)
 function kanpro_card_ticket_id(int $cards_id): int {
@@ -2107,6 +2094,8 @@ switch ($action) {
         // qualquer alteração (status, diário, feito, etc.) move o chamado para Em atendimento
         $tidAtt = kanpro_card_ticket_id((int)$row['plugin_kanpro_cards_id']);
         if ($tidAtt) kanpro_ticket_set_attending($tidAtt);
+        // quem mexeu ajuda no chamado: anexa como atribuído mesmo sem followup (ex: só escreveu no diário)
+        if ($tidAtt) kanpro_ticket_assign($tidAtt, kanpro_acting_user_id());
         // log
         $card = new PluginKanproCard();
         if ($card->getFromDB($row['plugin_kanpro_cards_id'])) {
@@ -2180,6 +2169,9 @@ switch ($action) {
         $DB->update('glpi_plugin_kanpro_maintenance_machines', $upd, ['plugin_kanpro_cards_id'=>$cid]);
         kanpro_sync_inventory_label($cid);
         $n = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
+        // quem marcou ajuda no chamado
+        $tidAll = kanpro_card_ticket_id($cid);
+        if ($tidAll) kanpro_ticket_assign($tidAll, kanpro_acting_user_id());
         PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_update', $val ? "Todas as {$n} máquinas marcadas como PRECISA INVENTARIAR" : "Marcas de 'precisa inventariar' removidas de {$n} máquinas");
         jexit(['success'=>true,'updated'=>$n]);
 
