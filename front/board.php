@@ -38,7 +38,6 @@ echo "<div style='display:flex;justify-content:space-between;align-items:center;
 echo "<h1 style='margin:0;font-size:22px;display:flex;align-items:center;gap:10px'><i class='ti ti-layout-kanban' style='font-size:28px;color:#0079bf'></i> Seus Quadros</h1>";
 echo "<div style='display:flex;gap:8px;align-items:center'>";
 echo "<form method='get' style='display:flex;gap:6px'><input type='text' name='search' value='" . htmlspecialchars($search) . "' placeholder='Buscar quadros...' style='padding:8px 12px;border:1px solid #dfe1e6;border-radius:6px;min-width:220px'><button class='btn btn-outline-secondary btn-sm'><i class='ti ti-search'></i></button></form>";
-echo "<a href='historico.php' class='btn btn-outline-secondary' style='font-weight:600'><i class='ti ti-history'></i> Histórico</a>";
 if ($canedit) {
     echo "<a href='board.form.php' class='btn btn-primary' style='background:#0079bf;border-color:#0079bf'><i class='ti ti-plus'></i> Criar quadro</a>";
 }
@@ -119,6 +118,7 @@ if (count($iterator) === 0) {
         echo "<div style='display:flex;gap:6px'>";
         echo "<a href='{$kanban_url}' class='btn btn-sm btn-primary' style='padding:4px 10px;font-size:12px'>Abrir</a>";
         echo "<button onclick='KanproBoards.open({$bid})' title='Gerenciar acesso ao quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-settings'></i></button>";
+        echo "<button onclick='KanproHistory.open({$bid})' title='Histórico do quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-history'></i></button>";
         if (Session::haveRight('plugin_kanpro', UPDATE)) {
             echo "<a href='{$edit_url}' title='Editar quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-pencil'></i></a>";
         }
@@ -138,6 +138,7 @@ echo "</div>";
 
 $__kpb_ajax = Plugin::getWebDir('kanpro') . '/front/ajax.php';
 $__kpb_csrf = Session::getNewCSRFToken();
+echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . ";</script>";
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
 <div id="kpb-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center;padding:16px">

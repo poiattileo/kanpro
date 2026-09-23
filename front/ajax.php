@@ -1421,6 +1421,68 @@ switch ($action) {
         $c->delete(['id'=>$cid], true);
         jexit(['success'=>true]);
 
+    case 'get_history':
+        $bid = (int)($_REQUEST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $bchk = new PluginKanproBoard();
+        if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        // mesma trava de visibilidade: criador, membro ou quadro legado sem membros
+        $__me = (int)Session::getLoginUserID();
+        $__creator = (int)($bchk->fields['users_id'] ?? 0);
+        if ($__me !== $__creator) {
+            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$__me]) > 0;
+            $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
+            if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        }
+        // pessoas com acesso (criador + membros)
+        $people = []; $seen = [];
+        $addP = function ($uid, $extra = '') use (&$people, &$seen) {
+            $uid = (int)$uid;
+            if ($uid <= 0 || isset($seen[$uid])) return;
+            $seen[$uid] = true;
+            $u = new User();
+            $name = 'Usuário #' . $uid;
+            if ($u->getFromDB($uid)) $name = $u->getFriendlyName();
+            $people[] = ['id'=>$uid, 'name'=>$name, 'extra'=>$extra];
+        };
+        $addP($__creator, 'criador');
+        $pmiter = $DB->request(['FROM'=>'glpi_plugin_kanpro_boards_members','WHERE'=>['plugin_kanpro_boards_id'=>$bid],'ORDER'=>'date_creation ASC']);
+        foreach ($pmiter as $pm) $addP($pm['users_id'], $pm['role'] ?? '');
+        // filtros
+        $where = ['a.plugin_kanpro_boards_id' => $bid];
+        $fuser = (int)($_REQUEST['users_id'] ?? 0);
+        if ($fuser > 0) $where['a.users_id'] = $fuser;
+        $faction = trim($_REQUEST['action'] ?? '');
+        if ($faction !== '') $where['a.action'] = $faction;
+        $fcard = (int)($_REQUEST['card_id'] ?? 0);
+        if ($fcard > 0) $where['a.plugin_kanpro_cards_id'] = $fcard;
+        $ffrom = trim($_REQUEST['date_from'] ?? '');
+        $fto = trim($_REQUEST['date_to'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $ffrom)) $where[] = ['a.date_creation' => ['>=', $ffrom . ' 00:00:00']];
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fto)) $where[] = ['a.date_creation' => ['<=', $fto . ' 23:59:59']];
+        $rows = [];
+        $aiter = $DB->request([
+            'SELECT' => ['a.*', 'u.name AS user_name', 'u.realname', 'u.firstname', 'c.name AS card_name'],
+            'FROM'   => 'glpi_plugin_kanpro_activities AS a',
+            'LEFT JOIN' => [
+                'glpi_users AS u' => ['ON' => ['u' => 'id', 'a' => 'users_id']],
+                'glpi_plugin_kanpro_cards AS c' => ['ON' => ['c' => 'id', 'a' => 'plugin_kanpro_cards_id']],
+            ],
+            'WHERE'  => $where,
+            'ORDER'  => 'a.date_creation DESC',
+            'LIMIT'  => 500,
+        ]);
+        foreach ($aiter as $a) {
+            $uname = trim(($a['realname'] ?? '') . ' ' . ($a['firstname'] ?? ''));
+            if ($uname === '') $uname = $a['user_name'] ?? 'Sistema';
+            $rows[] = ['id'=>(int)$a['id'], 'date'=>($a['date_creation'] ?? ''), 'user'=>$uname,
+                'user_id'=>(int)($a['users_id'] ?? 0), 'action'=>($a['action'] ?? ''),
+                'details'=>preg_replace('/^\[from:\d+\]\s*/', '', (string)($a['details'] ?? '')),
+                'card_id'=>(int)($a['plugin_kanpro_cards_id'] ?? 0), 'card_name'=>($a['card_name'] ?? '')];
+        }
+        jexit(['success'=>true, 'board_id'=>$bid, 'board_name'=>($bchk->fields['name'] ?? ''),
+            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'action'=>$faction,'card_id'=>$fcard,'date_from'=>$ffrom,'date_to'=>$fto]]);
+
     case 'get_trash':
         $bid = (int)($_REQUEST['boards_id'] ?? 0);
         if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);

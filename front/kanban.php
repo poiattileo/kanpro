@@ -337,7 +337,7 @@ echo <<<HTML
     <button id="kanpro-filter-btn" onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
     <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
     <button id="kanpro-report-btn" onclick="Kanpro.openBoardReport()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-chart-bar"></i> Relatório</button>
-    <a id="kanpro-history-btn" href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/historico.php?boards_id={$boards_id}" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-history"></i> Histórico</a>
+    <button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
 
