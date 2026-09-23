@@ -33,7 +33,7 @@ class PluginKanproAttachment extends CommonDBTM {
             'filepath'   => $rel,
             'filesize'   => $file['size'],
             'mime'       => $file['type'],
-            'users_id'   => Session::getLoginUserID(),
+            'users_id'   => function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID(),
             'date_creation' => date('Y-m-d H:i:s'),
         ]);
         if ($id) {

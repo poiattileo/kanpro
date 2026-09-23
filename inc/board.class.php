@@ -140,7 +140,7 @@ class PluginKanproBoard extends CommonDBTM {
             'plugin_kanpro_boards_id' => $boards_id,
             'plugin_kanpro_cards_id'  => $cards_id,
             'plugin_kanpro_lists_id'  => $lists_id,
-            'users_id'   => Session::getLoginUserID(),
+            'users_id'   => function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID(),
             'action'     => $action,
             'details'    => $details,
             'date_creation' => date('Y-m-d H:i:s'),

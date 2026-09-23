@@ -1,5 +1,6 @@
 <?php
 include('../../../inc/includes.php');
+include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
 Session::checkRight('plugin_kanpro', READ);
 
 Html::header('KanPro - Quadros', $_SERVER['PHP_SELF'], 'tools', 'PluginKanproBoard');
@@ -15,7 +16,7 @@ $search = $_GET['search'] ?? '';
 // Quadros legados sem nenhum membro seguem abertos até a primeira pessoa ser cadastrada.
 $__me = (int)Session::getLoginUserID();
 $__myBoards = [];
-foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['users_id' => $__me]]) as $__r) {
+foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['users_id' => kanpro_viewer_ids()]]) as $__r) {
     $__myBoards[(int)$__r['plugin_kanpro_boards_id']] = true;
 }
 $__restricted = [];

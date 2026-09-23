@@ -41,11 +41,19 @@ function needEdit() {
 
 // ---------- Helpers Membros do Quadro ----------
 // Quem pode gerenciar acesso: criador do quadro, admin do quadro ou UPDATE global (bootstrap de quadros legados).
+// Identidades do visualizador: sessão + pessoa (login compartilhado) — visibilidade vale para ambas.
+function kanpro_viewer_ids(): array {
+    return array_values(array_unique(array_filter([(int)Session::getLoginUserID(), kanpro_acting_user_id()])));
+}
 function kanpro_my_board_role($bid) {
     global $DB;
-    $uid = (int)Session::getLoginUserID();
-    $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $uid]])->current();
-    return $row ? ($row['role'] ?? 'member') : null;
+    // identidade da pessoa primeiro (login compartilhado), sessão como fallback
+    foreach (array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]) as $uid) {
+        if ($uid <= 0) continue;
+        $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $uid]])->current();
+        if ($row) return $row['role'] ?? 'member';
+    }
+    return null;
 }
 function kanpro_is_board_creator($bid) {
     $b = new PluginKanproBoard();
@@ -372,7 +380,7 @@ function kanpro_card_id_of_checklist(int $checklists_id): int {
 function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
     global $DB;
     try {
-        $uid = $users_id ?: Session::getLoginUserID();
+        $uid = $users_id ?: kanpro_acting_user_id();
         if ($cards_id <= 0 || $uid <= 0) return;
         if (!$DB->tableExists('glpi_plugin_kanpro_cards_members')) return;
         $exists = countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cards_id, 'users_id' => $uid]);
@@ -673,7 +681,7 @@ switch ($action) {
         if ($bchk->getFromDB($bid) && (int)($bchk->fields['users_id'] ?? 0) === $uid) {
             jexit(['success'=>false,'msg'=>'O criador do quadro não pode ser removido.']);
         }
-        if ($uid === (int)Session::getLoginUserID() && kanpro_count_other_managers($bid, $uid) === 0) {
+        if (in_array($uid, [(int)Session::getLoginUserID(), kanpro_acting_user_id()], true) && kanpro_count_other_managers($bid, $uid) === 0) {
             jexit(['success'=>false,'msg'=>'Você é o último gestor. Promova outra pessoa a admin antes de sair.']);
         }
         $DB->delete('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
@@ -694,7 +702,7 @@ switch ($action) {
         $exists = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
         if (!$exists) jexit(['success'=>false,'msg'=>'Usuário não é membro do quadro']);
         // não permite se rebaixar sendo o último gestor
-        if ($role !== 'admin' && $uid === (int)Session::getLoginUserID() && kanpro_count_other_managers($bid, $uid) === 0) {
+        if ($role !== 'admin' && in_array($uid, [(int)Session::getLoginUserID(), kanpro_acting_user_id()], true) && kanpro_count_other_managers($bid, $uid) === 0) {
             jexit(['success'=>false,'msg'=>'Você é o último gestor. Promova outra pessoa a admin antes.']);
         }
         $DB->update('glpi_plugin_kanpro_boards_members', ['role'=>$role], ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
@@ -706,6 +714,13 @@ switch ($action) {
         if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
         $bchk = new PluginKanproBoard();
         if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        // trava de visibilidade (criador, membro ou legado sem membros — vale sessão e pessoa)
+        $__creator = (int)($bchk->fields['users_id'] ?? 0);
+        if ($__creator !== (int)Session::getLoginUserID()) {
+            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
+            $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
+            if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        }
         $creatorId = (int)($bchk->fields['users_id'] ?? 0);
         $me = (int)Session::getLoginUserID();
         // só quem pode ver o quadro pode listar membros (criador, membro ou quadro legado sem membros)
@@ -1416,7 +1431,7 @@ switch ($action) {
             'plugin_kanpro_lists_id'=>(int)$c->fields['plugin_kanpro_lists_id'],
             'list_name'=>$lname, 'card_name'=>$c->fields['name'],
             'snapshot'=>json_encode($full, JSON_UNESCAPED_UNICODE),
-            'users_id'=>Session::getLoginUserID(), 'date_creation'=>date('Y-m-d H:i:s'),
+            'users_id'=>kanpro_acting_user_id(), 'date_creation'=>date('Y-m-d H:i:s'),
         ]);
         $c->delete(['id'=>$cid], true);
         jexit(['success'=>true]);
@@ -1430,7 +1445,7 @@ switch ($action) {
         $__me = (int)Session::getLoginUserID();
         $__creator = (int)($bchk->fields['users_id'] ?? 0);
         if ($__me !== $__creator) {
-            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$__me]) > 0;
+            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
             $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
             if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
         }
@@ -1674,7 +1689,7 @@ switch ($action) {
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
         $content = trim($_POST['content'] ?? '');
-        $DB->update('glpi_plugin_kanpro_comments', ['content'=>$content,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$id,'users_id'=>Session::getLoginUserID()]);
+        $DB->update('glpi_plugin_kanpro_comments', ['content'=>$content,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$id,'users_id'=>[Session::getLoginUserID(), kanpro_acting_user_id()]]);
         jexit(['success'=>true]);
 
     case 'delete_comment':
@@ -1755,7 +1770,7 @@ switch ($action) {
         $__me = (int)Session::getLoginUserID();
         $__creator = (int)($bchk->fields['users_id'] ?? 0);
         if ($__me !== $__creator) {
-            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$__me]) > 0;
+            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
             $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
             if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
         }
@@ -1894,7 +1909,7 @@ switch ($action) {
         $updateData = [
             'is_maintenance'   => 1,
             'maintenance_date' => date('Y-m-d H:i:s'),
-            'maintenance_by'   => Session::getLoginUserID(),
+            'maintenance_by'   => kanpro_acting_user_id(),
             'date_mod'         => date('Y-m-d H:i:s'),
             'name'             => $newName
         ];
@@ -1978,7 +1993,7 @@ switch ($action) {
         }
         $seq = $maxSeq;
         $now = date('Y-m-d H:i:s');
-        $uid = Session::getLoginUserID();
+        $uid = kanpro_acting_user_id();
         $created = [];
         foreach ($defs as $def) {
             $qty = (int)$def['qty'];
@@ -2107,7 +2122,7 @@ switch ($action) {
         if ($effStatus === 'pendente') $updates['is_done'] = 0;
         if (empty($updates)) jexit(['success'=>false,'msg'=>'Nada para atualizar']);
         $updates['date_mod'] = date('Y-m-d H:i:s');
-        $updates['users_id'] = Session::getLoginUserID();
+        $updates['users_id'] = kanpro_acting_user_id();
         $DB->update('glpi_plugin_kanpro_maintenance_machines', $updates, ['id'=>$mid]);
         kanpro_touch_member((int)$row['plugin_kanpro_cards_id']);
         // espelha mudanças relevantes no chamado (diário NÃO vai — salva a cada tecla)
@@ -2185,7 +2200,7 @@ switch ($action) {
         $rows = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$ids,'plugin_kanpro_cards_id'=>$cid]]);
         $n = 0;
         foreach ($rows as $r) {
-            $u = ['date_mod'=>date('Y-m-d H:i:s'),'users_id'=>Session::getLoginUserID()];
+            $u = ['date_mod'=>date('Y-m-d H:i:s'),'users_id'=>kanpro_acting_user_id()];
             if ($applyStatus) {
                 $u['status'] = $st;
                 $u['is_ok'] = ($st === 'ok' ? 1 : 0);
@@ -2220,7 +2235,7 @@ switch ($action) {
         if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
-        $upd = ['needs_inventory'=>$val, 'date_mod'=>date('Y-m-d H:i:s'), 'users_id'=>Session::getLoginUserID()];
+        $upd = ['needs_inventory'=>$val, 'date_mod'=>date('Y-m-d H:i:s'), 'users_id'=>kanpro_acting_user_id()];
         if (!$val) $upd['is_inventoried'] = 0;
         $DB->update('glpi_plugin_kanpro_maintenance_machines', $upd, ['plugin_kanpro_cards_id'=>$cid]);
         kanpro_sync_inventory_label($cid);
@@ -2270,7 +2285,7 @@ switch ($action) {
         $row = $DB->request(['SELECT'=>['MAX'=>'seq AS m'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid]])->current();
         $seq = (int)($row['m'] ?? 0);
         $now = date('Y-m-d H:i:s');
-        $uid = Session::getLoginUserID();
+        $uid = kanpro_acting_user_id();
         foreach ($defs as $def) {
             $q = (int)$def['qty'];
             $mod = trim($def['model']);
@@ -2375,7 +2390,7 @@ switch ($action) {
         $now = date('Y-m-d H:i:s');
         $nid = $DB->insert('glpi_plugin_kanpro_maintenance_notes', [
             'machine_id'    => $mid,
-            'users_id'      => Session::getLoginUserID(),
+            'users_id'      => kanpro_acting_user_id(),
             'note'          => mb_substr($note, 0, 2000),
             'date_creation' => $now,
             'date_mod'      => $now,
@@ -2420,7 +2435,7 @@ switch ($action) {
             'description' => $card->fields['description'] ?? '',
         ]);
         if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de retirada']);
-        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
         // move máquina para novo card, re-sequencia como 1 e mantém infos
         $newLabel = "Máquina 1 - {$row['model']}";
         $DB->update('glpi_plugin_kanpro_maintenance_machines', [
@@ -2457,7 +2472,7 @@ switch ($action) {
             $work_status = !empty($row['is_done']) ? 'done' : 'pending';
             $reason = "[KanPro #{$newId} - Retirada Urgência] Quadro: {$board_name} | Lista: {$list_name} | Card origem: #{$cid} {$origName} | Máquina #{$row['seq']} {$row['model']} [{$status_final}] URGÊNCIA | Diário: " . mb_substr($row['diary'] ?? '',0,300) . " | Gerado em ".date('d/m/Y H:i');
             $now = date('Y-m-d H:i:s');
-            $uid = Session::getLoginUserID();
+            $uid = kanpro_acting_user_id();
             $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
             $DB->insert('glpi_plugin_assetmgrstatus_transfers', [
                 'entity_dest'      => $entity_dest,
@@ -2596,7 +2611,7 @@ switch ($action) {
             ]);
             if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
             // garante que novo card também é manutenção
-            $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
+            $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
             // move pendentes para novo card com seq 1..N e zera Feito/Status/Diário/Inventário
             $seq=1;
             foreach ($pendingMachines as $pm) {
@@ -2664,7 +2679,7 @@ switch ($action) {
                 'description' => $card->fields['description'] ?? '',
             ]);
             if ($newId) {
-                $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>Session::getLoginUserID()], ['id'=>$newId]);
+                $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
                 $seq=1;
                 foreach ($pendingMachines as $pm) {
                     $newLabel = "Máquina {$seq} - {$pm['model']}";
@@ -2723,13 +2738,13 @@ switch ($action) {
                 $DB->update('glpi_plugin_kanpro_cards', [
                     'is_maintenance'   => 1,
                     'maintenance_date' => date('Y-m-d H:i:s'),
-                    'maintenance_by'   => Session::getLoginUserID(),
+                    'maintenance_by'   => kanpro_acting_user_id(),
                     'date_mod'         => date('Y-m-d H:i:s')
                 ], ['id' => $pendingCardId]);
                 // copia máquinas pendentes para novo card re-sequenciando 1..N
                 $seq = 0;
                 $now2 = date('Y-m-d H:i:s');
-                $uid2 = Session::getLoginUserID();
+                $uid2 = kanpro_acting_user_id();
                 foreach ($pendingMachines as $pm) {
                     $seq++;
                     $DB->insert('glpi_plugin_kanpro_maintenance_machines', [
@@ -2793,7 +2808,7 @@ switch ($action) {
         if($summary) $reason .= " | Máquinas: ".implode("; ", $summary);
         if($pendingCount>0) $reason .= " | Pendentes movidos para card #{$pendingCardId} ({$pendingCount})";
         $now = date('Y-m-d H:i:s');
-        $uid = Session::getLoginUserID();
+        $uid = kanpro_acting_user_id();
         $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
         // Nome do Recebedor fica vazio por padrão — preenchido apenas no momento da assinatura via tablet/lote
         $transfer_data = [

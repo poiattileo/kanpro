@@ -15,7 +15,7 @@ class PluginKanproChecklistItem extends CommonDBTM {
             $row = $DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['plugin_kanpro_checklists_id' => $input['plugin_kanpro_checklists_id']]])->current();
             $input['rank'] = floatval($row['m'] ?? 0) + 1024;
         }
-        $input['users_id'] = $input['users_id'] ?? Session::getLoginUserID();
+        $input['users_id'] = $input['users_id'] ?? (function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID());
         return $input;
     }
 }

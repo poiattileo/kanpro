@@ -4,6 +4,7 @@ if (function_exists('opcache_invalidate')) {
     @opcache_invalidate(GLPI_ROOT . '/plugins/kanpro/inc/board.class.php', true);
 }
 include('../../../inc/includes.php');
+include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
 Session::checkRight('plugin_kanpro', READ);
 
 $boards_id = (int)($_GET['boards_id'] ?? $_GET['id'] ?? 0);
@@ -23,7 +24,7 @@ $__me = (int)Session::getLoginUserID();
 $__creator = (int)($board->fields['users_id'] ?? 0);
 $__canView = ($__me > 0 && $__me === $__creator);
 if (!$__canView) {
-    $__isMember = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $__me]) > 0;
+    $__isMember = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]) > 0;
     $__hasMembers = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id]) > 0;
     $__canView = $__isMember || !$__hasMembers;
 }
@@ -294,6 +295,7 @@ $assinatura_btn = '<a id="kanpro-assinatura-btn" href="' . $assinatura_url . '" 
 $open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
 $open_card_id_json = json_encode($open_card_id ?: null);
 $current_user_id = (int) Session::getLoginUserID();
+$acting_user_id_json = (int) kanpro_acting_user_id();
 
 echo <<<HTML
 <style>
@@ -595,6 +597,7 @@ window.KANPRO = {
   boardColor: "{$board_color}",
   openCardId: {$open_card_id_json},
   currentUserId: {$current_user_id},
+  actingUserId: {$acting_user_id_json},
   themes: {$themes_json}
 };
 </script>

@@ -32,7 +32,7 @@ class PluginKanproCard extends CommonDBTM {
                 }
             }
         }
-        $input['users_id'] = $input['users_id'] ?? Session::getLoginUserID();
+        $input['users_id'] = $input['users_id'] ?? (function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID());
         $input['date_creation'] = date('Y-m-d H:i:s');
         $input['date_mod'] = $input['date_creation'];
         return $input;

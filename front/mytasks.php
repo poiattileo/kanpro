@@ -1,6 +1,7 @@
 <?php
 // Minhas Tarefas — agrega cartões atribuídos ao usuário logado em todos os quadros
 include('../../../inc/includes.php');
+include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
 Session::checkRight('plugin_kanpro', READ);
 
 global $DB, $CFG_GLPI;
@@ -13,7 +14,7 @@ Html::header('KanPro - Minhas tarefas', $_SERVER['PHP_SELF'], 'tools', 'PluginKa
 
 // cartões onde sou membro (não arquivados)
 $memberCardIds = [];
-$cmIter = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['users_id' => $uid]]);
+$cmIter = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['users_id' => kanpro_viewer_ids()]]);
 foreach ($cmIter as $r) $memberCardIds[] = (int)$r['plugin_kanpro_cards_id'];
 $memberCardIds = array_values(array_unique($memberCardIds));
 

@@ -35,9 +35,12 @@
 
     /* ---------- helpers ---------- */
     isBoardAdmin(){
-      const me = K.currentUserId;
-      if(this.board && parseInt(this.board.users_id) === parseInt(me)) return true;
-      const m = (this.members||[]).find(x=> String(x.users_id)===String(me));
+      // vale sessão e pessoa (login compartilhado)
+      const ids = [parseInt(K.currentUserId)];
+      const a = parseInt((K && K.actingUserId) || 0);
+      if(a > 0 && !ids.includes(a)) ids.push(a);
+      if(this.board && ids.includes(parseInt(this.board.users_id))) return true;
+      const m = (this.members||[]).find(x=> ids.includes(parseInt(x.users_id)));
       if(m && m.role==='admin') return true;
       if(this.canEdit) return true; // UPDATE global
       return false;
