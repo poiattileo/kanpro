@@ -41,10 +41,7 @@ function needEdit() {
 
 // ---------- Helpers Membros do Quadro ----------
 // Quem pode gerenciar acesso: criador do quadro, admin do quadro ou UPDATE global (bootstrap de quadros legados).
-// Identidades do visualizador: sessão + pessoa (login compartilhado) — visibilidade vale para ambas.
-function kanpro_viewer_ids(): array {
-    return array_values(array_unique(array_filter([(int)Session::getLoginUserID(), kanpro_acting_user_id()])));
-}
+// Identidades do visualizador: ver inc/acting.php (kanpro_viewer_ids).
 function kanpro_my_board_role($bid) {
     global $DB;
     // identidade da pessoa primeiro (login compartilhado), sessão como fallback

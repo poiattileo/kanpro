@@ -95,6 +95,19 @@ if (!function_exists('kanpro_migrate_shared_login')) {
     }
 }
 
+if (!function_exists('kanpro_viewer_ids')) {
+    // Identidades do visualizador: sessão + pessoa (login compartilhado) — visibilidade vale para ambas.
+    // Nunca retorna vazio (IN () quebraria o SQL). Fica aqui (não no ajax.php)
+    // porque board.php, kanban.php e mytasks.php também usam.
+    function kanpro_viewer_ids(): array {
+        $ids = [];
+        try {
+            $ids = array_values(array_unique(array_filter([(int)Session::getLoginUserID(), kanpro_acting_user_id()])));
+        } catch (Throwable $e) {}
+        return $ids ?: [0];
+    }
+}
+
 if (!function_exists('kanpro_acting_user_id')) {
     // Ordem: 1) mapa login compartilhado 2) logado.
     function kanpro_acting_user_id(): int {
