@@ -1523,7 +1523,7 @@
               </div>
             </div>
             <div style="padding:10px 12px">
-              <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">DIÁRIO — o que foi feito nesta máquina</div>
+              <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">RELATÓRIO — o que foi feito nesta máquina</div>
               <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
@@ -2665,7 +2665,7 @@
   </div>
   <h2>Descrição do Card</h2>
   <div style="background:#f4f5f7;padding:10px;border-radius:6px;white-space:pre-wrap">${esc(card.description||"—")}</div>
-  <h2>Checklist por Máquina — Diário (Status Final)</h2>
+  <h2>Checklist por Máquina — Relatório (Status Final)</h2>
   <table>
     <thead>
       <tr><th style="width:50px">#</th><th style="min-width:140px">Modelo</th><th>Etiqueta</th><th style="width:130px">Status Final</th><th style="width:50px">Feito</th><th>O QUE FOI FEITO</th></tr>

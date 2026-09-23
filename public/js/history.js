@@ -9,7 +9,7 @@
     card_complete:'concluiu o cartão', card_reopen:'reabriu o cartão',
     card_maintenance_convert:'converteu para manutenção',
     maintenance_setup:'configurou máquinas', maintenance_update:'atualizou máquina',
-    maintenance_diary:'atualizou o diário', maintenance_finalize:'finalizou manutenção',
+    maintenance_diary:'atualizou o relatório', maintenance_finalize:'finalizou manutenção',
     maintenance_revert:'reverteu manutenção', maintenance_retirada:'retirou máquina',
     maintenance_pending_split:'separou pendentes',
     member_add:'adicionou membro', member_remove:'removeu membro', member_role:'trocou papel',

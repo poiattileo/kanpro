@@ -538,7 +538,7 @@ function kanpro_card_machines_report(int $cards_id): string {
             if (!empty($m['is_urgent'])) $bits[] = 'URGENTE';
             if (!empty($m['is_inventoried'])) $bits[] = 'Inventariada';
             $diary = trim($m['diary'] ?? '');
-            if ($diary !== '') $bits[] = 'Diário: ' . mb_substr($diary, 0, 150) . (mb_strlen($diary) > 150 ? '…' : '');
+            if ($diary !== '') $bits[] = 'Relatório: ' . mb_substr($diary, 0, 150) . (mb_strlen($diary) > 150 ? '…' : '');
             $lines[] = '• #' . $m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' — ' . implode(' | ', $bits);
         }
         if (empty($lines)) return '';
@@ -610,11 +610,15 @@ function kanpro_info_sheet_data(int $cid): ?array {
     if (!count($machines)) return null;
     [$cie, $school] = kanpro_cie_lookup($card->fields['name'] ?? '');
     $hasStatus = false;
+    $hasDiary = false;
     foreach ($machines as $m) {
         if (trim($m['status'] ?? '') !== '') {
             $hasStatus = true;
-            break;
         }
+        if (trim($m['diary'] ?? '') !== '') {
+            $hasDiary = true;
+        }
+        if ($hasStatus && $hasDiary) break;
     }
     $byModel = [];
     foreach ($machines as $m) {
@@ -650,7 +654,7 @@ function kanpro_info_sheet_data(int $cid): ?array {
         if ($mu->getFromDB($me)) $meName = $mu->getFriendlyName();
     } catch (Throwable $e) {}
     return ['card' => $card->fields, 'board' => $board->fields, 'list' => $list->fields, 'machines' => $machines,
-        'cie' => $cie, 'school' => $school, 'hasStatus' => $hasStatus, 'byModel' => $byModel,
+        'cie' => $cie, 'school' => $school, 'hasStatus' => $hasStatus, 'hasDiary' => $hasDiary, 'byModel' => $byModel,
         'pendingCard' => $pendingCard, 'counts' => $counts, 'meName' => $meName];
 }
 function kanpro_info_sheet_html(array $d): string {
@@ -686,6 +690,19 @@ function kanpro_info_sheet_html(array $d): string {
             . '<div style="flex:1;background:#fff8e6;border-radius:8px;padding:8px;text-align:center"><strong style="font-size:16px">' . (int)$c['pendente'] . '</strong><br><small>Pendente</small></div>'
             . '</div>';
     }
+    $diaryBox = '';
+    if (!empty($d['hasDiary'])) {
+        $diaryBox = '<div style="margin-top:12px"><div style="font-size:12px;font-weight:800;margin-bottom:6px">📝 RELATÓRIO POR MÁQUINA — o que foi feito</div>';
+        foreach ($d['machines'] as $m) {
+            $txt = trim($m['diary'] ?? '');
+            if ($txt === '') continue;
+            $diaryBox .= '<div style="border:1px solid #dfe1e6;border-radius:8px;padding:8px 12px;margin-bottom:8px;page-break-inside:avoid">'
+                . '<div style="font-size:12px;font-weight:800">#'. (int)$m['seq'] . ' — ' . $esc($m['model']) . ' <span style="font-weight:400;color:#5e6c84">[' . $esc($m['label']) . ']</span></div>'
+                . '<div style="font-size:12px;margin-top:4px;white-space:pre-wrap;word-break:break-word">' . nl2br($esc($txt)) . '</div>'
+                . '</div>';
+        }
+        $diaryBox .= '</div>';
+    }
     return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
         . '<title>Folha Informativa — Cartão #' . (int)$card['id'] . '</title>'
         . '<style>@page{size:A4;margin:11mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172b4d;margin:0}'
@@ -713,7 +730,7 @@ function kanpro_info_sheet_html(array $d): string {
         . '</div>'
         . '<div style="margin-top:10px"><div style="font-size:12px;font-weight:700;margin-bottom:4px">MODELOS</div>' . $models . '</div>'
         . '<table><thead><tr><th>#</th><th>Modelo</th><th>Etiqueta</th>' . ($d['hasStatus'] ? '<th style="text-align:center">Status Final</th>' : '') . '</tr></thead><tbody>' . $rows . '</tbody></table>'
-        . $pendBox . $statusRow
+        . $pendBox . $statusRow . $diaryBox
         . '<div class="grow"></div>'
         . '<div class="obs"><strong>Observações:</strong><br><br><br></div>'
         . '<div class="foot">Documento gerado pelo KanPro • Cartão #' . (int)$card['id'] . ' • ' . $now . '</div>'
@@ -917,6 +934,16 @@ function kanpro_info_sheet_simple_pdf(array $d): ?string {
         foreach ($d['machines'] as $m) {
             $st = kanpro_machine_status_label_pt(trim($m['status'] ?? ''));
             $lines[] = '#' . (int)$m['seq'] . '. ' . ($m['model'] ?? '-') . '  [' . ($m['label'] ?? '-') . ']' . ($d['hasStatus'] ? '  Status: ' . $st : '');
+        }
+        if (!empty($d['hasDiary'])) {
+            $lines[] = '';
+            $lines[] = 'RELATORIO POR MAQUINA:';
+            $lines[] = str_repeat('-', 85);
+            foreach ($d['machines'] as $m) {
+                $txt = trim($m['diary'] ?? '');
+                if ($txt === '') continue;
+                $lines[] = '#' . (int)$m['seq'] . ' ' . ($m['model'] ?? '-') . ': ' . mb_substr(preg_replace('/\s+/', ' ', $txt), 0, 300);
+            }
         }
         if (!empty($d['pendingCard'])) $lines[] = 'Pendentes foram para o card #' . (int)$d['pendingCard']['id'] . ' - ' . $d['pendingCard']['name'];
         $lines[] = '';
@@ -2635,7 +2662,7 @@ switch ($action) {
             if (!empty($chg)) {
                 PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cidM, $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Máquina #{$row['seq']} atualizada");
             } elseif (array_key_exists('diary', $updates) && (string)($updates['diary'] ?? '') !== (string)($row['diary'] ?? '')) {
-                $dlabel = "Diário da Máquina #{$row['seq']} atualizado";
+                $dlabel = "Relatório da Máquina #{$row['seq']} atualizado";
                 $DB->delete('glpi_plugin_kanpro_activities', ['plugin_kanpro_cards_id'=>$cidM, 'action'=>'maintenance_diary', 'details'=>$dlabel]);
                 PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cidM, $card->fields['plugin_kanpro_lists_id'], 'maintenance_diary', $dlabel);
             }
@@ -2991,7 +3018,7 @@ switch ($action) {
             $stRaw = mb_strtolower(trim($row['status'] ?? ''), 'UTF-8');
             $status_final = in_array($stRaw, ['garantia','ok','inservivel','pendente']) ? $stRaw : (!empty($stRaw) ? $stRaw : 'pendente');
             $work_status = !empty($row['is_done']) ? 'done' : 'pending';
-            $reason = "[KanPro #{$newId} - Retirada Urgência] Quadro: {$board_name} | Lista: {$list_name} | Card origem: #{$cid} {$origName} | Máquina #{$row['seq']} {$row['model']} [{$status_final}] URGÊNCIA | Diário: " . mb_substr($row['diary'] ?? '',0,300) . " | Gerado em ".date('d/m/Y H:i');
+            $reason = "[KanPro #{$newId} - Retirada Urgência] Quadro: {$board_name} | Lista: {$list_name} | Card origem: #{$cid} {$origName} | Máquina #{$row['seq']} {$row['model']} [{$status_final}] URGÊNCIA | Relatório: " . mb_substr($row['diary'] ?? '',0,300) . " | Gerado em ".date('d/m/Y H:i');
             $now = date('Y-m-d H:i:s');
             $uid = kanpro_acting_user_id();
             $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
@@ -3133,7 +3160,7 @@ switch ($action) {
             if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
             // garante que novo card também é manutenção
             $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
-            // move pendentes para novo card com seq 1..N e zera Feito/Status/Diário/Inventário
+            // move pendentes para novo card com seq 1..N e zera Feito/Status/Relatório/Inventário
             $seq=1;
             foreach ($pendingMachines as $pm) {
                 $newLabel = "Máquina {$seq} - {$pm['model']}";
