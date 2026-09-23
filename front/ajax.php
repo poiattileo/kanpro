@@ -717,9 +717,9 @@ function kanpro_info_sheet_html(array $d): string {
         . '<div class="grow"></div>'
         . '<div class="obs"><strong>Observações:</strong><br><br><br></div>'
         . '<div class="foot">Documento gerado pelo KanPro • Cartão #' . (int)$card['id'] . ' • ' . $now . '</div>'
+        . '</div>'
         . '<div class="no-print"><button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button> '
         . '<button id="btn-hp" onclick="kpPrintHP(' . (int)$card['id'] . ')" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir na HP</button></div>'
-        . '</div>'
         . '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>'
         . '<script>async function kpPrintHP(cid){var btn=document.getElementById("btn-hp");var old=btn?btn.innerHTML:"";if(!confirm("Enviar Folha do cartão #"+String(cid).padStart(4,"0")+" para impressão na HP?\\n\\nSerá impresso exatamente o que você vê nesta prévia (A4)."))return;if(btn){btn.disabled=true;btn.innerHTML="⏳ Gerando PDF...";}var b64=null;try{var el=document.querySelector(".folha");if(el&&window.html2pdf){var opt={margin:[10,10,10,10],filename:"Folha-"+String(cid).padStart(4,"0")+".pdf",image:{type:"jpeg",quality:0.98},html2canvas:{scale:2,useCORS:true,scrollY:0,logging:false},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}};var uri=await html2pdf().set(opt).from(el).outputPdf("datauristring");b64=(uri.split(",")[1]||null);}}catch(e){b64=null;}if(btn)btn.innerHTML="⏳ Enviando...";try{var ajaxUrl="/plugins/kanpro/front/ajax.php";try{if(window.opener&&window.opener.location&&window.opener.location.pathname){var p=window.opener.location.pathname;if(p.indexOf("/plugins/kanpro/")>=0){ajaxUrl=p.substring(0,p.indexOf("/plugins/kanpro/"))+"/plugins/kanpro/front/ajax.php";}}}catch(e){}var fd=new FormData();fd.append("action","print_info_sheet");fd.append("cards_id",String(cid));if(b64)fd.append("pdf_base64",b64);var r=await fetch(ajaxUrl,{method:"POST",body:fd,credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"}});var t=await r.text();var j;try{j=JSON.parse(t);}catch(e){alert("❌ Erro servidor (HTTP "+r.status+")");if(btn){btn.disabled=false;btn.innerHTML=old;}return;}if(j.success){alert("✅ Impressão enviada!\\n"+(j.audit||("Impressora: "+(j.printer||"-")+(j.request_id?" | Job:"+j.request_id:""))));}else{alert("❌ Falha ao imprimir\\n"+(j.msg||"Erro desconhecido"));} }catch(e){alert("Erro de rede: "+e.message);}finally{if(btn){btn.disabled=false;btn.innerHTML=old;}}}</script>'
         . '</body></html>';
@@ -727,6 +727,7 @@ function kanpro_info_sheet_html(array $d): string {
 // HTML -> PDF (mesma cadeia do termo: mPDF, Dompdf, wkhtmltopdf, chromium).
 function kanpro_html_to_pdf(string $html): ?string {
     $tag = 'kanpro_folha_' . uniqid();
+    $html = kanpro_strip_no_print($html);
     try {
         $mpdf = null;
         if (class_exists('Mpdf\Mpdf')) {
@@ -931,7 +932,13 @@ function kanpro_info_sheet_simple_pdf(array $d): ?string {
     } catch (Throwable $e) {}
     return null;
 }
-// Envia PDF ao CUPS: 2 cópias, A4, duplex automático (2+ págs) — igual ao termo.
+// Remove blocos .no-print e scripts antes de gerar PDF no servidor (mPDF/Dompdf ignoram @media print).
+function kanpro_strip_no_print(string $html): string {
+    $html = preg_replace('/<div class="no-print".*?<\/div>/is', '', $html);
+    $html = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $html);
+    return $html;
+}
+// Envia PDF ao CUPS: 1 cópia, A4, duplex automático (2+ págs) — folha só precisa de 1.
 function kanpro_print_pdf_cups(string $pdf_path, string $title, ?string $preferred_printer = null): array {
     try {
         if (!file_exists($pdf_path)) return ['ok' => false, 'error' => 'PDF não encontrado'];
@@ -972,7 +979,7 @@ function kanpro_print_pdf_cups(string $pdf_path, string $title, ?string $preferr
             return ['ok' => false, 'error' => 'Nenhuma impressora no CUPS'];
         }
         @chmod($pdf_path, 0644);
-        $stdOpts = '-n 2 -o media=A4 -o fit-to-page -o sides=' . $sidesOpt . ' -o Resolution=600dpi -o print-quality=5';
+        $stdOpts = '-n 1 -o media=A4 -o fit-to-page -o sides=' . $sidesOpt . ' -o Resolution=600dpi -o print-quality=5';
         $output = [];
         $ret = -1;
         $printed = false;
@@ -985,7 +992,7 @@ function kanpro_print_pdf_cups(string $pdf_path, string $title, ?string $preferr
         }
         if (!$printed && $hasLpr) {
             $output = [];
-            $cmd = 'lpr -P ' . escapeshellarg($printer) . ' -# 2 -o media=A4 -o fit-to-page -o sides=' . $sidesOpt . ' -o Resolution=600dpi -o print-quality=5 ' . escapeshellarg($pdf_path) . ' 2>&1';
+            $cmd = 'lpr -P ' . escapeshellarg($printer) . ' -# 1 -o media=A4 -o fit-to-page -o sides=' . $sidesOpt . ' -o Resolution=600dpi -o print-quality=5 ' . escapeshellarg($pdf_path) . ' 2>&1';
             @exec($cmd, $output, $ret);
             $lastOut = implode("\n", $output);
             if ($ret === 0) $printed = true;
@@ -2850,8 +2857,9 @@ switch ($action) {
             } catch (Throwable $e) {}
         }
         // 2) Gera no servidor (mPDF/Dompdf/wkhtml/chromium + fallback puro PHP).
+        // Strip .no-print/scripts: senao os botoes saem impressos no PDF.
         if (!$pdf) {
-            $pdf = kanpro_html_to_pdf(kanpro_info_sheet_html($d));
+            $pdf = kanpro_html_to_pdf(kanpro_strip_no_print(kanpro_info_sheet_html($d)));
         }
         if (!$pdf) {
             $pdf = kanpro_info_sheet_simple_pdf($d);

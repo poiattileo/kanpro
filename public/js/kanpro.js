@@ -2170,6 +2170,8 @@
             const tmp = document.createElement('div');
             tmp.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff';
             tmp.innerHTML = res.html;
+            // html2pdf ignora @media print: remove botoes .no-print senao saem impressos
+            tmp.querySelectorAll('.no-print, script').forEach(el=> el.remove());
             document.body.appendChild(tmp);
             const target = tmp.querySelector('.folha') || tmp;
             const opt = { margin: [10,10,10,10], filename: 'Folha-' + String(cid).padStart(4,'0') + '.pdf',
