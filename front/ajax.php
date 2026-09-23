@@ -680,20 +680,6 @@ switch ($action) {
         PluginKanproBoard::logActivity($bid, null, null, 'member_remove', "Membro {$uid} removido");
         jexit(['success'=>true]);
 
-    case 'set_acting_user':
-        // "Agindo como": identidade para atribuição no chamado (login compartilhado)
-        $uid = (int)($_POST['users_id'] ?? 0);
-        if ($uid <= 0) {
-            unset($_SESSION['kanpro_acting_user']);
-            jexit(['success'=>true,'reset'=>true]);
-        }
-        $u = new User();
-        if (!$u->getFromDB($uid) || !empty($u->fields['is_deleted']) || !($u->fields['is_active'] ?? 1)) {
-            jexit(['success'=>false,'msg'=>'Usuário inválido ou inativo']);
-        }
-        $_SESSION['kanpro_acting_user'] = $uid;
-        jexit(['success'=>true,'name'=>$u->getFriendlyName()]);
-
     case 'set_member_role':
         $bid = (int)($_POST['boards_id'] ?? 0);
         $uid = (int)($_POST['users_id'] ?? 0);

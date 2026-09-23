@@ -387,13 +387,6 @@
       if((card.approval_from||0) > 0 && !this.isBoardAdmin()) return false;
       return true;
     },
-    /* ---------- Agindo como (atribuição no chamado) ---------- */
-    setActingUser(uid){
-      this.ajax('set_acting_user', {users_id: uid || ''}).then(res=>{
-        if(res.success) this.showToast(res.reset ? 'Ações voltam ao usuário logado' : ('Registrando ações como ' + (res.name || '')));
-        else alert(res.msg||'Erro');
-      });
-    },
     // ---------- BOARD ----------
     renderBoard(){
       const board = $('#kanpro-board');

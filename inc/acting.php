@@ -3,10 +3,9 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
-// Identidade para atribuição no chamado ("Agindo como").
+// Identidade para atribuição no chamado (automático).
 // Quando a equipe compartilha um login (ex: todos usam "glpi"), o mapa abaixo
-// resolve automaticamente a pessoa real. A troca manual (seletor na topbar)
-// tem prioridade sobre o mapa. Mantenha este mapa sincronizado — fonte única.
+// resolve automaticamente a pessoa real. Mantenha este mapa sincronizado — fonte única.
 if (!defined('KANPRO_ACTING_MAP')) {
     define('KANPRO_ACTING_MAP', [
         'glpi' => 'leonardo.facao@apoiofde.sp.gov.br',
@@ -40,18 +39,8 @@ if (!function_exists('kanpro_resolve_user_by_login')) {
 }
 
 if (!function_exists('kanpro_acting_user_id')) {
-    // Ordem: 1) troca manual (seletor) 2) mapa login compartilhado 3) logado.
+    // Ordem: 1) mapa login compartilhado 2) logado.
     function kanpro_acting_user_id(): int {
-        $auid = (int)($_SESSION['kanpro_acting_user'] ?? 0);
-        if ($auid > 0) {
-            try {
-                $u = new User();
-                if ($u->getFromDB($auid) && empty($u->fields['is_deleted']) && ($u->fields['is_active'] ?? 1)) {
-                    return $auid;
-                }
-            } catch (Throwable $e) {}
-            unset($_SESSION['kanpro_acting_user']);
-        }
         try {
             $me = (int)Session::getLoginUserID();
             if ($me > 0) {
