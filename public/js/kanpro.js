@@ -4236,9 +4236,10 @@
     },
     /* ---------- avatar com foto do GLPI (fallback: inicial) ---------- */
     avatarHtml(pictureUrl, initials, title, extraClass, extraStyle){
+      // foto em camada absoluta sobre a inicial: carregou cobre tudo, falhou some e a letra fica
       const pic = pictureUrl
-        ? `<img src="${pictureUrl}" alt="" loading="lazy" onerror="this.remove()">` : '';
-      return `<span class="kp-avatar ${extraClass||''}" title="${this.escape(title||'')}"${extraStyle?` style="${extraStyle}"`:''}>${pic}${this.escape(initials||'?')}</span>`;
+        ? `<img src="${pictureUrl}" alt="" loading="lazy" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%">` : '';
+      return `<span class="kp-avatar ${extraClass||''}" title="${this.escape(title||'')}" style="position:relative;${extraStyle||''}">${this.escape(initials||'?')}${pic}</span>`;
     },
     /* ---------- MARKDOWN SIMPLES ---------- */
     parseMarkdown(text){
