@@ -587,6 +587,30 @@
         badges.push(`<span class="kp-badge ${doneClass}"><i class="ti ti-checkbox"></i> ${prog.done}/${prog.total}</span>`);
         checkBarHtml = `<div class="kp-card-progress" title="Checklist ${prog.done}/${prog.total}"><div style="width:${pct}%"></div></div>`;
       }
+      // barra de prazo — só aparece quando há vencimento
+      let dueBarHtml = '';
+      if (card.due_date) {
+        const due = new Date(card.due_date).getTime();
+        const start = card.start_date ? new Date(card.start_date).getTime()
+          : (card.date_creation ? new Date(card.date_creation).getTime() : due);
+        const now = Date.now();
+        if(!isNaN(due) && !isNaN(start)){
+          let pct = 0, color = '#0079bf', label = '';
+          const days = Math.ceil((due - now) / 86400000);
+          if (card.is_completed) {
+            pct = 100; color = '#61bd4f';
+            label = 'Concluído • vencimento ' + this.formatDateShort(card.due_date);
+          } else if (now >= due) {
+            pct = 100; color = '#eb5a46';
+            label = 'Vencido há ' + Math.max(1, Math.abs(days)) + ' dia(s) • ' + this.formatDateShort(card.due_date);
+          } else {
+            pct = Math.min(100, Math.max(0, Math.round((now - start) / Math.max(due - start, 1) * 100)));
+            color = pct >= 80 ? '#ff991f' : '#0079bf';
+            label = (days <= 0 ? 'Vence hoje' : 'Vence em ' + days + ' dia(s)') + ' • ' + this.formatDateShort(card.due_date);
+          }
+          dueBarHtml = `<div class="kp-card-progress" title="${this.escape(label)}"><div style="width:${pct}%;background:${color}"></div></div>`;
+        }
+      }
       // fixado no topo
       if (card.is_pinned==1) {
         badges.push(`<span class="kp-badge" title="Fixado no topo da lista" style="background:#091e42;color:#fff;font-weight:700">📌 Fixado</span>`);
@@ -619,6 +643,7 @@
         <div class="kp-card-title"><span style="color:#5e6c84;font-weight:700;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
         ${badges.length?`<div class="kp-card-badges">${badges.join('')}</div>`:''}
         ${checkBarHtml}
+        ${dueBarHtml}
         ${membersHtml}
         <button class="kp-card-edit" onclick="event.stopPropagation(); Kanpro.quickEditCard(${card.id}, event)"><i class="ti ti-pencil" style="font-size:14px"></i></button>
       `;
