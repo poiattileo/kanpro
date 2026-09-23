@@ -2408,9 +2408,10 @@ switch ($action) {
         $DB->update('glpi_plugin_kanpro_maintenance_machines', $upd, ['plugin_kanpro_cards_id'=>$cid]);
         kanpro_sync_inventory_label($cid);
         $n = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
-        // quem marcou ajuda no chamado
+        // quem marcou ajuda no chamado e vira membro do cartão
         $tidAll = kanpro_card_ticket_id($cid);
         if ($tidAll) kanpro_ticket_assign($tidAll, kanpro_acting_user_id());
+        kanpro_touch_member($cid);
         PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_update', $val ? "Todas as {$n} máquinas marcadas como PRECISA INVENTARIAR" : "Marcas de 'precisa inventariar' removidas de {$n} máquinas");
         jexit(['success'=>true,'updated'=>$n]);
 
@@ -3026,6 +3027,8 @@ switch ($action) {
         }
         try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Finalizado: Card #{$cid} '{$card->fields['name']}' — {$total} máquinas (Garantia:{$cntGarantiaTerm} Ok:{$cntOkTerm} Inservível:{$cntInservivelTerm}) pendentes→#{$pendingCardId}"); }catch(Throwable $e){}
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_finalize', "Manutenção finalizada e enviada para Assinatura #{$transfer_id} ({$total} itens) pendentes→#{$pendingCardId}");
+        // quem finalizou vira membro do cartão
+        kanpro_touch_member($cid);
         // espelha no chamado vinculado: atribui quem finalizou, relatório completo + soluciona
         $finTid = kanpro_card_ticket_id($cid);
         if ($finTid) {
