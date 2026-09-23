@@ -136,6 +136,9 @@
         } else if (e.key==='ArrowDown' || e.key==='ArrowUp') {
           e.preventDefault();
           this.stepCardSelection(e.key==='ArrowDown' ? 1 : -1);
+        } else if (e.key==='ArrowLeft' || e.key==='ArrowRight') {
+          e.preventDefault();
+          this.stepCardSelectionH(e.key==='ArrowRight' ? 1 : -1);
         } else if (e.key==='Enter') {
           const sel = document.querySelector('.kp-card.kp-selected');
           if(sel) this.openCard(parseInt(sel.dataset.cardId));
@@ -283,6 +286,33 @@
       cards[idx].classList.add('kp-selected');
       cards[idx].scrollIntoView({block:'nearest'});
     },
+    stepCardSelectionH(dir){
+      const lists = [...document.querySelectorAll('#kanpro-board .kp-list')].filter(l=> l.offsetParent!==null && !l.classList.contains('collapsed'));
+      if(!lists.length) return;
+      const sel = document.querySelector('.kp-card.kp-selected');
+      let listIdx = 0, cardIdx = 0;
+      if(sel){
+        const curList = sel.closest('.kp-list');
+        listIdx = Math.max(0, lists.indexOf(curList));
+        const cards = [...curList.querySelectorAll('.kp-card')].filter(el=> el.offsetParent!==null);
+        cardIdx = Math.max(0, cards.indexOf(sel));
+      }
+      const targetList = lists[Math.min(lists.length - 1, Math.max(0, listIdx + dir))];
+      targetList.scrollIntoView({inline:'center', block:'nearest', behavior:'smooth'});
+      const newCards = [...targetList.querySelectorAll('.kp-card')].filter(el=> el.offsetParent!==null);
+      if(!newCards.length) return;
+      const target = newCards[Math.min(cardIdx, newCards.length - 1)];
+      this.clearCardSelection();
+      target.classList.add('kp-selected');
+      target.scrollIntoView({block:'nearest'});
+    },
+    /* ---------- visibilidade ---------- */
+    isCardVisible(card){
+      if(!card) return true;
+      // aguardando aprovação: invisível para não-admins
+      if((card.approval_from||0) > 0 && !this.isBoardAdmin()) return false;
+      return true;
+    },
     // ---------- BOARD ----------
     renderBoard(){
       const board = $('#kanpro-board');
@@ -301,7 +331,7 @@
 
       this.lists.forEach(list=>{
         if(list.is_archived==1) return;
-        const cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0);
+        const cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c));
         const el = this.createListEl(list, cardsInList);
         board.appendChild(el);
       });
@@ -346,7 +376,7 @@
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
-          <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-right':'ti-chevrons-left'}"></i></button>
+          <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
         <div class="kp-list-cards" data-list-id="${list.id}">
@@ -645,7 +675,11 @@
           card.plugin_kanpro_lists_id = oldList;
           this.renderBoard();
         } else {
-          if(res.pending_approval) this.showToast('Movido — aguardando aprovação do admin');
+          if(res.pending_approval){
+            card.approval_from = oldList;
+            this.renderBoard();
+            this.showToast('Movido — invisível até aprovação do admin');
+          }
           else this.updateStats();
         }
       });
@@ -899,6 +933,8 @@
 
     // Modal cartão
     openCard(cardId){
+      const lc = (this.cards||[]).find(c=> c.id==cardId);
+      if(lc && !this.isCardVisible(lc)){ this.showToast('Cartão invisível — aguardando aprovação do admin'); return; }
       this.currentCardId = cardId;
       const modal = $('#kanpro-card-modal');
       modal.style.display='block';
@@ -3639,7 +3675,7 @@
         html+=`<div class="kp-cal-cell ${isToday?'today':''}"><div class="kp-cal-daynum">${d}</div>`;
         // cartões com due_date neste dia
         const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        this.cards.filter(c=> c.due_date && c.due_date.startsWith(dateStr) && c.is_archived==0).forEach(c=>{
+        this.cards.filter(c=> c.due_date && c.due_date.startsWith(dateStr) && c.is_archived==0 && this.isCardVisible(c)).forEach(c=>{
           const list = this.lists.find(l=> l.id==c.plugin_kanpro_lists_id);
           html+=`<div class="kp-cal-card" onclick="Kanpro.openCard(${c.id}); document.getElementById('kanpro-calendar').style.display='none'"><strong>${this.escape(c.name)}</strong><br><small>${this.escape(list?.name||'')}</small></div>`;
         });
@@ -3654,7 +3690,7 @@
 
     // Helpers
     updateStats(){
-      const total = this.cards.filter(c=> c.is_archived==0).length;
+      const total = this.cards.filter(c=> c.is_archived==0 && this.isCardVisible(c)).length;
       const listsCount = this.lists.filter(l=> l.is_archived==0).length;
       const el = $('#kanpro-stats');
       if(el) el.textContent = `${listsCount} listas • ${total} cartões`;
