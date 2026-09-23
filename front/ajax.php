@@ -720,27 +720,107 @@ function kanpro_info_sheet_html(array $d): string {
         . '<div class="no-print"><button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button></div>'
         . '</div></body></html>';
 }
-// HTML -> PDF via chromium headless (mesmo padrão do assetmgrstatus).
+// HTML -> PDF (mesma cadeia do termo: mPDF, Dompdf, wkhtmltopdf, chromium).
 function kanpro_html_to_pdf(string $html): ?string {
+    $tag = 'kanpro_folha_' . uniqid();
     try {
-        if (!function_exists('exec') || !is_callable('exec')) return null;
-        $chrome = trim((string)@shell_exec('which chromium-browser 2>&1'));
-        if (!$chrome || str_contains($chrome, 'not found')) $chrome = trim((string)@shell_exec('which google-chrome 2>&1'));
-        if (!$chrome || str_contains($chrome, 'not found')) $chrome = trim((string)@shell_exec('which chromium 2>&1'));
-        if (!$chrome || str_contains($chrome, 'not found')) return null;
-        $chromeBin = trim(explode("\n", $chrome)[0]);
-        if (!file_exists($chromeBin)) return null;
-        $tag = 'kanpro_folha_' . uniqid();
-        $htmlPath = sys_get_temp_dir() . '/' . $tag . '.html';
-        $pdfPath = sys_get_temp_dir() . '/' . $tag . '.pdf';
-        file_put_contents($htmlPath, $html);
-        $cmd = escapeshellarg($chromeBin) . ' --headless --disable-gpu --no-sandbox --print-to-pdf=' . escapeshellarg($pdfPath) . ' ' . escapeshellarg('file://' . $htmlPath) . ' 2>&1';
-        $out = [];
-        $ret = -1;
-        @exec($cmd, $out, $ret);
-        @unlink($htmlPath);
-        if (file_exists($pdfPath) && filesize($pdfPath) > 500) return $pdfPath;
-        @unlink($pdfPath);
+        $mpdf = null;
+        if (class_exists('Mpdf\Mpdf')) {
+            try {
+                $mpdf = new \Mpdf\Mpdf(['mode' => 'utf-8', 'format' => 'A4', 'margin_left' => 11, 'margin_right' => 11, 'margin_top' => 11, 'margin_bottom' => 11, 'tempDir' => sys_get_temp_dir()]);
+            } catch (Throwable $e) {
+                $mpdf = null;
+            }
+        }
+        if (!$mpdf) {
+            $tryPaths = [
+                GLPI_ROOT . '/vendor/mpdf/mpdf/src/Mpdf.php',
+                GLPI_ROOT . '/vendor/mpdf/mpdf/autoload.php',
+                GLPI_ROOT . '/vendor/autoload.php',
+                GLPI_ROOT . '/lib/mpdf/autoload.php',
+                GLPI_ROOT . '/lib/mpdf/src/Mpdf.php',
+            ];
+            foreach ($tryPaths as $p) {
+                if (!is_string($p) || !file_exists($p)) continue;
+                try {
+                    @require_once $p;
+                    if (class_exists('Mpdf\Mpdf')) {
+                        $mpdf = new \Mpdf\Mpdf(['mode' => 'utf-8', 'format' => 'A4', 'margin_left' => 11, 'margin_right' => 11, 'margin_top' => 11, 'margin_bottom' => 11, 'tempDir' => sys_get_temp_dir()]);
+                        break;
+                    }
+                } catch (Throwable $e) {
+                    continue;
+                }
+            }
+        }
+        if ($mpdf) {
+            $path = sys_get_temp_dir() . '/' . $tag . '.pdf';
+            try {
+                $mpdf->WriteHTML($html);
+                $mpdf->Output($path, \Mpdf\Output\Destination::FILE);
+                if (file_exists($path) && filesize($path) > 500) return $path;
+            } catch (Throwable $e) {}
+            @unlink($path);
+        }
+    } catch (Throwable $e) {}
+    try {
+        if (class_exists('Dompdf\Dompdf') || class_exists('Dompdf\Options')) {
+            if (!class_exists('Dompdf\Dompdf') && file_exists(GLPI_ROOT . '/vendor/dompdf/dompdf/src/Dompdf.php')) {
+                @require_once GLPI_ROOT . '/vendor/autoload.php';
+            }
+            if (class_exists('Dompdf\Dompdf')) {
+                $opts = class_exists('Dompdf\Options') ? new \Dompdf\Options() : null;
+                if ($opts) {
+                    $opts->set('isRemoteEnabled', true);
+                    $opts->set('isHtml5ParserEnabled', true);
+                    $dompdf = new \Dompdf\Dompdf($opts);
+                } else {
+                    $dompdf = new \Dompdf\Dompdf();
+                }
+                $dompdf->loadHtml($html);
+                $dompdf->setPaper('A4');
+                $dompdf->render();
+                $out = $dompdf->output();
+                $path = sys_get_temp_dir() . '/' . $tag . '.pdf';
+                file_put_contents($path, $out);
+                if (file_exists($path) && filesize($path) > 500) return $path;
+                @unlink($path);
+            }
+        }
+    } catch (Throwable $e) {}
+    try {
+        if (function_exists('exec') && is_callable('exec')) {
+            $wk = trim((string)@shell_exec('which wkhtmltopdf 2>&1'));
+            if ($wk && !str_contains($wk, 'not found') && file_exists(trim($wk))) {
+                $wkBin = trim(explode("\n", $wk)[0]);
+                $htmlPath = sys_get_temp_dir() . '/' . $tag . '.html';
+                $pdfPath = sys_get_temp_dir() . '/' . $tag . '.pdf';
+                file_put_contents($htmlPath, $html);
+                $cmd = escapeshellarg($wkBin) . ' --enable-local-file-access --encoding utf-8 --page-size A4 --margin-top 10mm --margin-bottom 10mm --margin-left 10mm --margin-right 10mm ' . escapeshellarg($htmlPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
+                $out = [];
+                $ret = -1;
+                @exec($cmd, $out, $ret);
+                @unlink($htmlPath);
+                if ($ret === 0 && file_exists($pdfPath) && filesize($pdfPath) > 500) return $pdfPath;
+                @unlink($pdfPath);
+            }
+            $chrome = trim((string)@shell_exec('which chromium-browser 2>&1'));
+            if (!$chrome || str_contains($chrome, 'not found')) $chrome = trim((string)@shell_exec('which google-chrome 2>&1'));
+            if (!$chrome || str_contains($chrome, 'not found')) $chrome = trim((string)@shell_exec('which chromium 2>&1'));
+            if ($chrome && !str_contains($chrome, 'not found') && file_exists(trim(explode("\n", $chrome)[0]))) {
+                $chromeBin = trim(explode("\n", $chrome)[0]);
+                $htmlPath = sys_get_temp_dir() . '/' . $tag . '.html';
+                $pdfPath = sys_get_temp_dir() . '/' . $tag . '.pdf';
+                file_put_contents($htmlPath, $html);
+                $cmd = escapeshellarg($chromeBin) . ' --headless --disable-gpu --no-sandbox --print-to-pdf=' . escapeshellarg($pdfPath) . ' ' . escapeshellarg('file://' . $htmlPath) . ' 2>&1';
+                $out = [];
+                $ret = -1;
+                @exec($cmd, $out, $ret);
+                @unlink($htmlPath);
+                if (file_exists($pdfPath) && filesize($pdfPath) > 500) return $pdfPath;
+                @unlink($pdfPath);
+            }
+        }
     } catch (Throwable $e) {}
     return null;
 }
@@ -2645,7 +2725,7 @@ switch ($action) {
         $d = kanpro_info_sheet_data($cid);
         if (!$d) jexit(['success'=>false,'msg'=>'Cartão sem máquinas ou não encontrado']);
         $pdf = kanpro_html_to_pdf(kanpro_info_sheet_html($d));
-        if (!$pdf) jexit(['success'=>false,'msg'=>'Não foi possível gerar o PDF (chromium ausente no servidor). Use a prévia para imprimir.']);
+        if (!$pdf) jexit(['success'=>false,'msg'=>'Não foi possível gerar o PDF no servidor. Use a prévia para imprimir.']);
         $title = 'Folha-' . str_pad($cid, 4, '0', STR_PAD_LEFT);
         $res = kanpro_print_pdf_cups($pdf, $title, trim($_POST['printer'] ?? '') ?: null);
         if (!$res['ok']) jexit(['success'=>false,'msg'=>($res['error'] ?? 'Falha ao imprimir')]);
