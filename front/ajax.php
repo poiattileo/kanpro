@@ -134,7 +134,7 @@ function kanpro_ensure_board_extras() {
             ");
         }
     } catch (Throwable $e) {
-        Toolbox::logError("KanPro ensure_board_extras: " . $e->getMessage());
+        error_log('[KanPro] ' . "KanPro ensure_board_extras: " . $e->getMessage());
     }
 }
 
@@ -1499,7 +1499,7 @@ switch ($action) {
         jexit(['success'=>true, 'board_id'=>$bid, 'board_name'=>($bchk->fields['name'] ?? ''),
             'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'faction'=>$faction,'card_id'=>$fcard,'date_from'=>$ffrom,'date_to'=>$fto]]);
         } catch (Throwable $e) {
-            Toolbox::logError('KanPro get_history: ' . $e->getMessage());
+            error_log('[KanPro] ' . 'KanPro get_history: ' . $e->getMessage());
             jexit(['success'=>false,'msg'=>'Falha ao carregar histórico']);
         }
 

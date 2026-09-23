@@ -37,7 +37,7 @@ if (!$__canView) {
 try {
     if (function_exists('kanpro_migrate_shared_login')) kanpro_migrate_shared_login();
 } catch (Throwable $e) {
-    Toolbox::logError('KanPro migrate call: ' . $e->getMessage());
+    error_log('[KanPro] ' . 'KanPro migrate call: ' . $e->getMessage());
 }
 
 $canedit = Session::haveRight('plugin_kanpro', UPDATE) ? 1 : 0;
@@ -113,7 +113,7 @@ try {
         $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`");
     }
 } catch (Throwable $e) {
-    Toolbox::logError("KanPro kanban auto-migration: " . $e->getMessage());
+    error_log('[KanPro] ' . "KanPro kanban auto-migration: " . $e->getMessage());
 }
 if (method_exists('PluginKanproBoard', 'getBoardThemes')) {
     $themes = PluginKanproBoard::getBoardThemes();
@@ -149,7 +149,7 @@ try {
         $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL COMMENT 'prazo: cartão fica vermelho ao vencer'");
     }
 } catch (Throwable $e) {
-    Toolbox::logError("KanPro kanban labels due_date migration: " . $e->getMessage());
+    error_log('[KanPro] ' . "KanPro kanban labels due_date migration: " . $e->getMessage());
 }
 $cl_iter = $DB->request([
     'SELECT' => ['cl.plugin_kanpro_cards_id', 'l.id', 'l.name', 'l.color', 'l.due_date'],
@@ -214,7 +214,7 @@ if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
                     if ($cc) $notes_by_card[$cc] = ($notes_by_card[$cc] ?? 0) + (int)$nr['total'];
                 }
             } catch (Throwable $e) {
-                Toolbox::logError("KanPro kanban notes_by_card: " . $e->getMessage());
+                error_log('[KanPro] ' . "KanPro kanban notes_by_card: " . $e->getMessage());
             }
         }
     }

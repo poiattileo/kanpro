@@ -66,8 +66,6 @@ if (!function_exists('kanpro_migrate_shared_login')) {
                 foreach ($simple as [$table, $col]) {
                     if (!$DB->tableExists($table) || !$DB->fieldExists($table, $col)) continue;
                     $DB->update($table, [$col => $dst], [$col => $src]);
-                    $aff = $DB->affected_rows();
-                    if ($aff > 0) $done[$table . '.' . $col] = ($done[$table . '.' . $col] ?? 0) + $aff;
                 }
                 // tabelas com UNIQUE (board,user) e (card,user): transfere ou apaga duplicado
                 foreach ([
@@ -89,7 +87,7 @@ if (!function_exists('kanpro_migrate_shared_login')) {
                 }
             }
         } catch (Throwable $e) {
-            Toolbox::logError('KanPro migrate_shared_login: ' . $e->getMessage());
+            error_log('[KanPro] ' . 'KanPro migrate_shared_login: ' . $e->getMessage());
         }
         return $done;
     }
