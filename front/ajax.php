@@ -2072,6 +2072,56 @@ switch ($action) {
         if (array_key_exists('needs_inventory', $updates)) kanpro_sync_inventory_label((int)$row['plugin_kanpro_cards_id']);
         jexit(['success'=>true,'machine'=>$newRow]);
 
+    case 'bulk_update_machines':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        $ids = json_decode($_POST['ids'] ?? '[]', true);
+        if (!$cid || !is_array($ids) || !count($ids)) jexit(['success'=>false,'msg'=>'Nada selecionado']);
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        // status opcional
+        $applyStatus = false; $st = null;
+        if (array_key_exists('status', $_POST) && trim($_POST['status'] ?? '') !== '') {
+            $map = ['pending'=>'pendente','pendente'=>'pendente','garantia'=>'garantia','ok'=>'ok',
+                'inservivel'=>'inservivel','inservível'=>'inservivel','defect'=>'inservivel','defeito'=>'inservivel','nok'=>'inservivel'];
+            $k = mb_strtolower(trim($_POST['status']), 'UTF-8');
+            if (isset($map[$k])) { $st = $map[$k]; $applyStatus = true; }
+        }
+        $applyDone = array_key_exists('is_done', $_POST);
+        $doneVal = $applyDone ? ((int)$_POST['is_done'] ? 1 : 0) : null;
+        if (!$applyStatus && !$applyDone) jexit(['success'=>false,'msg'=>'Nada para aplicar']);
+        $rows = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$ids,'plugin_kanpro_cards_id'=>$cid]]);
+        $n = 0;
+        foreach ($rows as $r) {
+            $u = ['date_mod'=>date('Y-m-d H:i:s'),'users_id'=>Session::getLoginUserID()];
+            if ($applyStatus) {
+                $u['status'] = $st;
+                $u['is_ok'] = ($st === 'ok' ? 1 : 0);
+            }
+            $effStatus = $applyStatus ? $st : ($r['status'] ?? '');
+            if ($applyDone) $u['is_done'] = ($effStatus === 'pendente') ? 0 : $doneVal;
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', $u, ['id'=>$r['id']]);
+            $n++;
+        }
+        if ($n) {
+            kanpro_touch_member($cid);
+            $bits = [];
+            if ($applyStatus) $bits[] = "status → " . kanpro_machine_status_label($st);
+            if ($applyDone) $bits[] = $doneVal ? "marcadas como FEITAS" : "desmarcadas (não feitas)";
+            $tid = kanpro_card_ticket_id($cid);
+            if ($tid) {
+                $msg = "⚙ [KanPro] Atualização em massa\n\n{$n} máquina(s): " . implode(' | ', $bits);
+                $rep = kanpro_card_machines_report($cid);
+                if ($rep !== '') $msg .= "\n" . $rep;
+                kanpro_ticket_followup($tid, $msg);
+            }
+            if ($tid) kanpro_ticket_set_attending($tid);
+            PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Atualização em massa: {$n} máquina(s) (" . implode(' | ', $bits) . ")");
+        }
+        jexit(['success'=>true,'updated'=>$n]);
+
     case 'set_all_needs_inventory':
         needEdit();
         kanpro_ensure_maintenance_tables();

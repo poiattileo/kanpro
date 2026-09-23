@@ -1318,6 +1318,10 @@
       // inventário em massa
       const needsCount = machines.filter(m=> String(m.needs_inventory)==="1" || m.needs_inventory===1).length;
       const allNeed = total>0 && needsCount===total;
+      // seleção em massa
+      const selectMode = !!this._maintSelectMode;
+      if(!this._maintSelected) this._maintSelected = new Set();
+      const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status
       let finalizeBtnHtml = "";
       if (hasMissing) {
@@ -1335,9 +1339,26 @@
             <div style="display:flex;gap:6px;align-items:center">
               <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
               ${total? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
+              ${total? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
               ${finalizeBtnHtml}
             </div>
           </div>
+          ${selectMode? `
+          <div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+            <strong><span id="maint-sel-count">${selCount}</span> selecionada(s)</strong>
+            <button onclick="Kanpro.maintSelectAll(true)" style="background:#fff;border:1px solid #dfe1e6;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Todas</button>
+            <button onclick="Kanpro.maintSelectAll(false)" style="background:#fff;border:1px solid #dfe1e6;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Limpar</button>
+            <select id="maint-bulk-status" style="padding:5px 8px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;background:#fff">
+              <option value="">— Status Final —</option>
+              <option value="garantia">🛡️ Garantia</option>
+              <option value="ok">✅ OK</option>
+              <option value="inservivel">❌ Inservível</option>
+              <option value="pendente">⏳ Pendente</option>
+            </select>
+            <button onclick="Kanpro.bulkApplyStatus()" style="background:#0079bf;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">Aplicar status</button>
+            <button onclick="Kanpro.bulkSetDone(1)" style="background:#61bd4f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">✓ Feito</button>
+            <button onclick="Kanpro.bulkSetDone(0)" style="background:#fff;border:1px solid #dfe1e6;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px">○ Desmarcar</button>
+          </div>`:""}
           ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
           ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
           ${total? `<div style="padding:10px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:#5e6c84;min-width:36px">${pct}%</span><div class="kp-progress" style="flex:1;height:8px"><div class="kp-progress-bar" style="width:${pct}%;background:${allDone?"#61bd4f":"#ffab00"}"></div></div></div></div>` : ""}
@@ -1402,6 +1423,7 @@
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isUrgent?"#fff1f0":"#fff"};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
             <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;background:${isUrgent?"#ffecec":isDone?"#e3fcef":"#f4f5f7"};flex-wrap:wrap">
               <div style="display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:0">
+                ${selectMode ? `<input type="checkbox" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
                 <span style="background:${isUrgent?"#eb5a46":"#091e42"};color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}</div>
@@ -2048,6 +2070,55 @@
         if(res.success){
           this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
         }
+      });
+    },
+    /* ---------- seleção em massa (manutenção) ---------- */
+    toggleMaintSelectMode(){
+      this._maintSelectMode = !this._maintSelectMode;
+      if(!this._maintSelectMode && this._maintSelected) this._maintSelected.clear();
+      if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
+    },
+    toggleMaintSelect(mid, checked){
+      if(!this._maintSelected) this._maintSelected = new Set();
+      if(checked) this._maintSelected.add(String(mid));
+      else this._maintSelected.delete(String(mid));
+      const el = document.getElementById('maint-sel-count');
+      if(el) el.textContent = this._maintSelected.size;
+    },
+    maintSelectAll(on){
+      if(!this._maintSelected) this._maintSelected = new Set();
+      const machines = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+      if(on) machines.forEach(m=> this._maintSelected.add(String(m.id)));
+      else this._maintSelected.clear();
+      if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
+    },
+    maintSelectedIds(){
+      const machines = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+      const valid = new Set(machines.map(m=> String(m.id)));
+      return [...(this._maintSelected||[])].filter(id=> valid.has(String(id)));
+    },
+    bulkAfterSuccess(msg){
+      if(this._maintSelected) this._maintSelected.clear();
+      this.showToast(msg);
+      this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+    },
+    bulkApplyStatus(){
+      const sel = document.getElementById('maint-bulk-status');
+      const st = sel ? sel.value : '';
+      if(!st){ alert('Escolha um Status Final.'); return; }
+      const ids = this.maintSelectedIds();
+      if(!ids.length){ alert('Selecione ao menos uma máquina.'); return; }
+      this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), status: st}).then(res=>{
+        if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas atualizadas`);
+        else alert(res.msg||'Erro');
+      });
+    },
+    bulkSetDone(val){
+      const ids = this.maintSelectedIds();
+      if(!ids.length){ alert('Selecione ao menos uma máquina.'); return; }
+      this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_done: val}).then(res=>{
+        if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas atualizadas`);
+        else alert(res.msg||'Erro');
       });
     },
     setAllNeedsInventory(val){
