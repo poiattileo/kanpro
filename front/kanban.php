@@ -295,6 +295,18 @@ $open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
 $open_card_id_json = json_encode($open_card_id ?: null);
 $current_user_id = (int) Session::getLoginUserID();
 
+// "Agindo como": identidade para atribuição no chamado (login compartilhado)
+$acting_id = (int)($_SESSION['kanpro_acting_user'] ?? 0);
+if ($acting_id <= 0) $acting_id = $current_user_id;
+$acting_opts = "<option value=''>— logado —</option>";
+foreach (($all_users_for_picker ?? []) as $au) {
+    $sel = ((int)$au['id'] === $acting_id && $acting_id !== $current_user_id) ? ' selected' : '';
+    // o próprio logado aparece como opção padrão; demais como alternativa
+    if ((int)$au['id'] === $current_user_id) continue;
+    $acting_opts .= "<option value='" . (int)$au['id'] . "'{$sel}>" . htmlspecialchars($au['name']) . "</option>";
+}
+$acting_sel = "<label title='Quem será atribuído/autor no chamado ao interagir nas máquinas' style='display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 10px;border-radius:4px;color:#fff;font-size:12px;font-weight:600'>Agindo como: <select id='kanpro-acting' onchange='Kanpro.setActingUser(this.value)' style='background:#fff;border:none;border-radius:4px;padding:3px 6px;font-size:12px;max-width:170px'>{$acting_opts}</select></label>";
+
 echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
@@ -321,6 +333,7 @@ echo <<<HTML
     <div style="display:flex;align-items:center;gap:8px">
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
+      {$acting_sel}
       {$assinatura_btn}
       <button onclick="Kanpro.toggleDarkMode()" id="kanpro-dark-btn" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Alternar modo escuro"><i class="ti ti-moon"></i></button>
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>

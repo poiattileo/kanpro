@@ -413,13 +413,29 @@ function kanpro_create_ticket_from_card(int $cards_id): array {
         'content' => $content,
         'entities_id' => $entities_id,
         'status' => 1,
-        '_users_id_requester' => Session::getLoginUserID(),
+        '_users_id_requester' => kanpro_acting_user_id(),
     ]);
     if (!$tid) return ['ok' => false, 'error' => 'Falha ao criar chamado (verifique entidade/perfil)'];
     $tid = (int)$tid;
     $DB->update('glpi_plugin_kanpro_cards', ['tickets_id' => $tid], ['id' => $cards_id]);
     PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cards_id, $card->fields['plugin_kanpro_lists_id'], 'card_create_ticket', "Chamado #{$tid} criado a partir do cartão");
     return ['ok' => true, 'id' => $tid, 'ticket' => kanpro_ticket_info($tid)];
+}
+
+// Usuário para atribuição no chamado: "Agindo como" (sessão) ou o logado.
+// Necessário quando a equipe compartilha o login (ex: todos usam "glpi").
+function kanpro_acting_user_id(): int {
+    $auid = (int)($_SESSION['kanpro_acting_user'] ?? 0);
+    if ($auid > 0) {
+        try {
+            $u = new User();
+            if ($u->getFromDB($auid) && empty($u->fields['is_deleted']) && ($u->fields['is_active'] ?? 1)) {
+                return $auid;
+            }
+        } catch (Throwable $e) {}
+        unset($_SESSION['kanpro_acting_user']);
+    }
+    return (int)Session::getLoginUserID();
 }
 
 // ID do chamado vinculado ao cartão (0 se nenhum ou inválido)
@@ -437,19 +453,27 @@ function kanpro_card_ticket_id(int $cards_id): int {
 }
 
 // Acompanhamento no chamado vinculado (nunca quebra o fluxo principal).
-// Por padrão também atribui quem agiu (type=2), sem duplicar.
+// Por padrão também atribui quem agiu (type=2), sem duplicar — usa "Agindo como".
 function kanpro_ticket_followup(int $tickets_id, string $content, bool $assignActingUser = true): bool {
     if ($tickets_id <= 0 || trim($content) === '' || !class_exists('ITILFollowup')) return false;
+    global $DB;
     try {
+        $auid = kanpro_acting_user_id();
         $tf = new ITILFollowup();
         $fid = $tf->add([
             'itemtype' => 'Ticket',
             'items_id' => $tickets_id,
             'content' => $content,
-            'users_id' => Session::getLoginUserID(),
+            'users_id' => $auid,
             'is_private' => 0,
         ]);
-        if ($fid && $assignActingUser) kanpro_ticket_assign($tickets_id, Session::getLoginUserID());
+        if ($fid) {
+            // garante o autor (o core pode forçar o usuário da sessão)
+            foreach (['glpi_itilfollowups', 'glpi_ticketfollowups'] as $t) {
+                if ($DB->tableExists($t)) { $DB->update($t, ['users_id' => $auid], ['id' => $fid]); break; }
+            }
+            if ($assignActingUser) kanpro_ticket_assign($tickets_id, $auid);
+        }
         return (bool)$fid;
     } catch (Throwable $e) { return false; }
 }
@@ -457,11 +481,18 @@ function kanpro_ticket_followup(int $tickets_id, string $content, bool $assignAc
 // Soluciona o chamado (forma oficial via ITILSolution; fallback update direto)
 function kanpro_ticket_solve(int $tickets_id, string $solution): bool {
     if ($tickets_id <= 0 || !class_exists('Ticket')) return false;
+    global $DB;
     try {
         if (class_exists('ITILSolution')) {
             $sol = new ITILSolution();
-            $sid = $sol->add(['itemtype' => 'Ticket', 'items_id' => $tickets_id, 'content' => $solution, 'users_id' => Session::getLoginUserID()]);
-            if ($sid) return true;
+            $auid = kanpro_acting_user_id();
+            $sid = $sol->add(['itemtype' => 'Ticket', 'items_id' => $tickets_id, 'content' => $solution, 'users_id' => $auid]);
+            if ($sid) {
+                foreach (['glpi_itilsolutions', 'glpi_solution'] as $t) {
+                    if ($DB->tableExists($t)) { $DB->update($t, ['users_id' => $auid], ['id' => $sid]); break; }
+                }
+                return true;
+            }
         }
         $tk = new Ticket();
         return (bool)$tk->update(['id' => $tickets_id, 'status' => (defined('Ticket::SOLVED') ? Ticket::SOLVED : 5)]);
@@ -660,6 +691,20 @@ switch ($action) {
         $DB->delete('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid]);
         PluginKanproBoard::logActivity($bid, null, null, 'member_remove', "Membro {$uid} removido");
         jexit(['success'=>true]);
+
+    case 'set_acting_user':
+        // "Agindo como": identidade para atribuição no chamado (login compartilhado)
+        $uid = (int)($_POST['users_id'] ?? 0);
+        if ($uid <= 0) {
+            unset($_SESSION['kanpro_acting_user']);
+            jexit(['success'=>true,'reset'=>true]);
+        }
+        $u = new User();
+        if (!$u->getFromDB($uid) || !empty($u->fields['is_deleted']) || !($u->fields['is_active'] ?? 1)) {
+            jexit(['success'=>false,'msg'=>'Usuário inválido ou inativo']);
+        }
+        $_SESSION['kanpro_acting_user'] = $uid;
+        jexit(['success'=>true,'name'=>$u->getFriendlyName()]);
 
     case 'set_member_role':
         $bid = (int)($_POST['boards_id'] ?? 0);
@@ -2753,7 +2798,7 @@ switch ($action) {
         // espelha no chamado vinculado: atribui quem finalizou, relatório completo + soluciona
         $finTid = kanpro_card_ticket_id($cid);
         if ($finTid) {
-            $finUid = Session::getLoginUserID();
+            $finUid = kanpro_acting_user_id();
             kanpro_ticket_assign($finTid, $finUid);
             $finName = '';
             try { $fu = new User(); if ($fu->getFromDB($finUid)) $finName = $fu->getFriendlyName(); } catch (Throwable $e) {}
