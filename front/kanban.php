@@ -312,11 +312,11 @@ echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
 #page { padding:0 !important; }
-/* Dark mode — só nas listas e nos botões Filtrar/Calendário/Minhas tarefas */
+/* Dark mode — só nas listas e nos botões Filtrar/Calendário/Relatório/Histórico */
 .kanpro-dark .kp-list,
 .kanpro-dark #kanpro-filter-btn,
 .kanpro-dark #kanpro-calendar-btn,
-.kanpro-dark #kanpro-mytasks-btn { filter: invert(0.9) hue-rotate(180deg); }
+.kanpro-dark #kanpro-history-btn { filter: invert(0.9) hue-rotate(180deg); }
 .kanpro-dark .kp-list img,
 .kanpro-dark .kp-list .kp-avatar,
 .kanpro-dark .kp-list .ti { filter: invert(1) hue-rotate(180deg); }
@@ -351,7 +351,7 @@ echo <<<HTML
     <button id="kanpro-filter-btn" onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
     <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
     <button id="kanpro-report-btn" onclick="Kanpro.openBoardReport()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-chart-bar"></i> Relatório</button>
-    <a id="kanpro-mytasks-btn" href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/mytasks.php" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-user-check"></i> Minhas tarefas</a>
+    <a id="kanpro-history-btn" href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/historico.php?boards_id={$boards_id}" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-history"></i> Histórico</a>
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
 

@@ -2097,10 +2097,17 @@ switch ($action) {
         if ($tidAtt) kanpro_ticket_set_attending($tidAtt);
         // quem mexeu ajuda no chamado: anexa como atribuído mesmo sem followup (ex: só escreveu no diário)
         if ($tidAtt) kanpro_ticket_assign($tidAtt, kanpro_acting_user_id());
-        // log
+        // log: mudanças reais geram entrada; diário sozinho mantém 1 entrada por máquina (anti-flood do autosave)
         $card = new PluginKanproCard();
         if ($card->getFromDB($row['plugin_kanpro_cards_id'])) {
-            PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $card->getID(), $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Máquina #{$row['seq']} atualizada");
+            $cidM = (int)$card->getID();
+            if (!empty($chg)) {
+                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cidM, $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Máquina #{$row['seq']} atualizada");
+            } elseif (array_key_exists('diary', $updates) && (string)($updates['diary'] ?? '') !== (string)($row['diary'] ?? '')) {
+                $dlabel = "Diário da Máquina #{$row['seq']} atualizado";
+                $DB->delete('glpi_plugin_kanpro_activities', ['plugin_kanpro_cards_id'=>$cidM, 'action'=>'maintenance_diary', 'details'=>$dlabel]);
+                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cidM, $card->fields['plugin_kanpro_lists_id'], 'maintenance_diary', $dlabel);
+            }
         }
         $newRow = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
         // etiqueta roxa "Inventário" acompanha quem precisa inventariar
