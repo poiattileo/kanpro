@@ -1441,13 +1441,11 @@ switch ($action) {
         if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
         $bchk = new PluginKanproBoard();
         if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
-        // mesma trava de visibilidade: criador, membro ou quadro legado sem membros
+        // Histórico: só admin do quadro (criador ou papel admin)
         $__me = (int)Session::getLoginUserID();
         $__creator = (int)($bchk->fields['users_id'] ?? 0);
-        if ($__me !== $__creator) {
-            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
-            $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
-            if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        if ($__me !== $__creator && kanpro_my_board_role($bid) !== 'admin') {
+            jexit(['success'=>false,'msg'=>'Histórico restrito a administradores do quadro']);
         }
         // pessoas com acesso (criador + membros)
         $people = []; $seen = [];

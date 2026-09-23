@@ -23,6 +23,11 @@ $__restricted = [];
 foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'GROUPBY' => ['plugin_kanpro_boards_id']]) as $__r) {
     $__restricted[(int)$__r['plugin_kanpro_boards_id']] = true;
 }
+// quadros onde sou admin (criador ou papel admin) — Histórico só para admins
+$__adminBoards = [];
+foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['users_id' => kanpro_viewer_ids(), 'role' => 'admin']]) as $__r) {
+    $__adminBoards[(int)$__r['plugin_kanpro_boards_id']] = true;
+}
 
 $where = ['entities_id' => $entities];
 if (!$show_archived) $where['is_archived'] = 0;
@@ -119,7 +124,10 @@ if (count($iterator) === 0) {
         echo "<div style='display:flex;gap:6px'>";
         echo "<a href='{$kanban_url}' class='btn btn-sm btn-primary' style='padding:4px 10px;font-size:12px'>Abrir</a>";
         echo "<button onclick='KanproBoards.open({$bid})' title='Gerenciar acesso ao quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-settings'></i></button>";
-        echo "<button onclick='KanproHistory.open({$bid})' title='Histórico do quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-history'></i></button>";
+        $__creatorRow = (int)($row['users_id'] ?? 0);
+        if ($__creatorRow === $__me || isset($__adminBoards[$bid])) {
+            echo "<button onclick='KanproHistory.open({$bid})' title='Histórico do quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-history'></i></button>";
+        }
         if (Session::haveRight('plugin_kanpro', UPDATE)) {
             echo "<a href='{$edit_url}' title='Editar quadro' class='btn btn-sm btn-outline-secondary' style='padding:4px 8px'><i class='ti ti-pencil'></i></a>";
         }

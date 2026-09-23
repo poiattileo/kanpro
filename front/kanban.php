@@ -33,6 +33,18 @@ if (!$__canView) {
     Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
 }
 
+// Histórico: só admin do quadro (criador ou papel admin — vale sessão e pessoa)
+$__histAdmin = ($__creator === $__me && $__me > 0);
+if (!$__histAdmin) {
+    $__miter = $DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]]);
+    foreach ($__miter as $__mr) {
+        if (($__mr['role'] ?? '') === 'admin') {
+            $__histAdmin = true;
+            break;
+        }
+    }
+}
+
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
 try {
     if (function_exists('kanpro_migrate_shared_login')) kanpro_migrate_shared_login();
@@ -305,6 +317,9 @@ $open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
 $open_card_id_json = json_encode($open_card_id ?: null);
 $current_user_id = (int) Session::getLoginUserID();
 $acting_user_id_json = function_exists('kanpro_acting_user_id') ? (int) kanpro_acting_user_id() : $current_user_id;
+$history_btn = !empty($__histAdmin)
+    ? '<button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>'
+    : '';
 
 echo <<<HTML
 <style>
@@ -348,7 +363,7 @@ echo <<<HTML
     <button id="kanpro-filter-btn" onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
     <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
     <button id="kanpro-report-btn" onclick="Kanpro.openBoardReport()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-chart-bar"></i> Relatório</button>
-    <button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>
+    {$history_btn}
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
 
