@@ -250,6 +250,7 @@ function plugin_kanpro_install(): bool {
                 `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `content`                     TEXT         NOT NULL,
+                `is_pinned`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=comentário fixado no topo',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),

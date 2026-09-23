@@ -106,7 +106,9 @@ function kanpro_ensure_board_extras() {
         if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL COMMENT 'prazo: cartão fica vermelho ao vencer'");
         }
-        if (!$DB->tableExists('glpi_plugin_kanpro_trash')) {
+        if ($DB->tableExists('glpi_plugin_kanpro_comments') && !$DB->fieldExists('glpi_plugin_kanpro_comments', 'is_pinned')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_comments` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=comentário fixado no topo'");
+        }        if (!$DB->tableExists('glpi_plugin_kanpro_trash')) {
             $charset = DBConnection::getDefaultCharset();
             $collation = DBConnection::getDefaultCollation();
             $sign = DBConnection::getDefaultPrimaryKeySignOption();
@@ -1032,6 +1034,7 @@ switch ($action) {
 
     case 'get_card':
         $cid = (int)($_REQUEST['cards_id'] ?? 0);
+        kanpro_ensure_board_extras();
         $data = PluginKanproCard::getFullData($cid);
         if (!$data) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         jexit(['success'=>true,'data'=>$data]);
@@ -1567,6 +1570,16 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $DB->delete('glpi_plugin_kanpro_comments', ['id'=>$id]);
         jexit(['success'=>true]);
+
+    case 'toggle_comment_pin':
+        needEdit();
+        kanpro_ensure_board_extras();
+        $id = (int)($_POST['id'] ?? 0);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_comments','WHERE'=>['id'=>$id]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Comentário não encontrado']);
+        $new = !empty($row['is_pinned']) ? 0 : 1;
+        $DB->update('glpi_plugin_kanpro_comments', ['is_pinned'=>$new], ['id'=>$id]);
+        jexit(['success'=>true,'is_pinned'=>$new]);
 
     // --- ATTACHMENTS ---
     case 'upload_attachment':

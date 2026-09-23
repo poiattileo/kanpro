@@ -279,7 +279,7 @@ class PluginKanproCard extends CommonDBTM {
             'FROM'   => 'glpi_plugin_kanpro_comments AS c',
             'LEFT JOIN' => ['glpi_users AS u' => ['ON' => ['u' => 'id', 'c' => 'users_id']]],
             'WHERE'  => ['c.plugin_kanpro_cards_id' => $cards_id],
-            'ORDER'  => 'c.date_creation ASC',
+            'ORDER'  => 'c.is_pinned DESC, c.date_creation ASC',
         ]);
         foreach ($coms as $c) $data['comments'][] = $c;
 

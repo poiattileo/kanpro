@@ -116,9 +116,15 @@
           if(!e.target.closest('#kanpro-board-menu')) this.closeBoardMenu();
         }
       });
-      // ESC fecha tudo + atalhos (N novo cartão, F filtrar, setas navegar, Enter abrir)
+      // ESC fecha tudo + atalhos (N novo cartão, F filtrar, setas navegar, Enter abrir, Ctrl+K busca)
       document.addEventListener('keydown', e=>{
         if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); this.clearCardSelection(); return; }
+        if ((e.ctrlKey || e.metaKey) && (e.key==='k' || e.key==='K')) {
+          e.preventDefault();
+          if(document.getElementById('kp-quickfind')) this.closeQuickFind();
+          else this.openQuickFind();
+          return;
+        }
         const tag = (document.activeElement && document.activeElement.tagName) || '';
         if (['INPUT','TEXTAREA','SELECT'].includes(tag) || (document.activeElement && document.activeElement.isContentEditable)) return;
         const modalOpen = (document.getElementById('kanpro-card-modal')?.style.display === 'block');
@@ -273,6 +279,74 @@
       }, 3000);
     },
 
+    /* ---------- BUSCA RÁPIDA (Ctrl+K) ---------- */
+    openQuickFind(){
+      if(document.getElementById('kp-quickfind')){
+        document.getElementById('kp-qf-input')?.focus();
+        return;
+      }
+      const overlay = document.createElement('div');
+      overlay.id = 'kp-quickfind';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15000;display:flex;justify-content:center;align-items:flex-start;padding:10vh 16px 16px';
+      overlay.innerHTML = `
+        <div style="background:#fff;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35);width:100%;max-width:560px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #dfe1e6">
+            <i class="ti ti-search" style="color:#5e6c84"></i>
+            <input id="kp-qf-input" type="text" placeholder="Buscar cartão... (Enter abre, Esc fecha)" style="flex:1;border:none;outline:none;font-size:15px;background:transparent">
+          </div>
+          <div id="kp-qf-results" style="max-height:50vh;overflow-y:auto;padding:6px"></div>
+          <div style="padding:6px 14px;border-top:1px solid #dfe1e6;font-size:11px;color:#97a0af">↑↓ navegar • Enter abrir • Esc fechar</div>
+        </div>`;
+      document.body.appendChild(overlay);
+      this._qfIndex = 0;
+      const input = overlay.querySelector('#kp-qf-input');
+      input.addEventListener('input', ()=> this.renderQuickFind(input.value));
+      input.addEventListener('keydown', e=>{
+        const items = [...overlay.querySelectorAll('.kp-qf-item')];
+        if(e.key==='ArrowDown'){ e.preventDefault(); this._qfIndex = Math.min(items.length-1, this._qfIndex+1); this.markQuickFind(items); }
+        else if(e.key==='ArrowUp'){ e.preventDefault(); this._qfIndex = Math.max(0, this._qfIndex-1); this.markQuickFind(items); }
+        else if(e.key==='Enter'){ const it = items[this._qfIndex]; if(it){ this.closeQuickFind(); this.openCard(parseInt(it.dataset.cardId)); } }
+        else if(e.key==='Escape'){ e.stopPropagation(); this.closeQuickFind(); }
+      });
+      overlay.addEventListener('click', e=>{ if(e.target===overlay) this.closeQuickFind(); });
+      this.renderQuickFind('');
+      setTimeout(()=> input.focus(), 30);
+    },
+    closeQuickFind(){ document.getElementById('kp-quickfind')?.remove(); },
+    markQuickFind(items){
+      items.forEach((el,i)=> el.style.background = i===this._qfIndex ? '#e6fcff' : '#fff');
+      const sel = items[this._qfIndex];
+      if(sel) sel.scrollIntoView({block:'nearest'});
+    },
+    renderQuickFind(q){
+      q = (q||'').toLowerCase().trim();
+      const box = document.getElementById('kp-qf-results');
+      if(!box) return;
+      let list = (this.cards||[]).filter(c=> c.is_archived==0 && this.isCardVisible(c));
+      if(q){
+        list = list.map(c=>{
+          const name = (c.name||'').toLowerCase(), desc = (c.description||'').toLowerCase();
+          let s = -1;
+          if(name.startsWith(q)) s = 0;
+          else if(name.includes(q)) s = 1;
+          else if(desc.includes(q)) s = 2;
+          return {c, s};
+        }).filter(x=> x.s>=0).sort((a,b)=> a.s-b.s).map(x=> x.c);
+      } else {
+        list = [...list].sort((a,b)=> String(b.date_mod||'').localeCompare(String(a.date_mod||''))).slice(0,8);
+      }
+      this._qfIndex = 0;
+      const items = list.slice(0,20);
+      box.innerHTML = items.map(c=>{
+        const l = (this.lists||[]).find(x=> x.id==c.plugin_kanpro_lists_id);
+        const due = c.due_date ? ` • ${this.formatDateShort(c.due_date)}` : '';
+        return `<div class="kp-qf-item" data-card-id="${c.id}" onclick="Kanpro.closeQuickFind();Kanpro.openCard(${c.id})" style="display:flex;justify-content:space-between;gap:8px;padding:9px 10px;border-radius:6px;cursor:pointer;background:#fff">
+          <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#${c.id} ${this.escape(c.name)}</span>
+          <span style="font-size:11px;color:#5e6c84;flex-shrink:0">${this.escape((l&&l.name)||'')}${due}</span>
+        </div>`;
+      }).join('') || '<div style="padding:20px;text-align:center;color:#5e6c84;font-size:13px">Nenhum cartão encontrado</div>';
+      this.markQuickFind([...box.querySelectorAll('.kp-qf-item')]);
+    },
     /* ---------- seleção por teclado ---------- */
     clearCardSelection(){
       document.querySelectorAll('.kp-card.kp-selected').forEach(el=> el.classList.remove('kp-selected'));
@@ -1107,16 +1181,18 @@
 
       // comments
       const comContainer = $('#card-modal-comments');
-      comContainer.innerHTML = (data.comments||[]).map(c=>`
+      comContainer.innerHTML = (data.comments||[]).map(c=>{
+        const pinned = c.is_pinned==1;
+        return `
         <div style="display:flex;gap:8px">
           <div class="kp-avatar">${this.escape((c.firstname?.[0]||c.user_name?.[0]||'?').toUpperCase())}</div>
-          <div style="flex:1;background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13)">
-            <div style="font-weight:700;font-size:13px">${this.escape(c.realname||c.firstname||c.user_name||'Usuário')} <span style="font-weight:400;color:#5e6c84;font-size:11px">${this.formatDate(c.date_creation)}</span></div>
+          <div style="flex:1;background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);${pinned?'border:1px solid #ffab00;background:#fffae6;':''}">
+            <div style="font-weight:700;font-size:13px">${this.escape(c.realname||c.firstname||c.user_name||'Usuário')} <span style="font-weight:400;color:#5e6c84;font-size:11px">${this.formatDate(c.date_creation)}</span>${pinned?' <span style="background:#ffab00;color:#172b4d;padding:1px 8px;border-radius:10px;font-size:10px">📌 Fixado</span>':''}</div>
             <div style="margin-top:4px;word-break:break-word">${this.highlightMentions(this.parseMarkdown(c.content))}</div>
-            <div style="margin-top:6px;display:flex;gap:8px;font-size:12px"><a href="#" onclick="Kanpro.editComment(${c.id});return false">Editar</a> <a href="#" onclick="Kanpro.deleteComment(${c.id});return false" style="color:#eb5a46">Excluir</a></div>
+            <div style="margin-top:6px;display:flex;gap:8px;font-size:12px"><a href="#" onclick="Kanpro.editComment(${c.id});return false">Editar</a> <a href="#" onclick="Kanpro.pinComment(${c.id});return false">${pinned?'Desafixar':'Fixar'}</a> <a href="#" onclick="Kanpro.deleteComment(${c.id});return false" style="color:#eb5a46">Excluir</a></div>
           </div>
         </div>
-      `).join('') || '<div style="color:#5e6c84;font-size:13px">Seja o primeiro a comentar</div>';
+      `;}).join('') || '<div style="color:#5e6c84;font-size:13px">Seja o primeiro a comentar</div>';
 
       // activity
       const actContainer = $('#card-modal-activity');
@@ -2963,6 +3039,12 @@
       if(cur===null) return;
       this.ajax('update_comment', {id, content: cur}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+      });
+    },
+    pinComment(id){
+      this.ajax('toggle_comment_pin', {id}).then(res=>{
+        if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        else alert(res.msg||'Erro');
       });
     },
     async deleteComment(id){
