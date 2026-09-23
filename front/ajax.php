@@ -716,8 +716,6 @@ function kanpro_info_sheet_html(array $d): string {
         . $pendBox . $statusRow
         . '<div class="grow"></div>'
         . '<div class="obs"><strong>Observações:</strong><br><br><br></div>'
-        . '<div class="sig"><div>Responsável pela Manutenção<br><small style="color:#5e6c84">Nome / Assinatura / Data</small></div>'
-        . '<div>Responsável pelo Recebimento<br><small style="color:#5e6c84">Nome / Assinatura / Data</small></div></div>'
         . '<div class="foot">Documento gerado pelo KanPro • Cartão #' . (int)$card['id'] . ' • ' . $now . '</div>'
         . '<div class="no-print"><button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button></div>'
         . '</div></body></html>';

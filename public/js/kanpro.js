@@ -247,11 +247,7 @@
         if(this.currentCardId){
           const focused = document.activeElement;
           const isTyping = focused && (focused.tagName==='TEXTAREA' || focused.tagName==='INPUT');
-          if(!isTyping){
-            this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{
-              if(r.success) this.renderCardModal(r.data);
-            });
-          }
+          if(!isTyping) this.refreshCardModal();
         }
       }).catch(()=>{});
     },
@@ -349,6 +345,19 @@
         </div>`;
       }).join('') || '<div style="padding:20px;text-align:center;color:#5e6c84;font-size:13px">Nenhum cartão encontrado</div>';
       this.markQuickFind([...box.querySelectorAll('.kp-qf-item')]);
+    },
+    /* ---------- refresh serializado do modal (evita render velho ganhar de novo) ---------- */
+    refreshCardModal(after){
+      const cardId = this.currentCardId;
+      if(!cardId) return Promise.resolve();
+      this._modalChain = (this._modalChain || Promise.resolve()).catch(()=>{}).then(()=>
+        this.ajax('get_card', {cards_id: cardId}).then(r=>{
+          if(r && r.success && this.currentCardId===cardId) this.renderCardModal(r.data);
+          this.renderBoard();
+          if(typeof after === 'function'){ try{ after(r); }catch(e){} }
+        }).catch(()=>{})
+      );
+      return this._modalChain;
     },
     /* ---------- seleção por teclado ---------- */
     clearCardSelection(){
@@ -924,8 +933,7 @@
         if(res.success){
           const c = this.cards.find(x=> x.id==this.currentCardId);
           if(c) c.is_pinned = res.is_pinned;
-          this.renderBoard();
-          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+          this.refreshCardModal();
         }
       });
     },
@@ -935,8 +943,7 @@
           const c = this.cards.find(x=> x.id==this.currentCardId);
           if(c) c.approval_from = 0;
           this.showToast('Movimentação aprovada');
-          this.renderBoard();
-          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+          this.refreshCardModal();
         } else alert(res.msg||'Erro');
       });
     },
@@ -1718,12 +1725,7 @@
         this.handleConvertTicket(res);
         const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
         if(c){ c.is_maintenance=1; if(res.new_name) c.name=res.new_name; this.renderBoard(); }
-        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
-          if(r.success){
-            this.renderCardModal(r.data);
-            setTimeout(()=> this.openMaintenanceSetup(), 400);
-          } else location.reload();
-        });
+        this.refreshCardModal((r)=>{ if(r&&r.success) setTimeout(()=> this.openMaintenanceSetup(), 400); else location.reload(); });
       });
     },
     filterMaintEntities(q){ this.onEntitySearch(q); },
@@ -1836,12 +1838,7 @@
         this.handleConvertTicket(res);
         const c = this.cards.find(x=> x.id==this.currentCardId);
         if(c) c.is_maintenance=1;
-        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{
-          if(r.success){
-            this.renderCardModal(r.data);
-            setTimeout(()=> this.openMaintenanceSetup(), 400);
-          } else location.reload();
-        });
+        this.refreshCardModal((r)=>{ if(r&&r.success) setTimeout(()=> this.openMaintenanceSetup(), 400); else location.reload(); });
       });
     },
     getMaintModels(){
@@ -2068,7 +2065,7 @@
             if(confirm("Já existem máquinas. Deseja SUBSTITUIR? Esta ação apagará o cadastro atual.")){
               this.ajax("setup_maintenance_machines", {cards_id: this.currentCardId, definitions: JSON.stringify(defs), replace: 1}).then(r2=>{
                 if(!r2.success) alert(r2.msg||"Erro");
-                else { this.closePicker(); this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); }); this.renderBoard(); }
+                else { this.closePicker(); this.refreshCardModal(); }
               });
             }
           }
@@ -2076,7 +2073,7 @@
         }
         this.closePicker();
         this.showToast(isAppend ? "Máquinas adicionadas!" : "Checklist gerado: "+(res.total||total)+" máquinas enumeradas");
-        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        this.refreshCardModal();
       });
     },
     toggleMaintenanceDone(mid, checked){
@@ -2110,9 +2107,8 @@
         cb.disabled = false; cb.title = '';
       }
       this.ajax("update_maintenance_machine", data).then(res=>{
-        if(res.success){
-          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
-        }
+        if(!res.success) alert(res.msg||"Erro ao salvar status");
+        this.refreshCardModal();
       });
     },
     /* ---------- folha informativa ---------- */
@@ -2163,7 +2159,7 @@
     bulkAfterSuccess(msg){
       if(this._maintSelected) this._maintSelected.clear();
       this.showToast(msg);
-      this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+      this.refreshCardModal();
     },
     bulkApplyStatus(){
       const sel = document.getElementById('maint-bulk-status');
@@ -2188,7 +2184,7 @@
       this.ajax('set_all_needs_inventory', {cards_id: this.currentCardId, needs_inventory: val}).then(res=>{
         if(res.success){
           this.showToast(val ? `📋 ${res.updated||0} máquinas: precisa inventariar` : 'Marcas de inventário removidas');
-          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          this.refreshCardModal();
         } else alert(res.msg||'Erro');
       });
     },
@@ -2199,7 +2195,7 @@
       this.ajax("update_maintenance_machine", {id: mid, needs_inventory: newVal}).then(res=>{
         if(res.success){
           this.showToast(newVal ? "📋 Precisa inventariar" : "Não precisa inventariar");
-          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          this.refreshCardModal();
         } else alert(res.msg||"Erro");
       });
     },
@@ -2221,7 +2217,7 @@
         if(btn){ btn.disabled=false; btn.style.opacity="1"; }
         if(res.success){
           this.showToast(newVal ? "✓ Inventariado" : "Inventário desmarcado");
-          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          this.refreshCardModal();
         } else {
           alert(res.msg||"Erro ao atualizar inventário");
           if(btn){ btn.disabled=false; btn.style.opacity="1"; }
@@ -2237,7 +2233,7 @@
       this.ajax("update_maintenance_machine", {id: mid, is_urgent: newVal}).then(res=>{
         if(res.success){
           this.showToast(newVal ? "🔥 Urgência marcada" : "Urgência removida");
-          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          this.refreshCardModal();
         } else alert(res.msg||"Erro");
       });
     },
@@ -2246,7 +2242,7 @@
       this.ajax("retirada_machine", {id: mid}).then(res=>{
         if(!res.success){ alert(res.msg||"Erro"); return; }
         this.showToast("Retirada criada — card #" + res.new_card_id);
-        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        this.refreshCardModal();
         if(res.new_card_id) setTimeout(()=> this.openCard(res.new_card_id), 600);
         if(res.assinatura_url) window.open(res.assinatura_url, "_blank");
         else if(res.transfer_id){
@@ -2303,7 +2299,7 @@
         this.ajax("delete_maintenance_machine", {id: mid}).then(res=>{
           if(res.success){
             this.showToast("Máquina removida");
-            this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+            this.refreshCardModal();
           } else alert(res.msg||"Erro");
         });
       });
@@ -2348,7 +2344,7 @@
         if(res.success){
           this.showToast("Anotação adicionada");
           this.openMachineNotes(mid); // recarrega lista
-          this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+          this.refreshCardModal();
         } else alert(res.msg||"Erro");
       });
     },
@@ -2358,7 +2354,7 @@
         this.ajax("delete_machine_note", {id: noteId}).then(res=>{
           if(res.success){
             this.openMachineNotes(mid); // recarrega lista
-            this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+            this.refreshCardModal();
           } else alert(res.msg||"Erro");
         });
       });
@@ -2400,7 +2396,7 @@
         this.showToast("Modo manutenção revertido");
         const c=this.cards.find(x=> x.id==this.currentCardId);
         if(c) c.is_maintenance=0;
-        this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+        this.refreshCardModal();
       });
     },
     generateMaintenanceTerm(){
