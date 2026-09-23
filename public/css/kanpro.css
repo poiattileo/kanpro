@@ -91,6 +91,8 @@
 
 .kp-list-cards {
   flex: 1;
+  /* trava direta aqui (não depende do flex-shrink da lista): header + botão sempre visíveis */
+  max-height: calc(100vh - 300px);
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0 8px 4px;
@@ -102,6 +104,10 @@
 }
 .kp-list-cards::-webkit-scrollbar { width: 6px; }
 .kp-list-cards::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 6px; }
+/* composer aberto ocupa ~170px embaixo: encolhe a área rolável para continuar visível */
+.kp-list.composer-open .kp-list-cards {
+  max-height: calc(100vh - 400px);
+}
 .kp-list-cards.drag-over { background: rgba(9,30,66,.04); border-radius: 8px; }
 
 /* Add card / Add list */

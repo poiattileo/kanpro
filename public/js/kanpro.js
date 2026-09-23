@@ -713,6 +713,7 @@
       listEl.querySelector('.kp-add-card').style.display='none';
       const comp = listEl.querySelector('.kp-card-composer');
       comp.style.display='block';
+      listEl.classList.add('composer-open');
       comp.querySelector('textarea').focus();
       // enter rápido
       const ta = comp.querySelector('textarea');
@@ -724,6 +725,7 @@
       const listEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
       listEl.querySelector('.kp-add-card').style.display='flex';
       listEl.querySelector('.kp-card-composer').style.display='none';
+      listEl.classList.remove('composer-open');
       listEl.querySelector('textarea').value='';
     },
     confirmAddCard(listId, btn){
