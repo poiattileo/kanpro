@@ -1302,6 +1302,11 @@
         return;
       }
       wrap.style.display="block";
+      // preserva texto digitado ainda não salvo — re-render não pode apagar digitação
+      const pendingDiaries = {};
+      wrap.querySelectorAll('textarea[id^="maint-diary-"]').forEach(ta=>{
+        pendingDiaries[ta.id.replace('maint-diary-','')] = ta.value;
+      });
       const machines = data.maintenance_machines || [];
       const progress = data.maintenance_progress || {total:machines.length, done: machines.filter(m=>m.is_done==1).length, percent: 0};
       if(progress.total && !progress.percent){
@@ -1461,9 +1466,8 @@
               <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">DIÁRIO — o que foi feito nesta máquina</div>
               <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
-                <button onclick="Kanpro.saveMaintenanceDiary(${m.id})" style="background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600"><i class="ti ti-device-floppy"></i> Salvar diário</button>
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
-                <span style="font-size:10px;color:#97a0af;font-style:italic">autosave a cada palavra</span>
+                <span style="font-size:10px;color:#97a0af;font-style:italic">💾 salvamento automático a cada digitação</span>
                 <span style="margin-left:auto;font-size:11px;color:#97a0af;display:flex;align-items:center;gap:6px;flex-wrap:wrap">Status Final: <span style="background:${statusColor};color:${statusTextColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${statusLabel}</span> • ${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'} • <span style="background:${!needsInv?"#dfe1e6":(isInventoried?"#61bd4f":"#ffab00")};color:${!needsInv?"#5e6c84":(isInventoried?"#fff":"#172b4d")};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${!needsInv?"—":(isInventoried?"✓ Inventariado":"◷ Falta inventariar")}</span></span>
               </div>
             </div>
@@ -1478,6 +1482,15 @@
       wrap.innerHTML = html;
       // inicializa cache de autosave para evitar save desnecessário logo ao abrir
       machines.forEach(m=>{ this._lastDiarySaved[m.id] = m.diary||""; });
+      // restaura digitação pendente e reagenda o save
+      Object.keys(pendingDiaries).forEach(mid=>{
+        const ta = document.getElementById('maint-diary-'+mid);
+        if(ta && ta.value !== pendingDiaries[mid]){
+          ta.value = pendingDiaries[mid];
+          clearTimeout(this._diaryTimers[mid]);
+          this._diaryTimers[mid] = setTimeout(()=> this.autoSaveDiary(mid), 600);
+        }
+      });
     },
 
     openMaintenanceFlow(){
@@ -2218,7 +2231,12 @@
       if(!ta) return;
       const diary=ta.value;
       if(this._lastDiarySaved[mid]===diary) return;
-      if(this._diarySaving[mid]) return;
+      if(this._diarySaving[mid]){
+        // salvamento em andamento: reagenda em vez de descartar a digitação
+        clearTimeout(this._diaryTimers[mid]);
+        this._diaryTimers[mid]=setTimeout(()=> this.autoSaveDiary(mid), 800);
+        return;
+      }
       if(status){ status.textContent=" Salvando…"; status.style.color="#5e6c84"; }
       this._diarySaving[mid]=true;
       this.ajax("update_maintenance_machine", {id: mid, diary}).then(res=>{
@@ -2232,23 +2250,6 @@
       }).catch(()=>{
         this._diarySaving[mid]=false;
         if(status){ status.textContent=" Erro ao salvar"; status.style.color="#eb5a46"; }
-      });
-    },
-    saveMaintenanceDiary(mid){
-      const ta=document.getElementById("maint-diary-"+mid);
-      const status=document.getElementById("maint-save-status-"+mid);
-      if(!ta) return;
-      const diary=ta.value;
-      // cancela autosave pendente e salva imediatamente
-      clearTimeout(this._diaryTimers[mid]);
-      if(status) status.textContent=" Salvando...";
-      this.ajax("update_maintenance_machine", {id: mid, diary}).then(res=>{
-        if(res.success){
-          this._lastDiarySaved[mid]=diary;
-          if(status){ status.textContent=" ✓ Salvo"; status.style.color="#61bd4f"; setTimeout(()=> status.textContent="", 2000); }
-        } else {
-          if(status){ status.textContent=" Erro ao salvar"; status.style.color="#eb5a46"; }
-        }
       });
     },
     deleteMaintenanceMachine(mid){
