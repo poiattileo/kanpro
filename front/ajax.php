@@ -537,7 +537,8 @@ function kanpro_card_machines_report(int $cards_id): string {
             $lines[] = '• #' . $m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' — ' . implode(' | ', $bits);
         }
         if (empty($lines)) return '';
-        return 'Situação atual das máquinas do cartão (' . count($lines) . "):\n\n" . implode("\n", $lines);
+        // separador entre "o que mudou" e "como está tudo agora" (só 3-byte: ticket não é utf8mb4)
+        return str_repeat('─', 40) . "\nSituação atual das máquinas do cartão (" . count($lines) . "):\n\n" . implode("\n", $lines);
     } catch (Throwable $e) { return ''; }
 }
 
@@ -2087,7 +2088,7 @@ switch ($action) {
             if ($tid) {
                 $msg = "⚙ [KanPro] Atualização de máquina\n\nMáquina #{$row['seq']} '" . ($row['model'] ?? '') . "'\n\nAlterações: " . implode(' | ', $chg);
                 $rep = kanpro_card_machines_report($cidM);
-                if ($rep !== '') $msg .= "\n" . $rep;
+                if ($rep !== '') $msg .= "\n\n" . $rep;
                 kanpro_ticket_followup($tid, $msg);
             }
         }
@@ -2148,7 +2149,7 @@ switch ($action) {
             if ($tid) {
                 $msg = "⚙ [KanPro] Atualização em massa\n\n{$n} máquina(s): " . implode(' | ', $bits);
                 $rep = kanpro_card_machines_report($cid);
-                if ($rep !== '') $msg .= "\n" . $rep;
+                if ($rep !== '') $msg .= "\n\n" . $rep;
                 kanpro_ticket_followup($tid, $msg);
             }
             if ($tid) kanpro_ticket_set_attending($tid);
