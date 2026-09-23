@@ -34,7 +34,11 @@ if (!$__canView) {
 }
 
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
-kanpro_migrate_shared_login();
+try {
+    if (function_exists('kanpro_migrate_shared_login')) kanpro_migrate_shared_login();
+} catch (Throwable $e) {
+    Toolbox::logError('KanPro migrate call: ' . $e->getMessage());
+}
 
 $canedit = Session::haveRight('plugin_kanpro', UPDATE) ? 1 : 0;
 $cancreate = Session::haveRight('plugin_kanpro', CREATE) ? 1 : 0;
@@ -298,7 +302,7 @@ $assinatura_btn = '<a id="kanpro-assinatura-btn" href="' . $assinatura_url . '" 
 $open_card_id = isset($_GET['open_card']) ? (int) $_GET['open_card'] : 0;
 $open_card_id_json = json_encode($open_card_id ?: null);
 $current_user_id = (int) Session::getLoginUserID();
-$acting_user_id_json = (int) kanpro_acting_user_id();
+$acting_user_id_json = function_exists('kanpro_acting_user_id') ? (int) kanpro_acting_user_id() : $current_user_id;
 
 echo <<<HTML
 <style>
