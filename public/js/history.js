@@ -70,7 +70,7 @@
       if(document.getElementById('kph-overlay')){ this.reload(); return; }
       var ov = document.createElement('div');
       ov.id = 'kph-overlay';
-      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:15000;display:flex;justify-content:center;align-items:flex-start;padding:4vh 16px;overflow-y:auto;box-sizing:border-box';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20000;display:flex;justify-content:center;align-items:flex-start;padding:4vh 16px;overflow-y:auto;box-sizing:border-box';
       ov.innerHTML =
         '<div style="background:#f4f5f7;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);width:100%;max-width:760px;display:flex;flex-direction:column;overflow:hidden;max-height:92vh">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#fff;border-bottom:1px solid #dfe1e6">'

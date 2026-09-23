@@ -150,7 +150,7 @@ $__kpb_csrf = Session::getNewCSRFToken();
 echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; window.KANPRO_HISTORY_CSRF = " . json_encode($__kpb_csrf) . ";</script>";
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
-<div id="kpb-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center;padding:16px">
+<div id="kpb-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;align-items:center;justify-content:center;padding:16px">
   <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:520px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #dfe1e6">
       <strong id="kpb-title">Acesso ao quadro</strong>

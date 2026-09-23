@@ -717,8 +717,12 @@ function kanpro_info_sheet_html(array $d): string {
         . '<div class="grow"></div>'
         . '<div class="obs"><strong>Observações:</strong><br><br><br></div>'
         . '<div class="foot">Documento gerado pelo KanPro • Cartão #' . (int)$card['id'] . ' • ' . $now . '</div>'
-        . '<div class="no-print"><button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button></div>'
-        . '</div></body></html>';
+        . '<div class="no-print"><button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button> '
+        . '<button id="btn-hp" onclick="kpPrintHP(' . (int)$card['id'] . ')" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir na HP</button></div>'
+        . '</div>'
+        . '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>'
+        . '<script>async function kpPrintHP(cid){var btn=document.getElementById("btn-hp");var old=btn?btn.innerHTML:"";if(!confirm("Enviar Folha do cartão #"+String(cid).padStart(4,"0")+" para impressão na HP?\\n\\nSerá impresso exatamente o que você vê nesta prévia (A4)."))return;if(btn){btn.disabled=true;btn.innerHTML="⏳ Gerando PDF...";}var b64=null;try{var el=document.querySelector(".folha");if(el&&window.html2pdf){var opt={margin:[10,10,10,10],filename:"Folha-"+String(cid).padStart(4,"0")+".pdf",image:{type:"jpeg",quality:0.98},html2canvas:{scale:2,useCORS:true,scrollY:0,logging:false},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}};var uri=await html2pdf().set(opt).from(el).outputPdf("datauristring");b64=(uri.split(",")[1]||null);}}catch(e){b64=null;}if(btn)btn.innerHTML="⏳ Enviando...";try{var ajaxUrl="/plugins/kanpro/front/ajax.php";try{if(window.opener&&window.opener.location&&window.opener.location.pathname){var p=window.opener.location.pathname;if(p.indexOf("/plugins/kanpro/")>=0){ajaxUrl=p.substring(0,p.indexOf("/plugins/kanpro/"))+"/plugins/kanpro/front/ajax.php";}}}catch(e){}var fd=new FormData();fd.append("action","print_info_sheet");fd.append("cards_id",String(cid));if(b64)fd.append("pdf_base64",b64);var r=await fetch(ajaxUrl,{method:"POST",body:fd,credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"}});var t=await r.text();var j;try{j=JSON.parse(t);}catch(e){alert("❌ Erro servidor (HTTP "+r.status+")");if(btn){btn.disabled=false;btn.innerHTML=old;}return;}if(j.success){alert("✅ Impressão enviada!\\n"+(j.audit||("Impressora: "+(j.printer||"-")+(j.request_id?" | Job:"+j.request_id:""))));}else{alert("❌ Falha ao imprimir\\n"+(j.msg||"Erro desconhecido"));} }catch(e){alert("Erro de rede: "+e.message);}finally{if(btn){btn.disabled=false;btn.innerHTML=old;}}}</script>'
+        . '</body></html>';
 }
 // HTML -> PDF (mesma cadeia do termo: mPDF, Dompdf, wkhtmltopdf, chromium).
 function kanpro_html_to_pdf(string $html): ?string {
@@ -820,6 +824,109 @@ function kanpro_html_to_pdf(string $html): ?string {
                 if (file_exists($pdfPath) && filesize($pdfPath) > 500) return $pdfPath;
                 @unlink($pdfPath);
             }
+        }
+    } catch (Throwable $e) {}
+    // Fallback final: PDF puro em PHP (sem dependencias) extraindo texto do HTML.
+    // Garante que a folha sempre gera algo imprimivel, igual ao termo no assetmgrstatus.
+    try {
+        $txt = html_entity_decode(strip_tags(preg_replace('/<(br|p|div|tr|h[1-6])[^>]*>/i', "\n\$0", $html)), ENT_QUOTES, 'UTF-8');
+        $txt = preg_replace("/[ \t]+/", ' ', $txt);
+        $txt = preg_replace("/\n\s*\n\s*\n+/", "\n\n", $txt);
+        $lines = explode("\n", trim($txt));
+        if (count($lines) > 3) {
+            $pdfPath = sys_get_temp_dir() . '/' . $tag . '.pdf';
+            if (kanpro_build_simple_pdf_from_lines($lines, $pdfPath)) {
+                if (file_exists($pdfPath) && filesize($pdfPath) > 500) return $pdfPath;
+                @unlink($pdfPath);
+            }
+        }
+    } catch (Throwable $e) {}
+    return null;
+}
+// Construtor de PDF puro (Helvetica core, sem libs) — copia do assetmgrstatus.
+function kanpro_build_simple_pdf_from_lines(array $lines, string $outPath): bool {
+    $clean = [];
+    foreach ($lines as $l) {
+        $l = (string)$l;
+        $l = str_replace("\r", '', $l);
+        foreach (explode("\n", $l) as $part) {
+            $part = trim($part);
+            if ($part === '') { $clean[] = ''; continue; }
+            $partIso = @iconv('UTF-8', 'ISO-8859-1//TRANSLIT//IGNORE', $part);
+            if ($partIso === false) $partIso = $part;
+            $words = explode(' ', $partIso);
+            $cur = '';
+            foreach ($words as $w) {
+                if (strlen($cur . ' ' . $w) > 85) { $clean[] = trim($cur); $cur = $w; }
+                else { $cur = $cur === '' ? $w : $cur . ' ' . $w; }
+            }
+            if ($cur !== '') $clean[] = trim($cur);
+        }
+    }
+    $pages = array_chunk($clean, 45);
+    if (empty($pages)) $pages = [[]];
+    $fontObjNum = 3; $catalogNum = 1; $pagesNum = 2;
+    $pageObjNums = []; $contentObjNums = []; $nextNum = 4;
+    foreach ($pages as $i => $pg) { $pageObjNums[$i] = $nextNum++; $contentObjNums[$i] = $nextNum++; }
+    $totalObjs = $nextNum - 1;
+    $esc = function($s) { return str_replace(['\\','(',')',"\r"], ['\\\\','\\(','\\)','\\r'], $s); };
+    $objs = [];
+    $objs[$catalogNum] = "<< /Type /Catalog /Pages $pagesNum 0 R >>";
+    $kids = implode(' ', array_map(fn($n) => "$n 0 R", $pageObjNums));
+    $objs[$pagesNum] = "<< /Type /Pages /Kids [$kids] /Count " . count($pages) . " >>";
+    $objs[$fontObjNum] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+    foreach ($pages as $idx => $pgLines) {
+        $pNum = $pageObjNums[$idx]; $cNum = $contentObjNums[$idx];
+        $content = "BT\n/F1 9 Tf\n";
+        $y = 800;
+        foreach ($pgLines as $line) {
+            $content .= sprintf("1 0 0 1 40 %.2F Tm (%s) Tj\n", $y, $esc($line));
+            $y -= 13;
+            if ($y < 40) break;
+        }
+        $content .= sprintf("1 0 0 1 500 20 Tm (%d/%d) Tj\n", $idx+1, count($pages));
+        $content .= "ET\n";
+        $objs[$cNum] = "<< /Length " . strlen($content) . " >>\nstream\n$content\nendstream";
+        $objs[$pNum] = "<< /Type /Page /Parent $pagesNum 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 $fontObjNum 0 R >> >> /Contents $cNum 0 R >>";
+    }
+    $pdf = "%PDF-1.4\n";
+    $offsets = [0 => 0];
+    for ($i=1; $i<=$totalObjs; $i++) { $offsets[$i] = strlen($pdf); $pdf .= $i . " 0 obj\n" . $objs[$i] . "\nendobj\n"; }
+    $xrefPos = strlen($pdf);
+    $pdf .= "xref\n0 " . ($totalObjs+1) . "\n0000000000 65535 f \n";
+    for ($i=1; $i<=$totalObjs; $i++) { $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]); }
+    $pdf .= "trailer\n<< /Size " . ($totalObjs+1) . " /Root $catalogNum 0 R >>\nstartxref\n$xrefPos\n%%EOF\n";
+    return @file_put_contents($outPath, $pdf) !== false;
+}
+// PDF simples estruturado da folha (usado quando mPDF/Dompdf/wkhtml falham).
+function kanpro_info_sheet_simple_pdf(array $d): ?string {
+    try {
+        $card = $d['card']; $total = count($d['machines']);
+        $lines = [];
+        $lines[] = 'FOLHA INFORMATIVA - MANUTENCAO  -  Cartao #' . str_pad((int)$card['id'], 4, '0', STR_PAD_LEFT) . '  -  ' . date('d/m/Y H:i');
+        $lines[] = str_repeat('=', 85);
+        $lines[] = 'Cartao: #' . (int)$card['id'] . ' - ' . ($card['name'] ?? '');
+        $lines[] = 'Escola: ' . ($d['school'] !== '' ? $d['school'] . '  (CIE ' . $d['cie'] . ')' : '-');
+        $lines[] = 'Quadro: ' . ($d['board']['name'] ?? '-') . '  |  Lista: ' . ($d['list']['name'] ?? '-');
+        $lines[] = 'Total de maquinas: ' . $total;
+        $lines[] = '';
+        $lines[] = 'Modelos: ' . implode('  |  ', array_map(fn($q,$m) => $q . 'x ' . $m, array_values($d['byModel']), array_keys($d['byModel'])));
+        $lines[] = str_repeat('-', 85);
+        $lines[] = 'MAQUINAS:';
+        foreach ($d['machines'] as $m) {
+            $st = kanpro_machine_status_label_pt(trim($m['status'] ?? ''));
+            $lines[] = '#' . (int)$m['seq'] . '. ' . ($m['model'] ?? '-') . '  [' . ($m['label'] ?? '-') . ']' . ($d['hasStatus'] ? '  Status: ' . $st : '');
+        }
+        if (!empty($d['pendingCard'])) $lines[] = 'Pendentes foram para o card #' . (int)$d['pendingCard']['id'] . ' - ' . $d['pendingCard']['name'];
+        $lines[] = '';
+        $lines[] = 'Observacoes:';
+        $lines[] = '';
+        $lines[] = str_repeat('-', 85);
+        $lines[] = 'Documento gerado pelo KanPro - Cartao #' . (int)$card['id'] . ' - ' . date('d/m/Y H:i');
+        $path = sys_get_temp_dir() . '/kanpro_folha_' . uniqid() . '.pdf';
+        if (kanpro_build_simple_pdf_from_lines($lines, $path)) {
+            if (file_exists($path) && filesize($path) > 500) return $path;
+            @unlink($path);
         }
     } catch (Throwable $e) {}
     return null;
@@ -2724,7 +2831,31 @@ switch ($action) {
         if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
         $d = kanpro_info_sheet_data($cid);
         if (!$d) jexit(['success'=>false,'msg'=>'Cartão sem máquinas ou não encontrado']);
-        $pdf = kanpro_html_to_pdf(kanpro_info_sheet_html($d));
+        // 1) PDF do cliente (html2pdf no navegador — igual ao termo no assetmgrstatus).
+        // Garante impressão idêntica à prévia mesmo sem mPDF no servidor.
+        $pdf = null;
+        $pdfB64 = trim($_POST['pdf_base64'] ?? '');
+        if ($pdfB64 !== '') {
+            try {
+                $raw = base64_decode($pdfB64, true);
+                if ($raw !== false && strlen($raw) > 800 && substr($raw, 0, 5) === '%PDF-') {
+                    $tmp = sys_get_temp_dir() . '/kanpro_folha_client_' . uniqid() . '.pdf';
+                    if (@file_put_contents($tmp, $raw) !== false && file_exists($tmp) && filesize($tmp) > 800) {
+                        $pdf = $tmp;
+                        error_log('[kanpro] print_info_sheet: PDF cliente usado card=' . $cid . ' size=' . filesize($tmp));
+                    }
+                } else {
+                    error_log('[kanpro] print_info_sheet: pdf_base64 invalido card=' . $cid);
+                }
+            } catch (Throwable $e) {}
+        }
+        // 2) Gera no servidor (mPDF/Dompdf/wkhtml/chromium + fallback puro PHP).
+        if (!$pdf) {
+            $pdf = kanpro_html_to_pdf(kanpro_info_sheet_html($d));
+        }
+        if (!$pdf) {
+            $pdf = kanpro_info_sheet_simple_pdf($d);
+        }
         if (!$pdf) jexit(['success'=>false,'msg'=>'Não foi possível gerar o PDF no servidor. Use a prévia para imprimir.']);
         $title = 'Folha-' . str_pad($cid, 4, '0', STR_PAD_LEFT);
         $res = kanpro_print_pdf_cups($pdf, $title, trim($_POST['printer'] ?? '') ?: null);

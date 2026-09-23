@@ -263,11 +263,11 @@
       if(!box){
         box = document.createElement('div');
         box.id = 'kp-toast-box';
-        box.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:25000;display:flex;flex-direction:column;gap:8px;align-items:center';
+        box.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30000;display:flex;flex-direction:column;gap:8px;align-items:center';
         document.body.appendChild(box);
       }
       const toast = document.createElement('div');
-      toast.style.cssText = 'background:#172b4d;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.25);opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;display:flex;align-items:center;gap:8px';
+      toast.style.cssText = 'background:#172b4d;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.25);opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;display:flex;align-items:center;gap:8px;max-width:90vw';
       toast.innerHTML = `<i class="ti ti-refresh"></i> ${this.escape(message)}`;
       box.appendChild(toast);
       requestAnimationFrame(()=>{ toast.style.opacity='1'; toast.style.transform='translateY(0)'; });
@@ -275,7 +275,30 @@
         toast.style.opacity='0';
         toast.style.transform='translateY(8px)';
         setTimeout(()=> toast.remove(), 250);
-      }, 3000);
+      }, 3500);
+    },
+    // Alerta customizado SEMPRE acima do card-modal (z 9999) — substitui alert() que ficava atrás
+    showAlert(message, title){
+      document.getElementById('kp-alert-overlay')?.remove();
+      const ov = document.createElement('div');
+      ov.id = 'kp-alert-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+      ov.innerHTML = `
+        <div style="background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.35);max-width:460px;width:100%;overflow:hidden">
+          <div style="padding:14px 16px;border-bottom:1px solid #dfe1e6;font-weight:800;font-size:14px;display:flex;align-items:center;gap:8px">
+            <span style="font-size:18px">${(title||'').includes('✅')?'✅':(title||'').includes('❌')?'❌':'ℹ️'}</span>
+            <span>${this.escape(title||'Informação')}</span>
+          </div>
+          <div style="padding:16px;font-size:13px;color:#172b4d;white-space:pre-line;line-height:1.5">${this.escape(message||'')}</div>
+          <div style="padding:12px 16px;background:#f4f5f7;text-align:right">
+            <button id="kp-alert-ok" style="background:#0052cc;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700">OK</button>
+          </div>
+        </div>`;
+      document.body.appendChild(ov);
+      const close = ()=> ov.remove();
+      ov.addEventListener('click', e=>{ if(e.target===ov) close(); });
+      ov.querySelector('#kp-alert-ok').addEventListener('click', close);
+      document.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown', esc); } });
     },
 
     /* ---------- BUSCA RÁPIDA (Ctrl+K) ---------- */
@@ -286,7 +309,7 @@
       }
       const overlay = document.createElement('div');
       overlay.id = 'kp-quickfind';
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15000;display:flex;justify-content:center;align-items:flex-start;padding:10vh 16px 16px';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;display:flex;justify-content:center;align-items:flex-start;padding:10vh 16px 16px';
       overlay.innerHTML = `
         <div style="background:#fff;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35);width:100%;max-width:560px;overflow:hidden">
           <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #dfe1e6">
@@ -2112,18 +2135,57 @@
       });
     },
     /* ---------- folha informativa ---------- */
+    ensureHtml2Pdf(){
+      return new Promise(resolve=>{
+        if(window.html2pdf){ resolve(true); return; }
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+        s.onload = ()=> resolve(true);
+        s.onerror = ()=> resolve(false);
+        document.head.appendChild(s);
+        setTimeout(()=> resolve(!!window.html2pdf), 4000);
+      });
+    },
     printInfoSheet(){
-      // prévia + envio automático (igual ao termo)
-      this.ajax('get_info_sheet', {cards_id: this.currentCardId}).then(res=>{
-        if(res.success && res.html){
+      // prévia em nova guia + envio automático para a impressora (igual ao termo do assetmgrstatus)
+      const cid = this.currentCardId;
+      if(!cid){ this.showAlert('Cartão inválido.', 'Atenção'); return; }
+      this.showToast('🖨️ Enviando folha para a impressora...');
+      this.ajax('get_info_sheet', {cards_id: cid}).then(async res=>{
+        if(!res.success || !res.html){
+          this.showAlert(res.msg||'Erro ao gerar folha.', 'Falha ao imprimir');
+          return;
+        }
+        // 1) prévia: como está a folha (com botões Imprimir / Imprimir na HP dentro da guia)
+        try {
           const w = window.open('', '_blank');
           if(w){ w.document.write(res.html); w.document.close(); }
-        }
-      });
-      this.showToast('🖨️ Enviando folha para a impressora...');
-      this.ajax('print_info_sheet', {cards_id: this.currentCardId}).then(res=>{
-        if(res.success) this.showToast('🖨️ Folha impressa (' + (res.printer||'') + (res.request_id ? ' • Job ' + res.request_id : '') + ')');
-        else alert('Falha ao imprimir\n' + (res.msg||'Erro desconhecido'));
+          else this.showAlert('Permita pop-ups para ver a prévia da folha.', 'Informação');
+        } catch(e){}
+        // 2) gera PDF no navegador (idêntico à prévia) e envia ao servidor p/ CUPS
+        let pdfBase64 = null;
+        try {
+          await this.ensureHtml2Pdf();
+          if(window.html2pdf){
+            const tmp = document.createElement('div');
+            tmp.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff';
+            tmp.innerHTML = res.html;
+            document.body.appendChild(tmp);
+            const target = tmp.querySelector('.folha') || tmp;
+            const opt = { margin: [10,10,10,10], filename: 'Folha-' + String(cid).padStart(4,'0') + '.pdf',
+              image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0, logging: false },
+              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+            const uri = await window.html2pdf().set(opt).from(target).outputPdf('datauristring');
+            pdfBase64 = (uri.split(',')[1] || null);
+            tmp.remove();
+          }
+        } catch(e){ pdfBase64 = null; }
+        const payload = {cards_id: cid};
+        if(pdfBase64) payload.pdf_base64 = pdfBase64;
+        this.ajax('print_info_sheet', payload).then(res2=>{
+          if(res2.success) this.showToast('🖨️ Folha impressa (' + (res2.printer||'') + (res2.request_id ? ' • Job ' + res2.request_id : '') + ')');
+          else this.showAlert('Falha ao imprimir\n' + (res2.msg||'Erro desconhecido'), '❌ Falha ao imprimir');
+        });
       });
     },
     /* ---------- seleção em massa (manutenção) ---------- */

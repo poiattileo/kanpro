@@ -592,7 +592,7 @@ echo <<<HTML
 </div>
 
 <!-- Picker genérico -->
-<div id="kanpro-picker" style="display:none;position:fixed;z-index:10000;background:#fff;border-radius:8px;box-shadow:0 8px 16px rgba(0,0,0,.2);min-width:300px;max-width:360px;overflow:hidden">
+<div id="kanpro-picker" style="display:none;position:fixed;z-index:20000;background:#fff;border-radius:8px;box-shadow:0 8px 16px rgba(0,0,0,.2);min-width:300px;max-width:360px;overflow:hidden">
   <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid #dfe1e6"><strong id="picker-title">Picker</strong><button onclick="Kanpro.closePicker()" style="background:none;border:none;cursor:pointer">✕</button></div>
   <div id="picker-body" style="padding:12px;max-height:400px;overflow-y:auto"></div>
 </div>
