@@ -14,7 +14,7 @@
     maintenance_pending_split:'separou pendentes',
     member_add:'adicionou membro', member_remove:'removeu membro', member_role:'trocou papel',
     card_create_ticket:'criou chamado', card_link_ticket:'vinculou chamado', card_unlink_ticket:'desvinculou chamado',
-    card_approval_request:'pediu aprovação', card_approval_ok:'aprovou movimentação'
+    card_approval_request:'pediu aprovação', card_approval_ok:'aprovou movimentação', print_sheet:'imprimiu folha'
   };
   var DOTS = {card_create:'#61bd4f', card_move:'#0079bf', card_archive:'#ff5630', card_restore:'#006644',
     card_complete:'#006644', maintenance_finalize:'#00b8d9', member_add:'#6554c0', member_remove:'#ff5630'};

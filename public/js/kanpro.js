@@ -1374,6 +1374,7 @@
               <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
               ${total? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
               ${total? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
+              ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${finalizeBtnHtml}
             </div>
           </div>
@@ -2112,6 +2113,21 @@
         if(res.success){
           this.ajax("get_card", {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
         }
+      });
+    },
+    /* ---------- folha informativa ---------- */
+    printInfoSheet(){
+      // prévia + envio automático (igual ao termo)
+      this.ajax('get_info_sheet', {cards_id: this.currentCardId}).then(res=>{
+        if(res.success && res.html){
+          const w = window.open('', '_blank');
+          if(w){ w.document.write(res.html); w.document.close(); }
+        }
+      });
+      this.showToast('🖨️ Enviando folha para a impressora...');
+      this.ajax('print_info_sheet', {cards_id: this.currentCardId}).then(res=>{
+        if(res.success) this.showToast('🖨️ Folha impressa (' + (res.printer||'') + (res.request_id ? ' • Job ' + res.request_id : '') + ')');
+        else alert('Falha ao imprimir\n' + (res.msg||'Erro desconhecido'));
       });
     },
     /* ---------- seleção em massa (manutenção) ---------- */

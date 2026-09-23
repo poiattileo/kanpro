@@ -547,6 +547,276 @@ function kanpro_card_machines_report(int $cards_id): string {
     } catch (Throwable $e) { return ''; }
 }
 
+// ---------- Folha Informativa (CIE + A4 + impressão) ----------
+// Tabela CIE -> escola (código => nome como aparece nos cartões).
+function kanpro_cie_table(): array {
+    return [
+        '28435' => 'Coripheu de Azevedo Marques', '27259' => 'José dos Santos',
+        '30636' => 'Maria Pereira de B. Benetoli', '30624' => 'João Rodrigues Fernandes',
+        '27170' => 'Osvaldo Ramos', '27108' => 'Baptista Dolci',
+        '30752' => 'Vanir Ferrero Moraes', '27224' => 'Dom Artur Horsthuis',
+        '985715' => 'Cel de Jales EE Dom Artur Horsthuis', '27145' => 'Dr. Euphly Jalles',
+        '27261' => 'Carlos de Arnaldo Silva', '49700' => 'Sueli da Silveira Marin Batista',
+        '27285' => 'Juvenal Giraldelli', '906104' => 'Onélia Faggioni Moreira',
+        '28332' => 'Antonio Marin Cruz', '27054' => 'Adelino Bertani',
+        '28320' => 'Maria Pilar Ortega Garcia', '28344' => 'Orestes Ferreira de Toledo',
+        '27194' => 'Prefeito José Ribeiro', '27182' => 'Zélia de Lourdes Zaccarelli Lopes',
+        '28381' => 'Rubens de Oliveira Camargo', '27112' => 'Carlos Celso Lenarduzzi',
+        '28393' => 'Prefeito Antonio Bezerra de Araújo', '28400' => 'Professor Itael de Mattos',
+        '985806' => 'CEL de Santa Fé do Sul', '28289' => 'Maria das Dores Ferreira Rocha',
+        '27133' => 'Francisco Molina Molina', '28290' => 'Domingos Donato Rivelli',
+        '27066' => 'Oscar Antônio da Costa', '30582' => 'Coronel Ernesto Schmidt',
+        '28319' => 'José Joaquim dos Santos', '27248' => 'Professor Akio Satoru',
+        '909993' => 'Elide Apparecida Carlos', '27212' => 'José Teixeira do Amaral',
+        '27169' => 'José Nogueira de Souza',
+    ];
+}
+function kanpro_norm_name(string $t): string {
+    $t = mb_strtoupper($t, 'UTF-8');
+    $map = ['Á'=>'A','À'=>'A','Ã'=>'A','Â'=>'A','É'=>'E','Ê'=>'E','Í'=>'I','Ó'=>'O','Ô'=>'O','Õ'=>'O','Ú'=>'U','Ç'=>'C','ª'=>'A','º'=>'O','–'=>' ','—'=>' ','-'=>' '];
+    $t = strtr($t, $map);
+    $t = preg_replace('/[^A-Z0-9]+/', ' ', $t);
+    return trim(preg_replace('/\s+/', ' ', $t));
+}
+// Retorna [cie, escola] pelo nome do cartão (maior match vence) ou ['', ''].
+function kanpro_cie_lookup(string $cardName): array {
+    $cn = kanpro_norm_name($cardName);
+    if ($cn === '') return ['', ''];
+    $best = ['', '', 0];
+    foreach (kanpro_cie_table() as $cie => $school) {
+        $sn = kanpro_norm_name($school);
+        if ($sn !== '' && strpos($cn, $sn) !== false && strlen($sn) > $best[2]) {
+            $best = [$cie, $school, strlen($sn)];
+        }
+    }
+    return [$best[0], $best[1]];
+}
+function kanpro_machine_status_label_pt(string $st): string {
+    $m = ['' => '—', 'garantia' => 'Garantia', 'ok' => 'OK', 'inservivel' => 'Inservível', 'pendente' => 'Pendente'];
+    return $m[$st] ?? ($st === '' ? '—' : $st);
+}
+// Dados + HTML A4 da folha informativa das máquinas do cartão.
+function kanpro_info_sheet_data(int $cid): ?array {
+    global $DB;
+    $card = new PluginKanproCard();
+    if (!$card->getFromDB($cid)) return null;
+    $board = new PluginKanproBoard();
+    $board->getFromDB((int)$card->fields['plugin_kanpro_boards_id']);
+    $list = new PluginKanproList();
+    $list->getFromDB((int)$card->fields['plugin_kanpro_lists_id']);
+    $machines = [];
+    $miter = $DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $cid], 'ORDER' => 'seq ASC']);
+    foreach ($miter as $m) $machines[] = $m;
+    if (!count($machines)) return null;
+    [$cie, $school] = kanpro_cie_lookup($card->fields['name'] ?? '');
+    $hasStatus = false;
+    foreach ($machines as $m) {
+        if (trim($m['status'] ?? '') !== '') {
+            $hasStatus = true;
+            break;
+        }
+    }
+    $byModel = [];
+    foreach ($machines as $m) {
+        $k = trim($m['model'] ?? '') ?: '—';
+        $byModel[$k] = ($byModel[$k] ?? 0) + 1;
+    }
+    // pendentes que viraram novo card
+    $pendingCard = null;
+    $piter = $DB->request(['SELECT' => ['details'], 'FROM' => 'glpi_plugin_kanpro_activities',
+        'WHERE' => ['plugin_kanpro_cards_id' => $cid, 'action' => 'maintenance_pending_split'], 'ORDER' => 'date_creation DESC', 'LIMIT' => 5]);
+    foreach ($piter as $pa) {
+        if (preg_match('/#(\d+)/', $pa['details'] ?? '', $mm)) {
+            $nid = (int)$mm[1];
+            if ($nid !== $cid) {
+                $nc = new PluginKanproCard();
+                if ($nc->getFromDB($nid)) {
+                    $pendingCard = ['id' => $nid, 'name' => $nc->fields['name']];
+                    break;
+                }
+            }
+        }
+    }
+    $counts = ['garantia' => 0, 'ok' => 0, 'inservivel' => 0, 'pendente' => 0, 'sem' => 0];
+    foreach ($machines as $m) {
+        $s = trim($m['status'] ?? '');
+        if (isset($counts[$s])) $counts[$s]++;
+        else $counts['sem']++;
+    }
+    $me = kanpro_acting_user_id();
+    $meName = '';
+    try {
+        $mu = new User();
+        if ($mu->getFromDB($me)) $meName = $mu->getFriendlyName();
+    } catch (Throwable $e) {}
+    return ['card' => $card->fields, 'board' => $board->fields, 'list' => $list->fields, 'machines' => $machines,
+        'cie' => $cie, 'school' => $school, 'hasStatus' => $hasStatus, 'byModel' => $byModel,
+        'pendingCard' => $pendingCard, 'counts' => $counts, 'meName' => $meName];
+}
+function kanpro_info_sheet_html(array $d): string {
+    $esc = function ($v) { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); };
+    $card = $d['card'];
+    $total = count($d['machines']);
+    $now = date('d/m/Y H:i');
+    $rows = '';
+    foreach ($d['machines'] as $m) {
+        $st = kanpro_machine_status_label_pt(trim($m['status'] ?? ''));
+        $stBg = ['Garantia' => '#e6f7ff', 'OK' => '#e3fcef', 'Inservível' => '#ffebe6', 'Pendente' => '#fff8e6', '—' => '#f4f5f7'];
+        $rows .= '<tr><td style="width:44px;text-align:center"><strong>#' . (int)$m['seq'] . '</strong></td>'
+            . '<td>' . $esc($m['model']) . '</td><td>' . $esc($m['label']) . '</td>'
+            . ($d['hasStatus'] ? '<td style="text-align:center;background:' . ($stBg[$st] ?? '#fff') . '"><strong>' . $esc($st) . '</strong></td>' : '')
+            . '</tr>';
+    }
+    $models = '';
+    foreach ($d['byModel'] as $model => $qtd) {
+        $models .= '<span style="display:inline-block;background:#e6fcff;border:1px solid #91d5ff;border-radius:12px;padding:4px 12px;margin:0 6px 6px 0;font-weight:700">' . (int)$qtd . 'x ' . $esc($model) . '</span>';
+    }
+    $pendBox = '';
+    if (!empty($d['pendingCard'])) {
+        $pendBox = '<div style="margin-top:10px;background:#fff8e6;border:1px solid #ffab00;border-radius:8px;padding:10px 14px;font-size:13px">'
+            . '⏳ <strong>Máquinas pendentes foram para um novo card:</strong> #' . (int)$d['pendingCard']['id'] . ' — ' . $esc($d['pendingCard']['name']) . '</div>';
+    }
+    $statusRow = '';
+    if ($d['hasStatus']) {
+        $c = $d['counts'];
+        $statusRow = '<div style="display:flex;gap:10px;margin-top:10px">'
+            . '<div style="flex:1;background:#e6f7ff;border-radius:8px;padding:8px;text-align:center"><strong style="font-size:16px">' . (int)$c['garantia'] . '</strong><br><small>Garantia</small></div>'
+            . '<div style="flex:1;background:#e3fcef;border-radius:8px;padding:8px;text-align:center"><strong style="font-size:16px">' . (int)$c['ok'] . '</strong><br><small>OK</small></div>'
+            . '<div style="flex:1;background:#ffebe6;border-radius:8px;padding:8px;text-align:center"><strong style="font-size:16px">' . (int)$c['inservivel'] . '</strong><br><small>Inservível</small></div>'
+            . '<div style="flex:1;background:#fff8e6;border-radius:8px;padding:8px;text-align:center"><strong style="font-size:16px">' . (int)$c['pendente'] . '</strong><br><small>Pendente</small></div>'
+            . '</div>';
+    }
+    return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
+        . '<title>Folha Informativa — Cartão #' . (int)$card['id'] . '</title>'
+        . '<style>@page{size:A4;margin:11mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172b4d;margin:0}'
+        . '.folha{min-height:255mm;display:flex;flex-direction:column}'
+        . '.topo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:3px solid #0052cc;padding-bottom:10px}'
+        . '.cie{background:#0052cc;color:#fff;border-radius:10px;padding:8px 18px;text-align:center}'
+        . '.cie strong{font-size:26px;display:block}.cie small{font-size:11px}'
+        . '.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;background:#f4f5f7;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:13px}'
+        . 'table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}'
+        . 'th{background:#0052cc;color:#fff;padding:7px 8px;text-align:left}td{border:1px solid #dfe1e6;padding:6px 8px}'
+        . '.grow{flex:1}.obs{border:1px solid #dfe1e6;border-radius:8px;margin-top:10px;padding:8px 12px;min-height:90px;font-size:12px;color:#5e6c84}'
+        . '.sig{display:flex;gap:40px;margin-top:22px}.sig div{flex:1;text-align:center;border-top:1px solid #172b4d;padding-top:6px;font-size:12px}'
+        . '.foot{margin-top:12px;text-align:center;color:#97a0af;font-size:10px}'
+        . '.no-print{margin:16px 0;text-align:center}@media print{.no-print{display:none}}</style></head><body>'
+        . '<div class="folha">'
+        . '<div class="topo"><div><div style="font-size:20px;font-weight:800">🔧 FOLHA INFORMATIVA — MANUTENÇÃO</div>'
+        . '<div style="font-size:12px;color:#5e6c84">Gerada em ' . $now . ($d['meName'] !== '' ? ' por ' . $esc($d['meName']) : '') . '</div></div>'
+        . ($d['cie'] !== '' ? '<div class="cie"><small>CIE</small><strong>' . $esc($d['cie']) . '</strong></div>' : '')
+        . '</div>'
+        . '<div class="grid">'
+        . '<div><strong>Cartão:</strong> #' . (int)$card['id'] . ' — ' . $esc($card['name']) . '</div>'
+        . '<div><strong>Escola:</strong> ' . ($d['school'] !== '' ? $esc($d['school']) : '—') . '</div>'
+        . '<div><strong>Quadro:</strong> ' . $esc($d['board']['name'] ?? '—') . ' &nbsp;|&nbsp; <strong>Lista:</strong> ' . $esc($d['list']['name'] ?? '—') . '</div>'
+        . '<div><strong>Total de máquinas:</strong> ' . $total . '</div>'
+        . '</div>'
+        . '<div style="margin-top:10px"><div style="font-size:12px;font-weight:700;margin-bottom:4px">MODELOS</div>' . $models . '</div>'
+        . '<table><thead><tr><th>#</th><th>Modelo</th><th>Etiqueta</th>' . ($d['hasStatus'] ? '<th style="text-align:center">Status Final</th>' : '') . '</tr></thead><tbody>' . $rows . '</tbody></table>'
+        . $pendBox . $statusRow
+        . '<div class="grow"></div>'
+        . '<div class="obs"><strong>Observações:</strong><br><br><br></div>'
+        . '<div class="sig"><div>Responsável pela Manutenção<br><small style="color:#5e6c84">Nome / Assinatura / Data</small></div>'
+        . '<div>Responsável pelo Recebimento<br><small style="color:#5e6c84">Nome / Assinatura / Data</small></div></div>'
+        . '<div class="foot">Documento gerado pelo KanPro • Cartão #' . (int)$card['id'] . ' • ' . $now . '</div>'
+        . '<div class="no-print"><button onclick="window.print()" style="background:#0052cc;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button></div>'
+        . '</div></body></html>';
+}
+// HTML -> PDF via chromium headless (mesmo padrão do assetmgrstatus).
+function kanpro_html_to_pdf(string $html): ?string {
+    try {
+        if (!function_exists('exec') || !is_callable('exec')) return null;
+        $chrome = trim((string)@shell_exec('which chromium-browser 2>&1'));
+        if (!$chrome || str_contains($chrome, 'not found')) $chrome = trim((string)@shell_exec('which google-chrome 2>&1'));
+        if (!$chrome || str_contains($chrome, 'not found')) $chrome = trim((string)@shell_exec('which chromium 2>&1'));
+        if (!$chrome || str_contains($chrome, 'not found')) return null;
+        $chromeBin = trim(explode("\n", $chrome)[0]);
+        if (!file_exists($chromeBin)) return null;
+        $tag = 'kanpro_folha_' . uniqid();
+        $htmlPath = sys_get_temp_dir() . '/' . $tag . '.html';
+        $pdfPath = sys_get_temp_dir() . '/' . $tag . '.pdf';
+        file_put_contents($htmlPath, $html);
+        $cmd = escapeshellarg($chromeBin) . ' --headless --disable-gpu --no-sandbox --print-to-pdf=' . escapeshellarg($pdfPath) . ' ' . escapeshellarg('file://' . $htmlPath) . ' 2>&1';
+        $out = [];
+        $ret = -1;
+        @exec($cmd, $out, $ret);
+        @unlink($htmlPath);
+        if (file_exists($pdfPath) && filesize($pdfPath) > 500) return $pdfPath;
+        @unlink($pdfPath);
+    } catch (Throwable $e) {}
+    return null;
+}
+// Envia PDF ao CUPS: 2 cópias, A4, duplex automático (2+ págs) — igual ao termo.
+function kanpro_print_pdf_cups(string $pdf_path, string $title, ?string $preferred_printer = null): array {
+    try {
+        if (!file_exists($pdf_path)) return ['ok' => false, 'error' => 'PDF não encontrado'];
+        $head = @file_get_contents($pdf_path, false, null, 0, 5);
+        if ($head !== '%PDF-') {
+            @unlink($pdf_path);
+            return ['ok' => false, 'error' => 'Arquivo não é PDF válido'];
+        }
+        $size = filesize($pdf_path);
+        if ($size !== false && $size > 15 * 1024 * 1024) {
+            @unlink($pdf_path);
+            return ['ok' => false, 'error' => 'PDF muito grande'];
+        }
+        $pages = 0;
+        try {
+            $raw = @file_get_contents($pdf_path);
+            if ($raw !== false) {
+                $pages = substr_count($raw, '/Type /Page') - substr_count($raw, '/Type /Pages');
+                if ($pages <= 0) $pages = (int)preg_match_all('/\/Type\s*\/Page[^s]/', $raw);
+            }
+        } catch (Throwable $e) {}
+        $duplex = ((int)$pages > 1);
+        $sidesOpt = $duplex ? 'two-sided-long-edge' : 'one-sided';
+        $printer = ($preferred_printer !== null && trim($preferred_printer) !== '') ? trim($preferred_printer) : null;
+        if ($printer === null && class_exists('\\GlpiPlugin\\Assetmgrstatus\\Transfer')) {
+            try {
+                $printer = \GlpiPlugin\Assetmgrstatus\Transfer::findHpPrinter();
+            } catch (Throwable $e) {}
+        }
+        if (!function_exists('exec') || !is_callable('exec')) {
+            @unlink($pdf_path);
+            return ['ok' => false, 'error' => 'exec desabilitado no PHP'];
+        }
+        $hasLp = trim((string)@shell_exec('which lp 2>&1')) !== '' && !str_contains(trim((string)@shell_exec('which lp 2>&1')), 'not found');
+        $hasLpr = trim((string)@shell_exec('which lpr 2>&1')) !== '' && !str_contains(trim((string)@shell_exec('which lpr 2>&1')), 'not found');
+        if ($printer === null || $printer === '') {
+            @unlink($pdf_path);
+            return ['ok' => false, 'error' => 'Nenhuma impressora no CUPS'];
+        }
+        @chmod($pdf_path, 0644);
+        $stdOpts = '-n 2 -o media=A4 -o fit-to-page -o sides=' . $sidesOpt . ' -o Resolution=600dpi -o print-quality=5';
+        $output = [];
+        $ret = -1;
+        $printed = false;
+        $lastOut = '';
+        if ($hasLp) {
+            $cmd = 'lp -d ' . escapeshellarg($printer) . ' -t ' . escapeshellarg($title) . ' ' . $stdOpts . ' -o ColorModel=Color ' . escapeshellarg($pdf_path) . ' 2>&1';
+            @exec($cmd, $output, $ret);
+            $lastOut = implode("\n", $output);
+            if ($ret === 0) $printed = true;
+        }
+        if (!$printed && $hasLpr) {
+            $output = [];
+            $cmd = 'lpr -P ' . escapeshellarg($printer) . ' -# 2 -o media=A4 -o fit-to-page -o sides=' . $sidesOpt . ' -o Resolution=600dpi -o print-quality=5 ' . escapeshellarg($pdf_path) . ' 2>&1';
+            @exec($cmd, $output, $ret);
+            $lastOut = implode("\n", $output);
+            if ($ret === 0) $printed = true;
+        }
+        $request_id = '';
+        if ($printed && preg_match('/request id is\s+(\S+)/i', $lastOut, $m)) $request_id = $m[1];
+        elseif ($printed && preg_match('/(\S+-\d+)/', $lastOut, $m)) $request_id = $m[1];
+        @unlink($pdf_path);
+        if (!$printed) return ['ok' => false, 'error' => 'Falha ao enviar para ' . $printer, 'output' => $lastOut];
+        return ['ok' => true, 'printer' => $printer, 'request_id' => $request_id, 'output' => $lastOut,
+            'audit' => 'Folha informativa | ' . date('d/m/Y H:i') . ' | Impressora: ' . $printer . ($request_id ? ' | Job: ' . $request_id : '') . ($duplex ? ' | frente e verso' : '')];
+    } catch (Throwable $e) {
+        return ['ok' => false, 'error' => $e->getMessage()];
+    }
+}
+
 switch ($action) {
 
     // --- BOARD ---
@@ -2359,6 +2629,33 @@ switch ($action) {
         foreach($iter as $r) $all[]=$r;
         kanpro_sync_inventory_label((int)$cid);
         jexit(['success'=>true,'machines'=>$all]);
+
+    case 'get_info_sheet':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_REQUEST['cards_id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $d = kanpro_info_sheet_data($cid);
+        if (!$d) jexit(['success'=>false,'msg'=>'Cartão sem máquinas ou não encontrado']);
+        jexit(['success'=>true,'html'=>kanpro_info_sheet_html($d),'hasStatus'=>$d['hasStatus'],'total'=>count($d['machines'])]);
+
+    case 'print_info_sheet':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $d = kanpro_info_sheet_data($cid);
+        if (!$d) jexit(['success'=>false,'msg'=>'Cartão sem máquinas ou não encontrado']);
+        $pdf = kanpro_html_to_pdf(kanpro_info_sheet_html($d));
+        if (!$pdf) jexit(['success'=>false,'msg'=>'Não foi possível gerar o PDF (chromium ausente no servidor). Use a prévia para imprimir.']);
+        $title = 'Folha-' . str_pad($cid, 4, '0', STR_PAD_LEFT);
+        $res = kanpro_print_pdf_cups($pdf, $title, trim($_POST['printer'] ?? '') ?: null);
+        if (!$res['ok']) jexit(['success'=>false,'msg'=>($res['error'] ?? 'Falha ao imprimir')]);
+        $card = new PluginKanproCard();
+        if ($card->getFromDB($cid)) {
+            PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'print_sheet', "Folha informativa impressa (" . ($res['printer'] ?? '?') . (isset($res['request_id']) && $res['request_id'] !== '' ? ' job ' . $res['request_id'] : '') . ")");
+        }
+        jexit(['success'=>true,'printer'=>($res['printer'] ?? ''),'request_id'=>($res['request_id'] ?? ''),'audit'=>($res['audit'] ?? '')]);
 
     case 'get_machine_notes':
         kanpro_ensure_maintenance_tables();
