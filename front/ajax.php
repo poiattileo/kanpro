@@ -980,6 +980,7 @@ switch ($action) {
         if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         $card = new PluginKanproCard();
         $id = $card->add(['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name]);
+        PluginKanproBoard::logActivity((int)$list->fields['plugin_kanpro_boards_id'], (int)$id, $lists_id, 'card_create', "Criado na lista '{$list->fields['name']}'");
         jexit(['success'=>true,'id'=>$id, 'card'=>$card->fields]);
 
     case 'get_card':
@@ -1009,6 +1010,15 @@ switch ($action) {
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
         $target_list = (int)($_POST['target_lists_id'] ?? 0);
+        // origem p/ histórico de movimentação
+        $c0 = new PluginKanproCard();
+        $from_list = 0; $from_name = ''; $bid0 = 0;
+        if ($c0->getFromDB($cid)) {
+            $from_list = (int)$c0->fields['plugin_kanpro_lists_id'];
+            $bid0 = (int)$c0->fields['plugin_kanpro_boards_id'];
+            $fl0 = new PluginKanproList();
+            if ($fl0->getFromDB($from_list)) $from_name = $fl0->fields['name'];
+        }
         $pos = isset($_POST['position']) ? (int)$_POST['position'] : null;
         // Se position dado, calcula rank; senão joga pro fim
         if ($pos !== null) {
@@ -1036,7 +1046,51 @@ switch ($action) {
         } else {
             PluginKanproCard::moveCard($cid, $target_list);
         }
+        // histórico de movimentação do cartão
+        if ($from_list && $target_list && $from_list !== $target_list) {
+            $tl0 = new PluginKanproList();
+            $to_name = $tl0->getFromDB($target_list) ? $tl0->fields['name'] : ('#' . $target_list);
+            PluginKanproBoard::logActivity($bid0, $cid, $target_list, 'card_move', "[from:{$from_list}] Saiu de '{$from_name}' → '{$to_name}'");
+        }
         jexit(['success'=>true]);
+
+    case 'move_all_cards':
+
+    case 'move_all_cards':
+        needEdit();
+        $from = (int)($_POST['lists_id'] ?? 0);
+        $to = (int)($_POST['target_lists_id'] ?? 0);
+        if (!$from || !$to || $from === $to) jexit(['success'=>false,'msg'=>'Listas inválidas']);
+        $fl = new PluginKanproList(); $tl = new PluginKanproList();
+        if (!$fl->getFromDB($from) || !$tl->getFromDB($to)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        if ((int)$fl->fields['plugin_kanpro_boards_id'] !== (int)$tl->fields['plugin_kanpro_boards_id']) jexit(['success'=>false,'msg'=>'Listas de quadros diferentes']);
+        $bid = (int)$fl->fields['plugin_kanpro_boards_id'];
+        $cards = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$from,'is_archived'=>0],'ORDER'=>'rank ASC']);
+        $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$to],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+        $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
+        $count = 0;
+        foreach ($cards as $c) {
+            $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$to,'rank'=>$rank], ['id'=>$c['id']]);
+            PluginKanproBoard::logActivity($bid, (int)$c['id'], $to, 'card_move', "[from:{$from}] Saiu de '{$fl->fields['name']}' → '{$tl->fields['name']}' (mover todos)");
+            $rank += 1024; $count++;
+        }
+        if ($count) PluginKanproBoard::logActivity($bid, null, $to, 'list_move_all', "{$count} cartão(ões) movidos de '{$fl->fields['name']}' → '{$tl->fields['name']}'");
+        jexit(['success'=>true,'moved'=>$count]);
+
+    case 'archive_all_cards':
+        needEdit();
+        $lid = (int)($_POST['lists_id'] ?? 0);
+        $fl = new PluginKanproList();
+        if (!$fl->getFromDB($lid)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $bid = (int)$fl->fields['plugin_kanpro_boards_id'];
+        $cards = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$lid,'is_archived'=>0]]);
+        $count = 0;
+        foreach ($cards as $c) {
+            $DB->update('glpi_plugin_kanpro_cards', ['is_archived'=>1], ['id'=>$c['id']]);
+            PluginKanproBoard::logActivity($bid, (int)$c['id'], $lid, 'card_archive', "Arquivado junto com a lista '{$fl->fields['name']}' (arquivar todos)");
+            $count++;
+        }
+        jexit(['success'=>true,'archived'=>$count]);
 
     case 'reorder_cards':
         needEdit();
@@ -1217,6 +1271,7 @@ switch ($action) {
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
         $new = $row['is_completed'] ? 0 : 1;
         $DB->update('glpi_plugin_kanpro_cards', ['is_completed'=>$new], ['id'=>$cid]);
+        PluginKanproBoard::logActivity((int)$row['plugin_kanpro_boards_id'], $cid, (int)$row['plugin_kanpro_lists_id'], $new ? 'card_complete' : 'card_reopen', $new ? 'Cartão concluído' : 'Cartão reaberto');
         jexit(['success'=>true,'is_completed'=>$new]);
 
     // --- BOARD ACTIVITY ---
@@ -1224,6 +1279,46 @@ switch ($action) {
         $bid = (int)($_REQUEST['boards_id'] ?? 0);
         $acts = PluginKanproActivity::getForBoard($bid, 50);
         jexit(['success'=>true,'data'=>$acts]);
+
+    case 'get_board_report':
+        $bid = (int)($_REQUEST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $bchk = new PluginKanproBoard();
+        if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        // mesma trava de visibilidade do kanban: criador, membro ou quadro legado sem membros
+        $__me = (int)Session::getLoginUserID();
+        $__creator = (int)($bchk->fields['users_id'] ?? 0);
+        if ($__me !== $__creator) {
+            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>$__me]) > 0;
+            $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
+            if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        }
+        $lists = [];
+        $liter = $DB->request(['FROM'=>'glpi_plugin_kanpro_lists','WHERE'=>['plugin_kanpro_boards_id'=>$bid],'ORDER'=>'rank ASC']);
+        foreach ($liter as $l) $lists[] = ['id'=>(int)$l['id'],'name'=>$l['name'],'is_archived'=>(int)$l['is_archived']];
+        $cards = [];
+        $citer = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_boards_id'=>$bid],'ORDER'=>'date_creation ASC']);
+        foreach ($citer as $c) {
+            $cards[] = ['id'=>(int)$c['id'],'name'=>$c['name'],'list_id'=>(int)$c['plugin_kanpro_lists_id'],
+                'date_creation'=>$c['date_creation'],'date_mod'=>$c['date_mod'],
+                'is_completed'=>(int)$c['is_completed'],'is_archived'=>(int)$c['is_archived']];
+        }
+        $moves = [];
+        $miter = $DB->request([
+            'SELECT' => ['a.plugin_kanpro_cards_id', 'a.plugin_kanpro_lists_id', 'a.action', 'a.details', 'a.date_creation', 'u.name AS user_name', 'u.realname', 'u.firstname'],
+            'FROM'   => 'glpi_plugin_kanpro_activities AS a',
+            'LEFT JOIN' => ['glpi_users AS u' => ['ON' => ['u' => 'id', 'a' => 'users_id']]],
+            'WHERE'  => ['a.plugin_kanpro_boards_id'=>$bid, 'a.action'=>['card_move','card_complete','card_reopen','card_create','card_archive']],
+            'ORDER'  => 'a.date_creation ASC',
+            'LIMIT'  => 5000,
+        ]);
+        foreach ($miter as $m) {
+            $uname = trim(($m['realname'] ?? '') . ' ' . ($m['firstname'] ?? ''));
+            if ($uname === '') $uname = $m['user_name'] ?? 'Sistema';
+            $moves[] = ['card_id'=>(int)$m['plugin_kanpro_cards_id'],'list_id'=>(int)$m['plugin_kanpro_lists_id'],
+                'action'=>$m['action'],'details'=>$m['details'],'date'=>$m['date_creation'],'user'=>$uname];
+        }
+        jexit(['success'=>true,'lists'=>$lists,'cards'=>$cards,'moves'=>$moves]);
 
     // --- SEARCH FILTER ---
     case 'search_cards':

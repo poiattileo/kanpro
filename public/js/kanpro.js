@@ -631,6 +631,7 @@
     openListMenu(e, listId){
       e.stopPropagation();
       const list = this.lists.find(l=> l.id==listId);
+      const activeCount = this.cards.filter(c=> c.plugin_kanpro_lists_id==listId && c.is_archived==0).length;
       const rect = e.target.getBoundingClientRect();
       this.showPicker({
         title: `Ações da lista: ${list.name}`,
@@ -640,10 +641,44 @@
           <div style="display:grid;gap:4px">
             <button class="kp-picker-item" onclick="Kanpro.editListTitle(${listId}); Kanpro.closePicker()"><i class="ti ti-pencil"></i> Renomear lista</button>
             <button class="kp-picker-item" onclick="Kanpro.copyList(${listId})"><i class="ti ti-copy"></i> Copiar lista</button>
+            <button class="kp-picker-item" onclick="Kanpro.moveAllCardsPicker(${listId})"><i class="ti ti-arrows-right"></i> Mover todos os cartões (${activeCount})</button>
             <button class="kp-picker-item" onclick="Kanpro.archiveList(${listId})"><i class="ti ti-archive"></i> Arquivar lista</button>
             <hr style="margin:4px 0;border:none;border-top:1px solid #dfe1e6">
+            <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.archiveAllCards(${listId}, ${activeCount})"><i class="ti ti-box"></i> Arquivar todos os cartões (${activeCount})</button>
             <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.askDeleteList(${listId})"><i class="ti ti-trash"></i> Excluir lista</button>
           </div>`
+      });
+    },
+    moveAllCardsPicker(listId){
+      const from = this.lists.find(l=> l.id==listId);
+      const dests = this.lists.filter(l=> l.id!=listId && l.is_archived==0);
+      if(!dests.length){ alert('Não há outra lista para receber os cartões.'); return; }
+      const n = this.cards.filter(c=> c.plugin_kanpro_lists_id==listId && c.is_archived==0).length;
+      if(!n){ alert('Esta lista não tem cartões ativos.'); return; }
+      this.showPicker({
+        title: `Mover ${n} cartão(ões) de "${from.name}"`,
+        html: `<div style="display:grid;gap:6px">` + dests.map(l=>
+          `<button class="kp-picker-item" onclick="Kanpro.doMoveAllCards(${listId}, ${l.id})"><i class="ti ti-arrow-right"></i> ${this.escape(l.name)}</button>`
+        ).join('') + `</div>`
+      });
+    },
+    doMoveAllCards(fromId, toId){
+      this.ajax('move_all_cards', {lists_id: fromId, target_lists_id: toId}).then(res=>{
+        this.closePicker();
+        if(res.success){
+          this.showToast(`${res.moved||0} cartão(ões) movidos`);
+          location.reload();
+        } else alert(res.msg||'Erro');
+      });
+    },
+    async archiveAllCards(listId, count){
+      const n = (count !== undefined) ? count : this.cards.filter(c=> c.plugin_kanpro_lists_id==listId && c.is_archived==0).length;
+      if(!n){ alert('Esta lista não tem cartões ativos.'); return; }
+      if(!await this.kpConfirm(`Arquivar os ${n} cartões desta lista? Eles saem do quadro (podem ser restaurados um a um).`)) return;
+      this.ajax('archive_all_cards', {lists_id: listId}).then(res=>{
+        this.closePicker();
+        if(res.success){ this.showToast(`${res.archived||0} cartão(ões) arquivados`); location.reload(); }
+        else alert(res.msg||'Erro');
       });
     },
     copyList(listId){
@@ -924,6 +959,28 @@
         </div>
       `).join('');
       actContainer.style.display='none'; // começa oculto, botão mostra
+
+      // movimentação — linha do tempo (criação, mudanças de lista, arquivamento)
+      const movesContainer = $('#card-modal-moves');
+      if(movesContainer){
+        const moves = (data.activities||[]).filter(a=> ['card_move','card_create','card_archive'].includes(a.action));
+        movesContainer.innerHTML = moves.map((a,i)=>{
+          const clean = String(a.details||a.action).replace(/^\[from:\d+\]\s*/, '');
+          const who = this.escape(a.realname||a.firstname||a.user_name||'Sistema');
+          const dot = a.action==='card_create' ? '#61bd4f' : (a.action==='card_archive' ? '#ff5630' : '#0079bf');
+          const last = i===moves.length-1;
+          return `<div style="display:flex;gap:10px">
+            <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:14px">
+              <span style="width:10px;height:10px;border-radius:50%;background:${dot};margin-top:4px;flex-shrink:0"></span>
+              ${last?'':'<span style="width:2px;flex:1;background:#dfe1e6;min-height:12px"></span>'}
+            </div>
+            <div style="padding-bottom:12px;min-width:0">
+              <div style="font-size:13px;color:#172b4d">${this.escape(clean)}</div>
+              <div style="font-size:11px;color:#5e6c84">${who} • ${this.formatDate(a.date_creation)}</div>
+            </div>
+          </div>`;
+        }).join('') || '<div style="color:#5e6c84;font-size:13px">Sem movimentações registradas ainda.</div>';
+      }
 
       // atualiza cache local
       const idx = this.cards.findIndex(x=> x.id==data.id);
@@ -3474,6 +3531,149 @@
       this.ajax('add_label', {boards_id: this.board.id, name: name||'', color}).then(res=>{
         if(res.success){ this.labels.push({id:res.id, plugin_kanpro_boards_id:this.board.id, name:name||'', color}); this.renderBoardMenuDetails(); this.renderBoard(); alert('Etiqueta criada!'); }
       });
+    },
+    /* ---------- RELATÓRIO DO QUADRO ---------- */
+    openBoardReport(){
+      this.showPicker({title:'📊 Relatório do quadro', html:'<div style="padding:20px;text-align:center;color:#5e6c84">Carregando...</div>'});
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='620px'; p.style.maxWidth='94vw'; p.style.width='640px'; p.style.maxHeight='90vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      const b = document.getElementById('picker-body');
+      if(b){ b.style.maxHeight='72vh'; b.style.overflowY='auto'; }
+      this.ajax('get_board_report', {boards_id: this.board.id}).then(res=>{
+        if(!res.success){ alert(res.msg||'Erro'); this.closePicker(); return; }
+        this._lastReport = res;
+        this.renderBoardReport(30);
+      });
+    },
+    reportParseDate(s){
+      if(!s) return null;
+      const t = Date.parse(String(s).replace(' ', 'T'));
+      return isNaN(t) ? null : t;
+    },
+    reportFmtDur(ms){
+      if(ms < 0) ms = 0;
+      const min = ms/60000;
+      if(min < 60) return Math.round(min) + 'min';
+      const h = min/60;
+      if(h < 48) return (Math.round(h*10)/10).toString().replace('.', ',') + 'h';
+      return (Math.round(h/24*10)/10).toString().replace('.', ',') + ' dias';
+    },
+    reportFmtDate(s){
+      if(!s) return '—';
+      const d = new Date(String(s).replace(' ', 'T'));
+      return isNaN(d) ? s : d.toLocaleDateString('pt-BR');
+    },
+    renderBoardReport(days){
+      const res = this._lastReport;
+      if(!res) return;
+      const now = Date.now();
+      const since = days > 0 ? now - days*86400000 : 0;
+      const listById = {};
+      (res.lists||[]).forEach(l=> listById[l.id] = l.name);
+      const movesByCard = {};
+      (res.moves||[]).forEach(m=>{ (movesByCard[m.card_id] = movesByCard[m.card_id] || []).push(m); });
+      // tempo por lista (a partir do histórico de movimentações)
+      const stats = {}; // listId -> {ms, visits}
+      const bump = (lid, ms)=>{ if(lid===undefined||lid===null) return; const k = String(lid); stats[k] = stats[k] || {ms:0, visits:0}; stats[k].ms += Math.max(0,ms); stats[k].visits++; };
+      (res.cards||[]).forEach(c=>{
+        const evs = (movesByCard[c.id]||[]).filter(e=> e.action==='card_move');
+        let prevT = this.reportParseDate(c.date_creation) || now;
+        let firstFrom = null;
+        if(evs.length){
+          const m0 = String(evs[0].details||'').match(/^\[from:(\d+)\]/);
+          firstFrom = m0 ? parseInt(m0[1]) : null;
+        }
+        let prevList = (firstFrom !== null && firstFrom !== undefined) ? firstFrom : c.list_id;
+        evs.forEach(e=>{
+          const t = this.reportParseDate(e.date);
+          if(t !== null){ bump(prevList, t - prevT); prevT = t; }
+          prevList = e.list_id;
+        });
+        const endT = (c.is_archived && c.date_mod) ? (this.reportParseDate(c.date_mod) || now) : now;
+        bump(c.list_id, endT - prevT);
+      });
+      // contagens no período
+      let created = 0, completed = 0;
+      (res.cards||[]).forEach(c=>{ const t = this.reportParseDate(c.date_creation); if(t !== null && t >= since) created++; });
+      const completedIds = new Set();
+      (res.moves||[]).forEach(m=>{
+        if(m.action!=='card_complete') return;
+        const t = this.reportParseDate(m.date);
+        if(t !== null && t >= since) completedIds.add(m.card_id);
+      });
+      completed = completedIds.size;
+      const archived = (res.cards||[]).filter(c=> c.is_archived).length;
+      const active = (res.cards||[]).filter(c=> !c.is_archived).length;
+      const periodLabel = days>0 ? `últimos ${days} dias` : 'todo o período';
+      const listRows = (res.lists||[]).map(l=>{
+        const s = stats[String(l.id)];
+        const avg = (s && s.visits) ? s.ms/s.visits : 0;
+        return `<tr><td style="padding:6px 8px;border-bottom:1px solid #dfe1e6">${this.escape(l.name)}${l.is_archived?' (arquivada)':''}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6;text-align:center">${s ? s.visits : 0}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6;text-align:right">${s ? this.reportFmtDur(avg) : '—'}</td></tr>`;
+      }).join('');
+      const cardRows = (res.cards||[]).map(c=>{
+        const mv = (movesByCard[c.id]||[]).filter(e=> e.action==='card_move').length;
+        return `<tr><td style="padding:6px 8px;border-bottom:1px solid #dfe1e6">#${c.id} ${this.escape(c.name)}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6">${this.escape(listById[c.list_id]||'—')}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6">${this.reportFmtDate(c.date_creation)}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6;text-align:center">${mv}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6;text-align:center">${c.is_completed?'✅':''}</td>`
+          + `<td style="padding:6px 8px;border-bottom:1px solid #dfe1e6;text-align:center">${c.is_archived?'📦':''}</td></tr>`;
+      }).join('');
+      const html = `
+        <div style="display:grid;gap:12px">
+          <label style="font-size:12px;font-weight:600;color:#5e6c84">Período
+            <select id="kpr-days" onchange="Kanpro.renderBoardReport(parseInt(this.value))" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">
+              <option value="7"${days===7?' selected':''}>Últimos 7 dias</option>
+              <option value="30"${days===30?' selected':''}>Últimos 30 dias</option>
+              <option value="90"${days===90?' selected':''}>Últimos 90 dias</option>
+              <option value="0"${days===0?' selected':''}>Todo o período</option>
+            </select>
+          </label>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+            <div style="background:#e6fcff;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#0079bf">${created}</div><div style="font-size:11px;color:#5e6c84">Criados<br>(${periodLabel})</div></div>
+            <div style="background:#e3fcef;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#006644">${completed}</div><div style="font-size:11px;color:#5e6c84">Concluídos<br>(${periodLabel})</div></div>
+            <div style="background:#f4f5f7;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#172b4d">${active}</div><div style="font-size:11px;color:#5e6c84">Ativos<br>agora</div></div>
+            <div style="background:#fffae6;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#975500">${archived}</div><div style="font-size:11px;color:#5e6c84">Arquivados<br>(total)</div></div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:6px">⏱️ Tempo médio por lista</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f4f5f7"><th style="padding:6px 8px;text-align:left">Lista</th><th style="padding:6px 8px">Passagens</th><th style="padding:6px 8px;text-align:right">Tempo médio</th></tr></thead><tbody>${listRows}</tbody></table>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:6px">🗂️ Cartões (${(res.cards||[]).length})</div>
+            <div style="max-height:240px;overflow-y:auto;border:1px solid #dfe1e6;border-radius:8px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f4f5f7;position:sticky;top:0"><th style="padding:6px 8px;text-align:left">Cartão</th><th style="padding:6px 8px;text-align:left">Lista</th><th style="padding:6px 8px;text-align:left">Criado em</th><th style="padding:6px 8px">Mov.</th><th style="padding:6px 8px">OK</th><th style="padding:6px 8px">Arq.</th></tr></thead><tbody>${cardRows}</tbody></table>
+            </div>
+          </div>
+          <div style="font-size:11px;color:#97a0af">Tempo por lista calculado pelo histórico de movimentações. Conclusões contam a partir desta versão.</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="Kanpro.exportBoardReportCSV()" style="background:#006644;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700"><i class="ti ti-download"></i> Exportar CSV</button>
+          </div>
+        </div>`;
+      document.getElementById('picker-body').innerHTML = html;
+    },
+    exportBoardReportCSV(){
+      const res = this._lastReport;
+      if(!res) return;
+      const listById = {};
+      (res.lists||[]).forEach(l=> listById[l.id] = l.name);
+      const movesByCard = {};
+      (res.moves||[]).forEach(m=>{ (movesByCard[m.card_id] = movesByCard[m.card_id] || []).push(m); });
+      const q = v=> `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const lines = ['Cartão;Lista atual;Criado em;Concluído;Arquivado;Movimentações'];
+      (res.cards||[]).forEach(c=>{
+        const mv = (movesByCard[c.id]||[]).filter(e=> e.action==='card_move').length;
+        lines.push([q('#'+c.id+' '+c.name), q(listById[c.list_id]||''), q(c.date_creation||''), c.is_completed?'SIM':'NÃO', c.is_archived?'SIM':'NÃO', mv].join(';'));
+      });
+      const blob = new Blob(["\ufeff" + lines.join("\r\n")], {type:'text/csv;charset=utf-8'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'relatorio-quadro-' + (this.board.id || 'kanpro') + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500);
     },
     /* ---------- MARKDOWN SIMPLES ---------- */
     parseMarkdown(text){

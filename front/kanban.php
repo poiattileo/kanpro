@@ -329,6 +329,7 @@ echo <<<HTML
   <div style="display:flex;gap:8px;padding:8px 16px;align-items:center;flex-wrap:wrap">
     <button id="kanpro-filter-btn" onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
     <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
+    <button id="kanpro-report-btn" onclick="Kanpro.openBoardReport()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-chart-bar"></i> Relatório</button>
     <a id="kanpro-mytasks-btn" href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/mytasks.php" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d;text-decoration:none"><i class="ti ti-user-check"></i> Minhas tarefas</a>
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
@@ -418,6 +419,12 @@ echo <<<HTML
         <div style="margin-top:20px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-activity"></i><strong>Atividade</strong><button onclick="Kanpro.toggleActivity()" style="margin-left:auto;background:#eaecf0;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Mostrar detalhes</button></div>
           <div id="card-modal-activity" style="display:grid;gap:8px"></div>
+        </div>
+
+        <!-- Movimentação -->
+        <div style="margin-top:20px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-route"></i><strong>Movimentação</strong></div>
+          <div id="card-modal-moves" style="display:grid"></div>
         </div>
       </div>
 
