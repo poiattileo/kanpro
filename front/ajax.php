@@ -133,6 +133,31 @@ function kanpro_ensure_board_extras() {
 }
 
 // ---------- Helpers Manutenção ----------
+// Etiqueta roxa "Inventário": presente no cartão enquanto houver >=1 máquina que precisa inventariar.
+function kanpro_sync_inventory_label($cards_id) {
+    global $DB;
+    $cards_id = (int)$cards_id;
+    if (!$cards_id) return;
+    $card = new PluginKanproCard();
+    if (!$card->getFromDB($cards_id)) return;
+    $bid = (int)$card->fields['plugin_kanpro_boards_id'];
+    $needs = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cards_id, 'needs_inventory'=>1]);
+    // acha ou cria a etiqueta roxa do quadro
+    $lab = $DB->request(['FROM'=>'glpi_plugin_kanpro_labels','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'name'=>'Inventário'],'LIMIT'=>1])->current();
+    if ($needs > 0) {
+        if (!$lab) {
+            $nl = new PluginKanproLabel();
+            $labId = $nl->add(['plugin_kanpro_boards_id'=>$bid,'name'=>'Inventário','color'=>'#6554c0']);
+        } else {
+            $labId = (int)$lab['id'];
+        }
+        if ($labId && !countElementsInTable('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id'=>$cards_id,'plugin_kanpro_labels_id'=>$labId])) {
+            $DB->insert('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id'=>$cards_id,'plugin_kanpro_labels_id'=>$labId]);
+        }
+    } elseif ($lab) {
+        $DB->delete('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id'=>$cards_id,'plugin_kanpro_labels_id'=>(int)$lab['id']]);
+    }
+}
 function kanpro_verify_password($input) {
     global $DB;
     $uid = Session::getLoginUserID();
@@ -228,6 +253,7 @@ function kanpro_ensure_maintenance_tables() {
                 `is_ok`                       TINYINT(1)   NOT NULL DEFAULT '0',
                 `status`                      VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'garantia,ok,inservivel,pendente',
                 `is_inventoried`              TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao,1=inventariado',
+                `needs_inventory`             TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao precisa,1=precisa inventariar',
                 `is_urgent`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=normal,1=urgencia',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
@@ -250,6 +276,11 @@ function kanpro_ensure_maintenance_tables() {
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_inventoried')) {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_inventoried` TINYINT(1) NOT NULL DEFAULT '0' AFTER `status`");
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'needs_inventory')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `needs_inventory` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
+                // legado: quem já estava inventariado, precisava inventariar
+                $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `needs_inventory`=1 WHERE `is_inventoried`=1");
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_urgent')) {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
@@ -1981,6 +2012,11 @@ switch ($action) {
         }
         if (array_key_exists('is_inventoried', $_POST)) $updates['is_inventoried'] = (int)$_POST['is_inventoried'] ? 1:0;
         if (array_key_exists('inventoried', $_POST)) $updates['is_inventoried'] = (int)$_POST['inventoried'] ? 1:0;
+        if (array_key_exists('needs_inventory', $_POST)) {
+            $updates['needs_inventory'] = (int)$_POST['needs_inventory'] ? 1:0;
+            // se não precisa inventariar, limpa confirmação
+            if (!$updates['needs_inventory']) $updates['is_inventoried'] = 0;
+        }
         if (array_key_exists('is_urgent', $_POST)) $updates['is_urgent'] = (int)$_POST['is_urgent'] ? 1:0;
         if (array_key_exists('urgent', $_POST)) $updates['is_urgent'] = (int)$_POST['urgent'] ? 1:0;
         if (array_key_exists('urgencia', $_POST)) $updates['is_urgent'] = (int)$_POST['urgencia'] ? 1:0;
@@ -2010,6 +2046,9 @@ switch ($action) {
         if (array_key_exists('is_inventoried', $updates) && (int)$updates['is_inventoried'] !== (int)($row['is_inventoried'] ?? 0)) {
             $chg[] = !empty($updates['is_inventoried']) ? 'marcada como INVENTARIADA' : 'desmarcada de inventariada';
         }
+        if (array_key_exists('needs_inventory', $updates) && (int)$updates['needs_inventory'] !== (int)($row['needs_inventory'] ?? 0)) {
+            $chg[] = !empty($updates['needs_inventory']) ? 'marcada como PRECISA INVENTARIAR' : 'marcada como NÃO precisa inventariar';
+        }
         if (!empty($chg)) {
             $cidM = (int)$row['plugin_kanpro_cards_id'];
             $tid = kanpro_card_ticket_id($cidM);
@@ -2029,6 +2068,8 @@ switch ($action) {
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $card->getID(), $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Máquina #{$row['seq']} atualizada");
         }
         $newRow = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
+        // etiqueta roxa "Inventário" acompanha quem precisa inventariar
+        if (array_key_exists('needs_inventory', $updates)) kanpro_sync_inventory_label((int)$row['plugin_kanpro_cards_id']);
         jexit(['success'=>true,'machine'=>$newRow]);
 
     case 'add_maintenance_machines':
@@ -2135,6 +2176,7 @@ switch ($action) {
         $all=[];
         $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
         foreach($iter as $r) $all[]=$r;
+        kanpro_sync_inventory_label((int)$cid);
         jexit(['success'=>true,'machines'=>$all]);
 
     case 'get_machine_notes':
