@@ -139,7 +139,7 @@ echo "</div>";
 
 $__kpb_ajax = Plugin::getWebDir('kanpro') . '/front/ajax.php';
 $__kpb_csrf = Session::getNewCSRFToken();
-echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . ";</script>";
+echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; window.KANPRO_HISTORY_CSRF = " . json_encode($__kpb_csrf) . ";</script>";
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
 <div id="kpb-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center;padding:16px">
