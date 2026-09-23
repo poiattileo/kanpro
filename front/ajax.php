@@ -550,6 +550,98 @@ function kanpro_card_machines_report(int $cards_id): string {
     } catch (Throwable $e) { return ''; }
 }
 
+// ZIP mínimo (método stored, sem compressão) — dependency-free p/ montar o xlsx.
+function kanpro_zip_stored(array $files): string {
+    $ts = time();
+    $d = getdate($ts);
+    $t = (($d['hours'] << 11) | ($d['minutes'] << 5) | ($d['seconds'] >> 1)) & 0xFFFF;
+    $dt = ((($d['year'] - 1980) << 9) | ($d['mon'] << 5) | $d['mday']) & 0xFFFF;
+    $body = '';
+    $central = '';
+    $offset = 0;
+    foreach ($files as $name => $data) {
+        $data = (string)$data;
+        $crc = crc32($data);
+        if ($crc < 0) $crc += 4294967296;
+        $len = strlen($data);
+        $nl = strlen($name);
+        $local = "PK\x03\x04" . pack('vvvvvVVVvv', 20, 0x0800, 0, $t, $dt, $crc, $len, $len, $nl, 0) . $name . $data;
+        $body .= $local;
+        $central .= "PK\x01\x02" . pack('vvvvvvVVVvvvvvVV', 20, 20, 0x0800, 0, $t, $dt, $crc, $len, $len, $nl, 0, 0, 0, 0, 0, $offset) . $name;
+        $offset += strlen($local);
+    }
+    $cdLen = strlen($central);
+    $count = count($files);
+    return $body . $central . "PK\x05\x06" . pack('vvvvVVv', 0, 0, $count, $count, $cdLen, $offset, 0);
+}
+
+// Planilha xlsx real (ZIP + XML inline strings, sem dependências).
+function kanpro_build_xlsx(string $sheet, array $header, array $rows): string {
+    $clean = function ($v) {
+        $v = (string)($v ?? '');
+        $v = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $v);
+        return htmlspecialchars($v, ENT_XML1 | ENT_COMPAT, 'UTF-8');
+    };
+    $cell = function ($v) use ($clean) { return '<c t="inlineStr"><is><t>' . $clean($v) . '</t></is></c>'; };
+    $sheetName = $clean(mb_substr(preg_replace('/[\\\\\\/\\?\\*\\[\\]]/', '', $sheet) ?: 'Planilha', 0, 31));
+    $xml = '<row r="1">';
+    foreach ($header as $h) $xml .= $cell($h);
+    $xml .= '</row>';
+    $r = 1;
+    foreach ($rows as $row) {
+        $r++;
+        $xml .= '<row r="' . $r . '">';
+        foreach ($row as $v) $xml .= $cell($v);
+        $xml .= '</row>';
+    }
+    $ct = '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        . '<Default Extension="rels" ContentType="application/vnd.openxml-package.relationships+xml"/>'
+        . '<Default Extension="xml" ContentType="application/xml"/>'
+        . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        . '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        . '</Types>';
+    $rels = '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        . '</Relationships>';
+    $wb = '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        . '<sheets><sheet name="' . $sheetName . '" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    $wbr = '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        . '</Relationships>';
+    $ws = '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        . '<cols><col min="1" max="1" width="19" customWidth="1"/><col min="2" max="2" width="30" customWidth="1"/><col min="3" max="3" width="24" customWidth="1"/><col min="4" max="4" width="32" customWidth="1"/><col min="5" max="5" width="70" customWidth="1"/></cols>'
+        . '<sheetData>' . $xml . '</sheetData></worksheet>';
+    $tmp = tempnam(sys_get_temp_dir(), 'kph');
+    if ($tmp && class_exists('ZipArchive')) {
+        $zip = new ZipArchive();
+        if ($zip->open($tmp, ZipArchive::OVERWRITE) === true) {
+            $zip->addFromString('[Content_Types].xml', $ct);
+            $zip->addFromString('_rels/.rels', $rels);
+            $zip->addFromString('xl/workbook.xml', $wb);
+            $zip->addFromString('xl/_rels/workbook.xml.rels', $wbr);
+            $zip->addFromString('xl/worksheets/sheet1.xml', $ws);
+            $zip->close();
+            $bin = @file_get_contents($tmp);
+            @unlink($tmp);
+            if ($bin) return $bin;
+        }
+        @unlink($tmp);
+    }
+    // fallback sem extensão: monta o ZIP na mão
+    return kanpro_zip_stored([
+        '[Content_Types].xml' => $ct,
+        '_rels/.rels' => $rels,
+        'xl/workbook.xml' => $wb,
+        'xl/_rels/workbook.xml.rels' => $wbr,
+        'xl/worksheets/sheet1.xml' => $ws,
+    ]);
+}
+
 switch ($action) {
 
     // --- BOARD ---
@@ -1437,6 +1529,7 @@ switch ($action) {
         jexit(['success'=>true]);
 
     case 'get_history':
+        try {
         $bid = (int)($_REQUEST['boards_id'] ?? 0);
         if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
         $bchk = new PluginKanproBoard();
@@ -1463,18 +1556,18 @@ switch ($action) {
         $addP($__creator, 'criador');
         $pmiter = $DB->request(['FROM'=>'glpi_plugin_kanpro_boards_members','WHERE'=>['plugin_kanpro_boards_id'=>$bid],'ORDER'=>'date_creation ASC']);
         foreach ($pmiter as $pm) $addP($pm['users_id'], $pm['role'] ?? '');
-        // filtros
+        // filtros (faction: "action" é o parâmetro de rota — não usar)
         $where = ['a.plugin_kanpro_boards_id' => $bid];
         $fuser = (int)($_REQUEST['users_id'] ?? 0);
         if ($fuser > 0) $where['a.users_id'] = $fuser;
-        $faction = trim($_REQUEST['action'] ?? '');
+        $faction = trim($_REQUEST['faction'] ?? '');
         if ($faction !== '') $where['a.action'] = $faction;
         $fcard = (int)($_REQUEST['card_id'] ?? 0);
         if ($fcard > 0) $where['a.plugin_kanpro_cards_id'] = $fcard;
         $ffrom = trim($_REQUEST['date_from'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ffrom)) $ffrom = '';
         $fto = trim($_REQUEST['date_to'] ?? '');
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $ffrom)) $where[] = ['a.date_creation' => ['>=', $ffrom . ' 00:00:00']];
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fto)) $where[] = ['a.date_creation' => ['<=', $fto . ' 23:59:59']];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fto)) $fto = '';
         $rows = [];
         $aiter = $DB->request([
             'SELECT' => ['a.*', 'u.name AS user_name', 'u.realname', 'u.firstname', 'c.name AS card_name'],
@@ -1488,15 +1581,90 @@ switch ($action) {
             'LIMIT'  => 500,
         ]);
         foreach ($aiter as $a) {
+            $d = (string)($a['date_creation'] ?? '');
+            if ($ffrom !== '' && substr($d, 0, 10) < $ffrom) continue;
+            if ($fto !== '' && substr($d, 0, 10) > $fto) continue;
             $uname = trim(($a['realname'] ?? '') . ' ' . ($a['firstname'] ?? ''));
             if ($uname === '') $uname = $a['user_name'] ?? 'Sistema';
-            $rows[] = ['id'=>(int)$a['id'], 'date'=>($a['date_creation'] ?? ''), 'user'=>$uname,
+            $rows[] = ['id'=>(int)$a['id'], 'date'=>$d, 'user'=>$uname,
                 'user_id'=>(int)($a['users_id'] ?? 0), 'action'=>($a['action'] ?? ''),
                 'details'=>preg_replace('/^\[from:\d+\]\s*/', '', (string)($a['details'] ?? '')),
                 'card_id'=>(int)($a['plugin_kanpro_cards_id'] ?? 0), 'card_name'=>($a['card_name'] ?? '')];
         }
         jexit(['success'=>true, 'board_id'=>$bid, 'board_name'=>($bchk->fields['name'] ?? ''),
-            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'action'=>$faction,'card_id'=>$fcard,'date_from'=>$ffrom,'date_to'=>$fto]]);
+            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'faction'=>$faction,'card_id'=>$fcard,'date_from'=>$ffrom,'date_to'=>$fto]]);
+        } catch (Throwable $e) {
+            Toolbox::logError('KanPro get_history: ' . $e->getMessage());
+            jexit(['success'=>false,'msg'=>'Falha ao carregar histórico']);
+        }
+
+    case 'export_history_xlsx':
+        // download direto (GET ou POST) — mesmos filtros do get_history
+        try {
+            $bid = (int)($_REQUEST['boards_id'] ?? 0);
+            if (!$bid) throw new Exception('Quadro inválido');
+            $bchk = new PluginKanproBoard();
+            if (!$bchk->getFromDB($bid)) throw new Exception('Quadro não encontrado');
+            $__me = (int)Session::getLoginUserID();
+            $__creator = (int)($bchk->fields['users_id'] ?? 0);
+            if ($__me !== $__creator) {
+                $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
+                $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
+                if (!$__isM && $__hasM) throw new Exception('Sem acesso a este quadro');
+            }
+            $where = ['a.plugin_kanpro_boards_id' => $bid];
+            $fuser = (int)($_REQUEST['users_id'] ?? 0);
+            if ($fuser > 0) $where['a.users_id'] = $fuser;
+            $faction = trim($_REQUEST['faction'] ?? '');
+            if ($faction !== '') $where['a.action'] = $faction;
+            $fcard = (int)($_REQUEST['card_id'] ?? 0);
+            if ($fcard > 0) $where['a.plugin_kanpro_cards_id'] = $fcard;
+            $ffrom = trim($_REQUEST['date_from'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ffrom)) $ffrom = '';
+            $fto = trim($_REQUEST['date_to'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fto)) $fto = '';
+            $actionLabels = [
+                'board_create'=>'criou o quadro','board_rename'=>'renomeou o quadro','list_create'=>'criou a lista',
+                'card_create'=>'criou o cartão','card_move'=>'moveu o cartão','card_archive'=>'arquivou o cartão',
+                'card_restore'=>'restaurou o cartão','card_complete'=>'concluiu o cartão','card_reopen'=>'reabriu o cartão',
+                'maintenance_setup'=>'configurou máquinas','maintenance_update'=>'atualizou máquina','maintenance_diary'=>'atualizou o diário',
+                'maintenance_finalize'=>'finalizou manutenção','member_add'=>'adicionou membro','member_remove'=>'removeu membro',
+            ];
+            $rows = [];
+            $aiter = $DB->request([
+                'SELECT' => ['a.*', 'u.name AS user_name', 'u.realname', 'u.firstname', 'c.name AS card_name'],
+                'FROM'   => 'glpi_plugin_kanpro_activities AS a',
+                'LEFT JOIN' => [
+                    'glpi_users AS u' => ['ON' => ['u' => 'id', 'a' => 'users_id']],
+                    'glpi_plugin_kanpro_cards AS c' => ['ON' => ['c' => 'id', 'a' => 'plugin_kanpro_cards_id']],
+                ],
+                'WHERE'  => $where,
+                'ORDER'  => 'a.date_creation DESC',
+                'LIMIT'  => 5000,
+            ]);
+            foreach ($aiter as $a) {
+                $d = (string)($a['date_creation'] ?? '');
+                if ($ffrom !== '' && substr($d, 0, 10) < $ffrom) continue;
+                if ($fto !== '' && substr($d, 0, 10) > $fto) continue;
+                $uname = trim(($a['realname'] ?? '') . ' ' . ($a['firstname'] ?? ''));
+                if ($uname === '') $uname = $a['user_name'] ?? 'Sistema';
+                $cid = (int)($a['plugin_kanpro_cards_id'] ?? 0);
+                $rows[] = [$d, $uname, ($actionLabels[$a['action']] ?? $a['action']),
+                    ($cid > 0 ? ('#' . $cid . ' ' . ($a['card_name'] ?? '')) : ''),
+                    preg_replace('/^\[from:\d+\]\s*/', '', (string)($a['details'] ?? ''))];
+            }
+            $bin = kanpro_build_xlsx('Histórico', ['Data', 'Pessoa', 'Tipo', 'Cartão', 'Detalhe'], $rows);
+            if ($bin === '') throw new Exception('Falha ao gerar planilha');
+            @ob_clean();
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="historico-quadro-' . $bid . '.xlsx"');
+            header('Content-Length: ' . strlen($bin));
+            echo $bin;
+            exit;
+        } catch (Throwable $e) {
+            Toolbox::logError('KanPro export_history_xlsx: ' . $e->getMessage());
+            jexit(['success'=>false,'msg'=>$e->getMessage()]);
+        }
 
     case 'get_trash':
         $bid = (int)($_REQUEST['boards_id'] ?? 0);

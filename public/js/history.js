@@ -69,7 +69,7 @@
         + '<div id="kph-body" style="padding:12px 18px;overflow-y:auto;min-height:120px"></div>'
         + '<div style="padding:12px 18px;border-top:1px solid #dfe1e6;background:#fff;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
         + '<button onclick="KanproHistory.exportCSV()" style="background:#006644;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar CSV</button>'
-        + '<button onclick="KanproHistory.exportExcel()" style="background:#0079bf;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar Excel</button>'
+        + '<button onclick="KanproHistory.exportExcel()" style="background:#0079bf;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar xlsx</button>'
         + '<button onclick="KanproHistory.exportPDF()" style="background:#6554c0;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar PDF</button>'
         + '<button onclick="KanproHistory.close()" style="background:#f4f5f7;border:1px solid #dfe1e6;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Fechar</button>'
         + '</div></div>';
@@ -84,7 +84,7 @@
     },
     filters: function(){
       var g = function(id){ var el = document.getElementById(id); return el ? el.value : ''; };
-      return {users_id: g('kph-f-user'), action: g('kph-f-type'), date_from: g('kph-f-from'),
+      return {users_id: g('kph-f-user'), type: g('kph-f-type'), date_from: g('kph-f-from'),
         date_to: g('kph-f-to'), card_id: g('kph-f-card')};
     },
     reload: function(){
@@ -92,7 +92,7 @@
       var body = document.getElementById('kph-body');
       if(body) body.innerHTML = '<div style="text-align:center;color:#5e6c84;padding:24px">Carregando...</div>';
       var f = this.filters();
-      post('get_history', {boards_id: this.boardId, users_id: f.users_id, action: f.action,
+      post('get_history', {boards_id: this.boardId, users_id: f.users_id, faction: f.type,
         date_from: f.date_from, date_to: f.date_to, card_id: f.card_id}).then(function(res){
         if(!res.success){ if(body) body.innerHTML = '<div style="color:#bf2600">' + esc(res.msg||'Erro') + '</div>'; return; }
         self.people = res.people || [];
@@ -113,7 +113,7 @@
       }).join('');
       var html = '<label style="font-size:11px;font-weight:600;color:#5e6c84">Pessoa<br><select id="kph-f-user" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;min-width:150px;background:#fff">' + peopleOpts + '</select></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Tipo<br><select id="kph-f-type" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;min-width:150px;background:#fff">'
-        + '<option value="">Todos os tipos</option>' + this.typeOptions(f.action) + '</select></label>'
+        + '<option value="">Todos os tipos</option>' + this.typeOptions(f.type) + '</select></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">De<br><input id="kph-f-from" type="date" value="' + esc(f.date_from||'') + '" onchange="KanproHistory.reload()" style="padding:6px;border:1px solid #dfe1e6;border-radius:6px;background:#fff"></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Até<br><input id="kph-f-to" type="date" value="' + esc(f.date_to||'') + '" onchange="KanproHistory.reload()" style="padding:6px;border:1px solid #dfe1e6;border-radius:6px;background:#fff"></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Cartão #<br><input id="kph-f-card" type="number" min="1" placeholder="#" value="' + esc(f.card_id||'') + '" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;width:90px;background:#fff"></label>'
@@ -202,12 +202,15 @@
       this.download('historico-quadro-' + this.boardId + '.csv', 'text/csv;charset=utf-8', "﻿" + lines.join("\r\n"));
     },
     exportExcel: function(){
-      var rows = this.tableRows().map(function(r){
-        return '<tr>' + r.map(function(c){ return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>';
-      }).join('');
-      var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'
-        + '<table border="1"><thead><tr><th>Data</th><th>Pessoa</th><th>Tipo</th><th>Cartão</th><th>Detalhe</th></tr></thead><tbody>' + rows + '</tbody></table></body></html>';
-      this.download('historico-quadro-' + this.boardId + '.xls', 'application/vnd.ms-excel', "﻿" + html);
+      // xlsx real gerado no servidor (download direto com os filtros atuais)
+      var f = this.filters();
+      var q = 'action=export_history_xlsx&boards_id=' + encodeURIComponent(this.boardId)
+        + '&users_id=' + encodeURIComponent(f.users_id || '')
+        + '&faction=' + encodeURIComponent(f.type || '')
+        + '&date_from=' + encodeURIComponent(f.date_from || '')
+        + '&date_to=' + encodeURIComponent(f.date_to || '')
+        + '&card_id=' + encodeURIComponent(f.card_id || '');
+      window.location.href = ajaxUrl() + (ajaxUrl().indexOf('?') === -1 ? '?' : '&') + q;
     },
     exportPDF: function(){
       var self = this;
