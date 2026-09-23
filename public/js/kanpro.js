@@ -33,7 +33,17 @@
     _diarySaving: {},
     _lastDiarySaved: {},
 
+    /* ---------- helpers ---------- */
+    isBoardAdmin(){
+      const me = K.currentUserId;
+      if(this.board && parseInt(this.board.users_id) === parseInt(me)) return true;
+      const m = (this.members||[]).find(x=> String(x.users_id)===String(me));
+      if(m && m.role==='admin') return true;
+      if(this.canEdit) return true; // UPDATE global
+      return false;
+    },
     csrf() {
+
       let t = document.getElementById('kanpro-csrf')?.value
            || document.querySelector('meta[name="glpi-csrf-token"]')?.content
            || document.querySelector('input[name="_glpi_csrf_token"]')?.value
@@ -106,9 +116,30 @@
           if(!e.target.closest('#kanpro-board-menu')) this.closeBoardMenu();
         }
       });
-      // ESC fecha tudo
+      // ESC fecha tudo + atalhos (N novo cartão, F filtrar, setas navegar, Enter abrir)
       document.addEventListener('keydown', e=>{
-        if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); }
+        if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); this.clearCardSelection(); return; }
+        const tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (['INPUT','TEXTAREA','SELECT'].includes(tag) || (document.activeElement && document.activeElement.isContentEditable)) return;
+        const modalOpen = (document.getElementById('kanpro-card-modal')?.style.display === 'block');
+        if (modalOpen) return;
+        if (e.key==='n' || e.key==='N') {
+          const first = this.lists.find(l=> l.is_archived==0);
+          if(first){
+            const el = document.querySelector(`.kp-list[data-list-id="${first.id}"]`);
+            if(el) el.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+            this.showAddCard(first.id);
+          }
+        } else if (e.key==='f' || e.key==='F') {
+          const f = document.getElementById('kanpro-filter');
+          if(f){ e.preventDefault(); f.focus(); }
+        } else if (e.key==='ArrowDown' || e.key==='ArrowUp') {
+          e.preventDefault();
+          this.stepCardSelection(e.key==='ArrowDown' ? 1 : -1);
+        } else if (e.key==='Enter') {
+          const sel = document.querySelector('.kp-card.kp-selected');
+          if(sel) this.openCard(parseInt(sel.dataset.cardId));
+        }
       });
       // clique fora do card-modal (overlay) fecha
       const m = document.getElementById('kanpro-card-modal');
@@ -239,6 +270,19 @@
       }, 3000);
     },
 
+    /* ---------- seleção por teclado ---------- */
+    clearCardSelection(){
+      document.querySelectorAll('.kp-card.kp-selected').forEach(el=> el.classList.remove('kp-selected'));
+    },
+    stepCardSelection(dir){
+      const cards = [...document.querySelectorAll('.kp-list-cards .kp-card')].filter(el=> el.offsetParent !== null);
+      if(!cards.length) return;
+      let idx = cards.findIndex(el=> el.classList.contains('kp-selected'));
+      idx = idx < 0 ? (dir > 0 ? 0 : cards.length - 1) : Math.min(cards.length - 1, Math.max(0, idx + dir));
+      this.clearCardSelection();
+      cards[idx].classList.add('kp-selected');
+      cards[idx].scrollIntoView({block:'nearest'});
+    },
     // ---------- BOARD ----------
     renderBoard(){
       const board = $('#kanpro-board');
@@ -252,7 +296,8 @@
       board.innerHTML = '';
       // ordena listas por rank
       this.lists.sort((a,b)=> parseFloat(a.rank)-parseFloat(b.rank));
-      this.cards.sort((a,b)=> parseFloat(a.rank)-parseFloat(b.rank));
+      // fixados primeiro, depois rank
+      this.cards.sort((a,b)=> ((b.is_pinned||0)-(a.is_pinned||0)) || (parseFloat(a.rank)-parseFloat(b.rank)));
 
       this.lists.forEach(list=>{
         if(list.is_archived==1) return;
@@ -294,11 +339,14 @@
       div.className = 'kp-list';
       div.dataset.listId = list.id;
       div.draggable = true;
+      const collapsed = this.isListCollapsed(list.id);
+      if(collapsed) div.classList.add('collapsed');
       div.innerHTML = `
         <div class="kp-list-header">
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
+          <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-right':'ti-chevrons-left'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
         <div class="kp-list-cards" data-list-id="${list.id}">
@@ -352,8 +400,11 @@
       let coverHtml = '';
       if (card.cover_color) {
         coverHtml = `<div class="kp-card-cover" style="background:${this.escape(card.cover_color)}"></div>`;
+      } else if (card.cover_attachment_id) {
+        // capa por imagem (anexo marcado como capa)
+        const curl = K.ajax_url.replace('ajax.php','attachment.php?id='+card.cover_attachment_id);
+        coverHtml = `<div class="kp-card-cover img" style="background-image:url('${curl}')"></div>`;
       }
-      // TODO: cover_attachment image
 
       let labelsHtml = '';
       if(labels.length){
@@ -413,9 +464,29 @@
         const iconDue = card.is_completed ? 'ti ti-check' : 'ti ti-clock';
         badges.push(`<span class="kp-badge ${cls}"><i class="${iconDue}"></i> ${this.formatDateShort(card.due_date)}</span>`);
       }
+      // etiqueta com prazo vencido pinta o cartão de vermelho
+      const overdueLabel = labels.find(l=> l.due_date && !card.is_completed && new Date(l.due_date) < new Date());
+      if (overdueLabel) {
+        div.style.borderColor = '#eb5a46';
+        div.style.borderWidth = '2px';
+        div.style.boxShadow = '0 0 0 2px rgba(235,90,70,.18), 0 1px 3px rgba(0,0,0,.12)';
+        div.style.background = '#fff5f5';
+        badges.push(`<span class="kp-badge" title="Etiqueta vencida em ${this.escape(overdueLabel.due_date)}" style="background:#eb5a46;color:#fff;font-weight:700"><i class="ti ti-tag"></i> ${this.escape(overdueLabel.name||'Etiqueta')} vencida</span>`);
+      }
+      let checkBarHtml = '';
       if (prog && prog.total>0) {
         const doneClass = prog.done===prog.total ? 'check-done' : '';
+        const pct = Math.round(prog.done/prog.total*100);
         badges.push(`<span class="kp-badge ${doneClass}"><i class="ti ti-checkbox"></i> ${prog.done}/${prog.total}</span>`);
+        checkBarHtml = `<div class="kp-card-progress" title="Checklist ${prog.done}/${prog.total}"><div style="width:${pct}%"></div></div>`;
+      }
+      // fixado no topo
+      if (card.is_pinned==1) {
+        badges.push(`<span class="kp-badge" title="Fixado no topo da lista" style="background:#091e42;color:#fff;font-weight:700">📌 Fixado</span>`);
+      }
+      // aguardando aprovação do admin
+      if (card.approval_from>0) {
+        badges.push(`<span class="kp-badge" title="Movimentação aguardando aprovação de um admin do quadro" style="background:#fffae6;color:#975500;font-weight:700;border:1px solid #ffab00">⏳ Aguardando aprovação</span>`);
       }
       if (card.description && card.description.trim()) badges.push(`<span class="kp-badge"><i class="ti ti-align-left"></i></span>`);
       // Chamado GLPI vinculado
@@ -440,6 +511,7 @@
         ${labelsHtml}
         <div class="kp-card-title"><span style="color:#5e6c84;font-weight:700;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
         ${badges.length?`<div class="kp-card-badges">${badges.join('')}</div>`:''}
+        ${checkBarHtml}
         ${membersHtml}
         <button class="kp-card-edit" onclick="event.stopPropagation(); Kanpro.quickEditCard(${card.id}, event)"><i class="ti ti-pencil" style="font-size:14px"></i></button>
       `;
@@ -573,11 +645,28 @@
           card.plugin_kanpro_lists_id = oldList;
           this.renderBoard();
         } else {
-          this.updateStats();
+          if(res.pending_approval) this.showToast('Movido — aguardando aprovação do admin');
+          else this.updateStats();
         }
       });
     },
 
+    /* ---------- listas colapsáveis ---------- */
+    collapsedKey(){ return 'kanpro_collapsed_' + (this.board && this.board.id); },
+    isListCollapsed(listId){
+      try{
+        const a = JSON.parse(localStorage.getItem(this.collapsedKey()) || '[]');
+        return a.map(String).includes(String(listId));
+      }catch(e){ return false; }
+    },
+    toggleCollapse(listId){
+      let a = [];
+      try{ a = JSON.parse(localStorage.getItem(this.collapsedKey()) || '[]').map(String); }catch(e){ a = []; }
+      const k = String(listId);
+      a = a.includes(k) ? a.filter(x=> x!==k) : [...a, k];
+      try{ localStorage.setItem(this.collapsedKey(), JSON.stringify(a)); }catch(e){}
+      this.renderBoard();
+    },
     // ---------- LIST OPERATIONS ----------
     showAddList(){
       const wrap = $('.kp-add-list');
@@ -633,6 +722,8 @@
       const list = this.lists.find(l=> l.id==listId);
       const activeCount = this.cards.filter(c=> c.plugin_kanpro_lists_id==listId && c.is_archived==0).length;
       const rect = e.target.getBoundingClientRect();
+      const apprBtn = this.isBoardAdmin()
+        ? `<button class="kp-picker-item" onclick="Kanpro.setListApproval(${listId}, ${list.require_approval?0:1})"><i class="ti ti-shield-check"></i> ${list.require_approval?'Desativar aprovação do admin':'Exigir aprovação do admin'}</button>` : '';
       this.showPicker({
         title: `Ações da lista: ${list.name}`,
         x: rect.left - 280,
@@ -641,8 +732,9 @@
           <div style="display:grid;gap:4px">
             <button class="kp-picker-item" onclick="Kanpro.editListTitle(${listId}); Kanpro.closePicker()"><i class="ti ti-pencil"></i> Renomear lista</button>
             <button class="kp-picker-item" onclick="Kanpro.copyList(${listId})"><i class="ti ti-copy"></i> Copiar lista</button>
-            <button class="kp-picker-item" onclick="Kanpro.moveAllCardsPicker(${listId})"><i class="ti ti-arrows-right"></i> Mover todos os cartões (${activeCount})</button>
+            <button class="kp-picker-item" onclick="Kanpro.moveAllCardsPicker(${listId})"><i class="ti ti-arrow-right"></i> Mover todos os cartões (${activeCount})</button>
             <button class="kp-picker-item" onclick="Kanpro.archiveList(${listId})"><i class="ti ti-archive"></i> Arquivar lista</button>
+            ${apprBtn}
             <hr style="margin:4px 0;border:none;border-top:1px solid #dfe1e6">
             <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.archiveAllCards(${listId}, ${activeCount})"><i class="ti ti-box"></i> Arquivar todos os cartões (${activeCount})</button>
             <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.askDeleteList(${listId})"><i class="ti ti-trash"></i> Excluir lista</button>
@@ -678,6 +770,44 @@
       this.ajax('archive_all_cards', {lists_id: listId}).then(res=>{
         this.closePicker();
         if(res.success){ this.showToast(`${res.archived||0} cartão(ões) arquivados`); location.reload(); }
+        else alert(res.msg||'Erro');
+      });
+    },
+    setListApproval(listId, val){
+      this.ajax('set_list_approval', {lists_id: listId, require: val}).then(res=>{
+        this.closePicker();
+        if(res.success){
+          const l = this.lists.find(x=> x.id==listId);
+          if(l) l.require_approval = val;
+          this.showToast(val ? 'Aprovação ativada nesta lista' : 'Aprovação desativada');
+        } else alert(res.msg||'Erro');
+      });
+    },
+    togglePin(){
+      this.ajax('toggle_pin', {cards_id: this.currentCardId}).then(res=>{
+        if(res.success){
+          const c = this.cards.find(x=> x.id==this.currentCardId);
+          if(c) c.is_pinned = res.is_pinned;
+          this.renderBoard();
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        }
+      });
+    },
+    approveCard(){
+      this.ajax('approve_card', {cards_id: this.currentCardId}).then(res=>{
+        if(res.success){
+          const c = this.cards.find(x=> x.id==this.currentCardId);
+          if(c) c.approval_from = 0;
+          this.showToast('Movimentação aprovada');
+          this.renderBoard();
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+        } else alert(res.msg||'Erro');
+      });
+    },
+    devolveCard(){
+      if(!confirm('Devolver o cartão para a lista de origem?')) return;
+      this.ajax('devolve_card', {cards_id: this.currentCardId}).then(res=>{
+        if(res.success){ this.showToast('Cartão devolvido'); location.reload(); }
         else alert(res.msg||'Erro');
       });
     },
@@ -946,7 +1076,7 @@
           <div class="kp-avatar">${this.escape((c.firstname?.[0]||c.user_name?.[0]||'?').toUpperCase())}</div>
           <div style="flex:1;background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13)">
             <div style="font-weight:700;font-size:13px">${this.escape(c.realname||c.firstname||c.user_name||'Usuário')} <span style="font-weight:400;color:#5e6c84;font-size:11px">${this.formatDate(c.date_creation)}</span></div>
-            <div style="margin-top:4px;word-break:break-word">${this.parseMarkdown(c.content)}</div>
+            <div style="margin-top:4px;word-break:break-word">${this.highlightMentions(this.parseMarkdown(c.content))}</div>
             <div style="margin-top:6px;display:flex;gap:8px;font-size:12px"><a href="#" onclick="Kanpro.editComment(${c.id});return false">Editar</a> <a href="#" onclick="Kanpro.deleteComment(${c.id});return false" style="color:#eb5a46">Excluir</a></div>
           </div>
         </div>
@@ -1019,6 +1149,30 @@
           maintBtn.style.color = "#172b4d";
           maintBtn.style.border = "1px solid #ffab00";
         }
+      }
+      // atualiza botão fixar
+      const pinBtn = document.getElementById("kp-pin-btn");
+      if(pinBtn){
+        pinBtn.innerHTML = data.is_pinned==1
+          ? '<i class="ti ti-pinned-off"></i> Desafixar'
+          : '<i class="ti ti-pin"></i> Fixar no topo';
+      }
+      // aprovação pendente
+      const apprBox = document.getElementById("card-modal-approval");
+      if(apprBox){
+        if(data.approval_from>0){
+          const fromList = (this.lists||[]).find(l=> l.id==data.approval_from);
+          const fromName = fromList ? this.escape(fromList.name) : ('lista #' + data.approval_from);
+          apprBox.innerHTML = `
+            <div style="background:#fffae6;border:1px solid #ffab00;border-radius:8px;padding:12px">
+              <div style="font-weight:700;color:#975500;font-size:13px"><i class="ti ti-clock"></i> Aguardando aprovação</div>
+              <div style="font-size:12px;color:#5e6c84;margin:4px 0 8px">Veio de <strong>${fromName}</strong>. Membros movem, só admin do quadro aprova.</div>
+              ${this.isBoardAdmin() ? `<div style="display:flex;gap:8px">
+                <button onclick="Kanpro.approveCard()" style="background:#006644;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-check"></i> Aprovar</button>
+                <button onclick="Kanpro.devolveCard()" style="background:#fff;border:1px solid #ffab00;color:#975500;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px"><i class="ti ti-arrow-back"></i> Devolver</button>
+              </div>` : `<div style="font-size:11px;color:#975500">Aguarde um admin do quadro.</div>`}
+            </div>`;
+        } else apprBox.innerHTML = '';
       }
       // re-render board silencioso (mantém modal)
       this.renderBoardQuick();
@@ -2607,8 +2761,21 @@
       const newName = await this.kpPrompt('Nome da etiqueta:', l.name);
       if(newName===null) return;
       const newColor = await this.kpPrompt('Cor (hex #rrggbb):', l.color) || l.color;
+      const curDue = (l.due_date||'').substring(0,10);
+      const newDue = await this.kpPrompt('Prazo da etiqueta (AAAA-MM-DD — cartão fica vermelho ao vencer; vazio = sem prazo):', curDue);
+      if(newDue===null) return;
+      const dueVal = (newDue.trim() !== '' && /^\d{4}-\d{2}-\d{2}/.test(newDue.trim())) ? newDue.trim() : '';
       this.ajax('update_label', {id: labelId, name: newName, color: newColor}).then(res=>{
-        if(res.success){ l.name=newName; l.color=newColor; this.openLabelsPicker(); this.renderBoard(); }
+        if(!res.success) return;
+        l.name=newName; l.color=newColor;
+        this.ajax('set_label_due', {id: labelId, due_date: dueVal}).then(r2=>{
+          if(r2.success){
+            l.due_date = dueVal || null;
+            // reflete nos cartões
+            for(let cid in this.cardLabels) (this.cardLabels[cid]||[]).forEach(x=>{ if(x.id==labelId) x.due_date = l.due_date; });
+            this.openLabelsPicker(); this.renderBoard();
+          }
+        });
       });
     },
     deleteLabel(labelId){
@@ -2953,8 +3120,99 @@
       this.renderBoardMenuColors();
       this.renderBoardMenuBackground();
       this.renderBoardMenuWallpapers();
+      this.updateTrashCount();
     },
     closeBoardMenu(){ $('#kanpro-board-menu').style.display='none'; },
+    updateTrashCount(){
+      const el = document.getElementById('board-menu-trash-count');
+      if(!el) return;
+      const now = Date.now();
+      if(this._trashCount && now - this._trashCount.t < 60000){ el.textContent = this._trashCount.txt; return; }
+      this.ajax('get_trash', {boards_id: this.board.id}).then(res=>{
+        if(res && res.success){
+          const n = (res.archived||[]).length + (res.deleted||[]).length;
+          const txt = n ? `(${n})` : '';
+          this._trashCount = {t: Date.now(), txt};
+          const el2 = document.getElementById('board-menu-trash-count');
+          if(el2) el2.textContent = txt;
+        }
+      });
+    },
+    async duplicateBoard(){
+      const name = await this.kpPrompt('Nome do novo quadro:', (this.board.name||'') + ' (cópia)');
+      if(!name) return;
+      this.ajax('duplicate_board', {boards_id: this.board.id, name}).then(res=>{
+        if(res.success) window.location.href = 'kanban.php?boards_id=' + res.id;
+        else alert(res.msg||'Erro ao duplicar');
+      });
+    },
+    openTrash(){
+      this.closeBoardMenu();
+      this.showPicker({title:'🗑️ Lixeira do quadro', html:'<div style="padding:20px;text-align:center;color:#5e6c84">Carregando...</div>'});
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='540px'; p.style.maxWidth='94vw'; p.style.width='560px'; p.style.maxHeight='90vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      const b = document.getElementById('picker-body');
+      if(b){ b.style.maxHeight='70vh'; b.style.overflowY='auto'; }
+      this.loadTrash();
+    },
+    loadTrash(){
+      this.ajax('get_trash', {boards_id: this.board.id}).then(res=>{
+        const body = document.getElementById('picker-body');
+        if(!body) return;
+        if(!res.success){ body.innerHTML = '<div style="color:#bf2600">' + this.escape(res.msg||'Erro') + '</div>'; return; }
+        this._trashCount = null;
+        const arch = (res.archived||[]).map(a=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px;gap:8px">
+            <span style="min-width:0"><span style="display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(a.name)}</span>
+            <span style="display:block;font-size:11px;color:#5e6c84">${this.escape(a.list_name||'')} • ${this.formatDate(a.date_mod)}</span></span>
+            <span style="display:flex;gap:6px;flex-shrink:0">
+              <button onclick="Kanpro.restoreArchived(${a.id})" style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Restaurar</button>
+              <button onclick="Kanpro.deleteForever(${a.id}, 0)" title="Excluir definitivamente" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px">Excluir</button>
+            </span>
+          </div>`).join('') || '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:8px">Nenhum cartão arquivado</div>';
+        const del = (res.deleted||[]).map(t=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px;gap:8px">
+            <span style="min-width:0"><span style="display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(t.card_name)}</span>
+            <span style="display:block;font-size:11px;color:#5e6c84">${this.escape(t.list_name||'')} • excluído em ${this.formatDate(t.date)}</span></span>
+            <span style="display:flex;gap:6px;flex-shrink:0">
+              <button onclick="Kanpro.restoreTrashItem(${t.id})" style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Restaurar</button>
+              <button onclick="Kanpro.deleteForever(0, ${t.id})" title="Apagar para sempre" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px">Apagar</button>
+            </span>
+          </div>`).join('') || '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:8px">Nada excluído</div>';
+        body.innerHTML = `
+          <div style="display:grid;gap:12px">
+            <div><div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:6px">📦 Arquivados (${(res.archived||[]).length})</div><div style="display:grid;gap:6px;max-height:200px;overflow-y:auto">${arch}</div></div>
+            <div><div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:6px">🗑️ Excluídos (${(res.deleted||[]).length})</div><div style="display:grid;gap:6px;max-height:200px;overflow-y:auto">${del}</div></div>
+            <div style="font-size:11px;color:#97a0af">Restaurar excluídos recria o cartão (etiquetas, membros, checklists e comentários; anexos não voltam).</div>
+          </div>`;
+      });
+    },
+    restoreArchived(id){
+      this.ajax('restore_archived', {cards_id: id}).then(res=>{
+        if(res.success){ this.showToast('Cartão restaurado'); this.closePicker(); location.reload(); }
+        else alert(res.msg||'Erro');
+      });
+    },
+    async deleteForever(cardId, trashId){
+      if(!confirm('Excluir DEFINITIVAMENTE? Não será possível restaurar.')) return;
+      if(trashId){
+        this.ajax('purge_trash', {trash_id: trashId}).then(res=>{
+          if(res.success){ this.showToast('Apagado para sempre'); this.loadTrash(); }
+          else alert(res.msg||'Erro');
+        });
+      } else {
+        this.ajax('delete_card', {cards_id: cardId}).then(res=>{
+          if(res.success){ this.showToast('Excluído'); this.loadTrash(); }
+          else alert(res.msg||'Erro');
+        });
+      }
+    },
+    restoreTrashItem(id){
+      this.ajax('restore_trash', {trash_id: id}).then(res=>{
+        if(res.success){ this.showToast('Cartão restaurado'); this.closePicker(); location.reload(); }
+        else alert(res.msg||'Erro');
+      });
+    },
     // --- NOVO: paleta de cores/temas dentro do quadro ---
     getBoardThemes(){
       // vem do PHP via K.themes, fallback para paleta padrão
@@ -3651,10 +3909,44 @@
           </div>
           <div style="font-size:11px;color:#97a0af">Tempo por lista calculado pelo histórico de movimentações. Conclusões contam a partir desta versão.</div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="Kanpro.exportBoardReportPDF()" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700"><i class="ti ti-printer"></i> Exportar PDF</button>
             <button onclick="Kanpro.exportBoardReportCSV()" style="background:#006644;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700"><i class="ti ti-download"></i> Exportar CSV</button>
           </div>
         </div>`;
       document.getElementById('picker-body').innerHTML = html;
+    },
+    exportBoardReportPDF(){
+      const res = this._lastReport;
+      if(!res) return;
+      const listById = {};
+      (res.lists||[]).forEach(l=> listById[l.id] = l.name);
+      const movesByCard = {};
+      (res.moves||[]).forEach(m=>{ (movesByCard[m.card_id] = movesByCard[m.card_id] || []).push(m); });
+      const esc = s=> String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const rows = (res.cards||[]).map(c=>{
+        const mv = (movesByCard[c.id]||[]).filter(e=> e.action==='card_move').length;
+        return `<tr><td>#${c.id} ${esc(c.name)}</td><td>${esc(listById[c.list_id]||'—')}</td><td>${esc((c.date_creation||'').substring(0,10))}</td><td style="text-align:center">${mv}</td><td style="text-align:center">${c.is_completed?'Sim':''}</td><td style="text-align:center">${c.is_archived?'Sim':''}</td></tr>`;
+      }).join('');
+      const lists = (res.lists||[]).map(l=>`<li>${esc(l.name)}${l.is_archived?' (arquivada)':''}</li>`).join('');
+      const total = (res.cards||[]).length;
+      const done = (res.cards||[]).filter(c=> c.is_completed).length;
+      const arch = (res.cards||[]).filter(c=> c.is_archived).length;
+      const w = window.open('', '_blank');
+      if(!w){ alert('Permita pop-ups para exportar o PDF.'); return; }
+      w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório — ${esc(this.board.name||'Quadro')}</title>
+      <style>body{font-family:Arial,sans-serif;color:#172b4d;margin:24px}h1{font-size:20px}h2{font-size:15px;margin-top:20px}.meta{font-size:12px;color:#5e6c84}.summary{display:flex;gap:12px;margin:12px 0}.summary div{background:#f4f5f7;padding:10px 14px;border-radius:8px;flex:1;text-align:center}.summary strong{font-size:18px;display:block}table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{border:1px solid #dfe1e6;padding:6px 8px;text-align:left}th{background:#f4f5f7}.no-print{margin:16px 0}@media print{.no-print{display:none}}</style>
+      </head><body>
+      <h1>📊 Relatório do quadro — ${esc(this.board.name||'')}</h1>
+      <div class="meta">Gerado em ${new Date().toLocaleString('pt-BR')} • Total de cartões: ${total} • Concluídos: ${done} • Arquivados: ${arch}</div>
+      <div class="no-print"><button onclick="window.print()" style="background:#0079bf;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Imprimir / Salvar PDF</button></div>
+      <h2>Listas</h2><ul>${lists}</ul>
+      <h2>Cartões (${total})</h2>
+      <table><thead><tr><th>Cartão</th><th>Lista</th><th>Criado em</th><th>Mov.</th><th>OK</th><th>Arq.</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="meta" style="margin-top:16px">Gerado pelo KanPro</div>
+      </body></html>`);
+      w.document.close();
+      w.focus();
+      setTimeout(()=>{ try{ w.print(); }catch(e){} }, 400);
     },
     exportBoardReportCSV(){
       const res = this._lastReport;
@@ -3676,6 +3968,33 @@
       document.body.appendChild(a);
       a.click();
       setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    },
+    /* ---------- MENÇÕES @membro ---------- */
+    mentionNames(){
+      const set = new Map();
+      const push = n=>{
+        n = String(n||'').trim();
+        if(!n) return;
+        set.set(n.toLowerCase(), n);
+        const first = n.split(/\s+/)[0];
+        if(first && first !== n) set.set(first.toLowerCase(), first);
+      };
+      (this.members||[]).forEach(m=> push(m.name));
+      ((this._lastModalData && this._lastModalData.members) || []).forEach(m=>{
+        push(m.realname && m.firstname ? (m.firstname + ' ' + m.realname) : (m.realname || m.firstname || m.name));
+        push(m.firstname);
+      });
+      return [...set.values()].sort((a,b)=> b.length - a.length);
+    },
+    highlightMentions(html){
+      const names = this.mentionNames();
+      if(!names.length) return html;
+      const escRe = s=> s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp('(^|[^\\w@])@(' + names.map(escRe).join('|') + ')(?![\\w])', 'gi');
+      return String(html).split(/(<[^>]*>)/g).map(part=>{
+        if(part.startsWith('<')) return part;
+        return part.replace(re, '$1<span style="background:#e6fcff;color:#0747a6;font-weight:700;padding:0 4px;border-radius:4px">@$2</span>');
+      }).join('');
     },
     /* ---------- MARKDOWN SIMPLES ---------- */
     parseMarkdown(text){

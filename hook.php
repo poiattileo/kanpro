@@ -68,6 +68,7 @@ function plugin_kanpro_install(): bool {
                 `rank`                        DOUBLE       NOT NULL DEFAULT '0',
                 `is_archived`                 TINYINT(1)   NOT NULL DEFAULT '0',
                 `color`                       VARCHAR(20)  DEFAULT NULL,
+                `require_approval`            TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
@@ -96,6 +97,8 @@ function plugin_kanpro_install(): bool {
                 `start_date`                  DATETIME     DEFAULT NULL,
                 `cover_color`                 VARCHAR(20)  DEFAULT NULL,
                 `cover_attachment_id`         INT {$sign} DEFAULT NULL,
+                `is_pinned`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=fixado no topo da lista',
+                `approval_from`               INT {$sign} NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia',
                 `tickets_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'chamado GLPI vinculado',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
@@ -137,6 +140,7 @@ function plugin_kanpro_install(): bool {
                 `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
                 `name`                        VARCHAR(100) NOT NULL DEFAULT '',
                 `color`                       VARCHAR(20)  NOT NULL DEFAULT '#61bd4f',
+                `due_date`                    DATETIME     DEFAULT NULL COMMENT 'prazo: cartão fica vermelho ao vencer',
                 PRIMARY KEY (`id`),
                 KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
@@ -380,6 +384,24 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- TRASH (Lixeira: cartões excluídos com snapshot p/ restaurar) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_trash')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_trash` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `plugin_kanpro_lists_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `list_name`                   VARCHAR(255) NOT NULL DEFAULT '',
+                `card_name`                   VARCHAR(255) NOT NULL DEFAULT '',
+                `snapshot`                    LONGTEXT     DEFAULT NULL COMMENT 'JSON do cartão + etiquetas/membros/checklists/comentários',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem excluiu',
+                `date_creation`               DATETIME     DEFAULT NULL COMMENT 'quando excluiu',
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
     return true;
 }
@@ -390,6 +412,7 @@ function plugin_kanpro_uninstall(): bool {
     PluginKanproProfile::uninstall();
 
     $tables = [
+        'glpi_plugin_kanpro_trash',
         'glpi_plugin_kanpro_templates',
         'glpi_plugin_kanpro_maintenance_notes',
         'glpi_plugin_kanpro_maintenance_machines',

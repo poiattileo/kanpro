@@ -20,6 +20,27 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,.4) transparent;
 }
+/* barra de checklist no cartão minimizado */
+.kp-card-progress { height:5px;background:#dfe1e6;border-radius:3px;margin-top:6px;overflow:hidden; }
+.kp-card-progress > div { height:100%;background:#61bd4f;border-radius:3px;transition:width .2s; }
+/* cartão selecionado via teclado */
+.kp-card.kp-selected { outline:2px solid var(--kp-blue); outline-offset:1px; }
+/* lista colapsada */
+.kp-list.collapsed { width:52px; min-width:52px; }
+.kp-list.collapsed .kp-list-cards,
+.kp-list.collapsed .kp-add-card,
+.kp-list.collapsed .kp-card-composer,
+.kp-list.collapsed .kp-list-count { display:none; }
+.kp-list.collapsed .kp-list-header { flex-direction:column; padding:10px 6px; gap:6px; }
+.kp-list.collapsed .kp-list-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: calc(100vh - 320px);
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  cursor:pointer;
+}
 #kanpro-board::-webkit-scrollbar { height: 12px; }
 #kanpro-board::-webkit-scrollbar-thumb { background: rgba(255,255,255,.3); border-radius: 6px; }
 #kanpro-board::-webkit-scrollbar-track { background: rgba(0,0,0,.1); border-radius: 6px; }

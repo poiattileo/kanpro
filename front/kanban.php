@@ -136,14 +136,21 @@ $cards_json = json_encode($all_cards, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|J
 
 // Card-labels e card-members mapas
 $card_labels_map = [];
+try {
+    if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
+        $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL COMMENT 'prazo: cartão fica vermelho ao vencer'");
+    }
+} catch (Throwable $e) {
+    Toolbox::logError("KanPro kanban labels due_date migration: " . $e->getMessage());
+}
 $cl_iter = $DB->request([
-    'SELECT' => ['cl.plugin_kanpro_cards_id', 'l.id', 'l.name', 'l.color'],
+    'SELECT' => ['cl.plugin_kanpro_cards_id', 'l.id', 'l.name', 'l.color', 'l.due_date'],
     'FROM'   => 'glpi_plugin_kanpro_cards_labels AS cl',
     'LEFT JOIN' => ['glpi_plugin_kanpro_labels AS l' => ['ON' => ['l' => 'id', 'cl' => 'plugin_kanpro_labels_id']]],
     'WHERE'  => ['l.plugin_kanpro_boards_id' => $boards_id],
 ]);
 foreach ($cl_iter as $r) {
-    $card_labels_map[$r['plugin_kanpro_cards_id']][] = ['id' => $r['id'], 'name' => $r['name'], 'color' => $r['color']];
+    $card_labels_map[$r['plugin_kanpro_cards_id']][] = ['id' => $r['id'], 'name' => $r['name'], 'color' => $r['color'], 'due_date' => ($r['due_date'] ?? null)];
 }
 $card_members_map = [];
 $cm_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => array_column($all_cards, 'id') ?: [0]]]);
@@ -408,7 +415,7 @@ echo <<<HTML
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <div style="width:32px;height:32px;border-radius:50%;background:#dfe1e6;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">EU</div>
             <div style="flex:1">
-              <textarea id="card-comment-input" placeholder="Escrever um comentário... (**negrito**, *itálico*, `código`)" style="width:100%;padding:10px;border:none;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);min-height:40px;resize:vertical"></textarea>
+              <textarea id="card-comment-input" placeholder="Escrever um comentário... (@nome menciona, **negrito**)" style="width:100%;padding:10px;border:none;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);min-height:40px;resize:vertical"></textarea>
               <button onclick="Kanpro.addComment()" style="margin-top:8px;background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer">Salvar</button>
             </div>
           </div>
@@ -426,6 +433,9 @@ echo <<<HTML
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-route"></i><strong>Movimentação</strong></div>
           <div id="card-modal-moves" style="display:grid"></div>
         </div>
+
+        <!-- Aprovação -->
+        <div id="card-modal-approval" style="margin-top:20px"></div>
       </div>
 
       <!-- Sidebar direita (ações Trello) -->
@@ -450,6 +460,7 @@ echo <<<HTML
             <button class="kp-sidebar-btn" onclick="Kanpro.moveCardPicker()"><i class="ti ti-arrows-move"></i> Mover</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.copyCard()"><i class="ti ti-copy"></i> Copiar</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.archiveCard()"><i class="ti ti-archive"></i> Arquivar</button>
+            <button class="kp-sidebar-btn" id="kp-pin-btn" onclick="Kanpro.togglePin()"><i class="ti ti-pin"></i> Fixar no topo</button>
             <button class="kp-sidebar-btn" style="color:#eb5a46" onclick="Kanpro.deleteCard()"><i class="ti ti-trash"></i> Excluir</button>
           </div>
         </div>
@@ -524,6 +535,13 @@ echo <<<HTML
       <div style="display:flex;align-items:center;gap:8px">
         <input type="color" id="board-menu-custom" value="#0079bf" style="width:44px;height:34px;border:none;padding:0;border-radius:6px;cursor:pointer">
         <button onclick="Kanpro.setBoardColor(document.getElementById('board-menu-custom').value)" style="background:#0079bf;color:#fff;border:none;padding:7px 12px;border-radius:4px;cursor:pointer;font-weight:700">Aplicar cor</button>
+      </div>
+    </div>
+    <div>
+      <div style="font-weight:600;margin-bottom:8px">Quadro</div>
+      <div style="display:grid;gap:8px">
+        <button onclick="Kanpro.duplicateBoard()" style="background:#fff;border:1px solid #dfe1e6;padding:8px 12px;border-radius:4px;cursor:pointer;width:100%;text-align:left"><i class="ti ti-copy"></i> Duplicar quadro</button>
+        <button onclick="Kanpro.openTrash()" style="background:#fff;border:1px solid #dfe1e6;padding:8px 12px;border-radius:4px;cursor:pointer;width:100%;text-align:left"><i class="ti ti-trash"></i> Lixeira <span id="board-menu-trash-count" style="font-size:11px;color:#5e6c84"></span></button>
       </div>
     </div>
     <div>
