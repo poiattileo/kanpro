@@ -81,7 +81,6 @@
         + '<div id="kph-body" style="padding:12px 18px;overflow-y:auto;min-height:120px"></div>'
         + '<div style="padding:12px 18px;border-top:1px solid #dfe1e6;background:#fff;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
         + '<button onclick="KanproHistory.exportCSV()" style="background:#006644;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar CSV</button>'
-        + '<button onclick="KanproHistory.exportExcel()" style="background:#0079bf;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar xlsx</button>'
         + '<button onclick="KanproHistory.exportPDF()" style="background:#6554c0;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Exportar PDF</button>'
         + '<button onclick="KanproHistory.close()" style="background:#f4f5f7;border:1px solid #dfe1e6;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Fechar</button>'
         + '</div></div>';
@@ -212,17 +211,6 @@
       var lines = ['Data;Pessoa;Tipo;Cartão;Detalhe'];
       this.tableRows().forEach(function(r){ lines.push(r.map(q).join(';')); });
       this.download('historico-quadro-' + this.boardId + '.csv', 'text/csv;charset=utf-8', "﻿" + lines.join("\r\n"));
-    },
-    exportExcel: function(){
-      // xlsx real gerado no servidor (download direto com os filtros atuais)
-      var f = this.filters();
-      var q = 'action=export_history_xlsx&boards_id=' + encodeURIComponent(this.boardId)
-        + '&users_id=' + encodeURIComponent(f.users_id || '')
-        + '&faction=' + encodeURIComponent(f.type || '')
-        + '&date_from=' + encodeURIComponent(f.date_from || '')
-        + '&date_to=' + encodeURIComponent(f.date_to || '')
-        + '&card_id=' + encodeURIComponent(f.card_id || '');
-      window.location.href = ajaxUrl() + (ajaxUrl().indexOf('?') === -1 ? '?' : '&') + q;
     },
     exportPDF: function(){
       var self = this;

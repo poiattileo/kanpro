@@ -33,6 +33,9 @@ if (!$__canView) {
     Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
 }
 
+// Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
+kanpro_migrate_shared_login();
+
 $canedit = Session::haveRight('plugin_kanpro', UPDATE) ? 1 : 0;
 $cancreate = Session::haveRight('plugin_kanpro', CREATE) ? 1 : 0;
 
