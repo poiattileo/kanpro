@@ -5,6 +5,9 @@ if (function_exists('opcache_invalidate')) {
 }
 include('../../../inc/includes.php');
 include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
+
+global $DB, $CFG_GLPI;
+
 Session::checkRight('plugin_kanpro', READ);
 
 $boards_id = (int)($_GET['boards_id'] ?? $_GET['id'] ?? 0);
@@ -57,8 +60,6 @@ $cancreate = Session::haveRight('plugin_kanpro', CREATE) ? 1 : 0;
 
 // Header sem Html::header padrão para ter layout full-width Trello
 Html::header($board->fields['name'] . ' — KanPro', $_SERVER['PHP_SELF'], 'tools', 'PluginKanproBoard', 'kanpro');
-
-global $DB;
 
 // Dados do quadro
 $lists = PluginKanproList::getListsForBoard($boards_id);
