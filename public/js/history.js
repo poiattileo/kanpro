@@ -139,6 +139,8 @@
     var c = document.getElementById('kph-cal');
     if (c && c.parentNode) c.parentNode.removeChild(c);
     try { document.removeEventListener('mousedown', kphOutside, true); } catch(e){}
+    try { window.removeEventListener('resize', kphReposition, true); } catch(e){}
+    try { document.removeEventListener('scroll', kphReposition, true); } catch(e){}
     try { if (typeof H !== 'undefined' && H) H._calInput = null; } catch(e){}
   }
   function kphOutside(e){
@@ -151,11 +153,31 @@
     } catch(err){}
     kphCloseCalendar();
   }
+  function kphReposition(){
+    var cal = document.getElementById('kph-cal');
+    var inp = (typeof H !== 'undefined' && H) ? H._calInput : null;
+    if (!cal || !inp || !document.body.contains(inp)) { kphCloseCalendar(); return; }
+    kphPositionCalendar(cal, inp);
+  }
+  function kphPositionCalendar(cal, inp){
+    // popup solto no body (position:fixed) p/ não ser cortado pelo modal com overflow:hidden
+    var r = inp.getBoundingClientRect();
+    var w = 232;
+    var vw = window.innerWidth || document.documentElement.clientWidth || 1024;
+    var vh = window.innerHeight || document.documentElement.clientHeight || 768;
+    var left = r.left;
+    if (left + w > vw - 8) left = vw - w - 8;
+    if (left < 8) left = 8;
+    var h = cal.offsetHeight || 300;
+    var top = r.bottom + 6;
+    if (top + h > vh - 8) top = r.top - h - 6; // abre p/ cima se não couber embaixo
+    if (top < 8) top = 8;
+    cal.style.left = Math.round(left) + 'px';
+    cal.style.top = Math.round(top) + 'px';
+  }
   function kphRenderCalendar(){
     var inp = H._calInput;
     if (!inp || !document.body.contains(inp)) { kphCloseCalendar(); return; }
-    var wrap = inp.parentNode;
-    if (!wrap || wrap.tagName !== 'SPAN') wrap = inp;
     var old = document.getElementById('kph-cal');
     if (old && old.parentNode) old.parentNode.removeChild(old);
     var y = H._calY, m = H._calM;
@@ -181,7 +203,7 @@
     }
     var cal = document.createElement('div');
     cal.id = 'kph-cal';
-    cal.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:30000;background:#fff;border:1px solid #dfe1e6;border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.22);padding:10px;width:232px;box-sizing:border-box;font-family:Arial,sans-serif';
+    cal.style.cssText = 'position:fixed;z-index:30000;background:#fff;border:1px solid #dfe1e6;border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.22);padding:10px;width:232px;box-sizing:border-box;font-family:Arial,sans-serif;left:-9999px;top:0';
     cal.innerHTML =
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
       + '<button type="button" id="kph-cal-prev" style="border:1px solid #dfe1e6;background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1">‹</button>'
@@ -193,12 +215,9 @@
       + '<button type="button" id="kph-cal-today" style="flex:1;border:none;background:#e6fcff;color:#0079bf;border-radius:6px;padding:6px 0;cursor:pointer;font-size:11px;font-weight:700">Hoje</button>'
       + '<button type="button" id="kph-cal-clear" style="flex:1;border:1px solid #dfe1e6;background:#fff;color:#5e6c84;border-radius:6px;padding:6px 0;cursor:pointer;font-size:11px">Limpar</button>'
       + '</div>';
-    // garante posicionamento relativo no wrapper
-    try {
-      var cs = window.getComputedStyle(wrap);
-      if (cs.position === 'static') wrap.style.position = 'relative';
-    } catch(e){ try { wrap.style.position = 'relative'; } catch(err){} }
-    wrap.appendChild(cal);
+    // solto no body p/ nunca ser cortado pelo modal (overflow:hidden)
+    document.body.appendChild(cal);
+    kphPositionCalendar(cal, inp);
     var prev = document.getElementById('kph-cal-prev');
     var next = document.getElementById('kph-cal-next');
     if (prev) prev.addEventListener('click', function(e){ e.stopPropagation(); H.calNav(-1); });
@@ -240,6 +259,8 @@
       this._calY = y; this._calM = m;
       kphRenderCalendar();
       try { document.addEventListener('mousedown', kphOutside, true); } catch(e){}
+      try { window.addEventListener('resize', kphReposition, true); } catch(e){}
+      try { document.addEventListener('scroll', kphReposition, true); } catch(e){}
     },
     calNav: function(delta){
       this._calM += delta;
