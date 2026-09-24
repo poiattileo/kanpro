@@ -38,6 +38,28 @@ function needEdit() {
         jexit(['success'=>false,'msg'=>"Sem permissão (precisa CREATE ou UPDATE). Seu nível atual: {$have}. Faça logout/login.", 'debug'=>$dbg]);
     }
 }
+// Normaliza texto para busca sem acentos (case + accent insensitive): "café" == "cafe"
+function kanpro_norm_text($s) {
+    $s = (string)($s ?? '');
+    if (class_exists('Normalizer')) {
+        $n = Normalizer::normalize($s, Normalizer::FORM_D);
+        if ($n !== false) $s = $n;
+        $s = preg_replace('/\p{Mn}/u', '', $s);
+    }
+    if (function_exists('mb_strtolower')) $s = mb_strtolower($s, 'UTF-8');
+    else $s = strtolower($s);
+    // fallback p/ ambiente sem intl: troca manual dos mais comuns
+    $s = strtr($s, [
+        'á'=>'a','à'=>'a','â'=>'a','ã'=>'a','ä'=>'a','å'=>'a','ă'=>'a','ą'=>'a',
+        'é'=>'e','è'=>'e','ê'=>'e','ë'=>'e','ę'=>'e',
+        'í'=>'i','ì'=>'i','î'=>'i','ï'=>'i',
+        'ó'=>'o','ò'=>'o','ô'=>'o','õ'=>'o','ö'=>'o','ø'=>'o',
+        'ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u',
+        'ç'=>'c','ć'=>'c','č'=>'c','ñ'=>'n','ń'=>'n','ý'=>'y','ÿ'=>'y',
+        'ß'=>'ss','æ'=>'ae','œ'=>'oe',
+    ]);
+    return $s;
+}
 
 // ---------- Helpers Membros do Quadro ----------
 // Quem pode gerenciar acesso: criador do quadro, admin do quadro ou UPDATE global (bootstrap de quadros legados).
@@ -1501,6 +1523,7 @@ switch ($action) {
     case 'global_search_cards':
         $q = trim($_POST['q'] ?? '');
         if (mb_strlen($q) < 2) jexit(['success' => true, 'results' => []]);
+        $nq = kanpro_norm_text($q);
         $entities = $_SESSION['glpiactiveentities'] ?? [0];
         $boards_iter = $DB->request([
             'FROM'  => 'glpi_plugin_kanpro_boards',
@@ -1514,6 +1537,25 @@ switch ($action) {
         $lists_by_id = [];
         foreach ($lists_iter as $l) { $lists_by_id[$l['id']] = $l; }
 
+        $push_card = function($c) use (&$results, &$seen_ids, $boards_by_id, $lists_by_id) {
+            $cid = (int)$c['id'];
+            if (isset($seen_ids[$cid])) return false;
+            $board = $boards_by_id[$c['plugin_kanpro_boards_id']] ?? null;
+            if (!$board) return false;
+            $list = $lists_by_id[$c['plugin_kanpro_lists_id']] ?? null;
+            $seen_ids[$cid] = true;
+            $results[] = [
+                'card_id'    => $cid,
+                'card_name'  => $c['name'],
+                'board_id'   => (int) $board['id'],
+                'board_name' => $board['name'],
+                'list_name'  => $list['name'] ?? '',
+            ];
+            return true;
+        };
+        $results = [];
+        $seen_ids = [];
+        // 1) via SQL LIKE (rápido; depende do collation p/ acentos)
         $cards_iter = $DB->request([
             'FROM'  => 'glpi_plugin_kanpro_cards',
             'WHERE' => [
@@ -1525,20 +1567,31 @@ switch ($action) {
                 ],
             ],
             'ORDER' => 'date_mod DESC',
-            'LIMIT' => 40,
+            'LIMIT' => 100,
         ]);
-        $results = [];
         foreach ($cards_iter as $c) {
-            $board = $boards_by_id[$c['plugin_kanpro_boards_id']] ?? null;
-            $list  = $lists_by_id[$c['plugin_kanpro_lists_id']] ?? null;
-            if (!$board) continue;
-            $results[] = [
-                'card_id'    => (int) $c['id'],
-                'card_name'  => $c['name'],
-                'board_id'   => (int) $board['id'],
-                'board_name' => $board['name'],
-                'list_name'  => $list['name'] ?? '',
-            ];
+            if (count($results) >= 40) break;
+            $push_card($c);
+        }
+        // 2) fallback sem acento em PHP (garante "cafe" achar "café" e vice-versa,
+        // independente do collation do banco)
+        if (count($results) < 40 && $nq !== '') {
+            $all_iter = $DB->request([
+                'FROM'  => 'glpi_plugin_kanpro_cards',
+                'WHERE' => [
+                    'plugin_kanpro_boards_id' => array_keys($boards_by_id),
+                    'is_archived' => 0,
+                ],
+                'ORDER' => 'date_mod DESC',
+                'LIMIT' => 800,
+            ]);
+            foreach ($all_iter as $c) {
+                if (count($results) >= 40) break;
+                $cid = (int)$c['id'];
+                if (isset($seen_ids[$cid])) continue;
+                $hay = kanpro_norm_text(($c['name'] ?? '') . ' ' . ($c['description'] ?? ''));
+                if (mb_strpos($hay, $nq) !== false) $push_card($c);
+            }
         }
         jexit(['success' => true, 'results' => $results]);
 

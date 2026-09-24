@@ -3889,8 +3889,13 @@
     },
 
     // Filter
+    normText(s){
+      s = String(s||'');
+      if(s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return s.toLowerCase();
+    },
     filterCards(text){
-      this.filterText = (text||'').toLowerCase();
+      this.filterText = this.normText(text||'');
       this.applyFilters();
     },
     applyFilters(){
@@ -3898,7 +3903,7 @@
         const cardId = parseInt(el.dataset.cardId);
         const card = this.cards.find(c=> c.id==cardId);
         if(!card){ el.style.display=''; return; }
-        const matchText = !this.filterText || card.name.toLowerCase().includes(this.filterText) || (card.description||'').toLowerCase().includes(this.filterText);
+        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText);
         // label filter
         let matchLabel = true;
         if(this.labelFilter.size>0){
@@ -3917,7 +3922,7 @@
       this.updateStats();
     },
     isCardFilteredOut(card){
-      if(this.filterText && !card.name.toLowerCase().includes(this.filterText) && !(card.description||'').toLowerCase().includes(this.filterText)) return true;
+      if(this.filterText && !this.normText(card.name).includes(this.filterText) && !this.normText(card.description||'').includes(this.filterText)) return true;
       return false;
     },
     openFilterMenu(){
