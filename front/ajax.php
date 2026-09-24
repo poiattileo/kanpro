@@ -1958,9 +1958,24 @@ switch ($action) {
         if ($faction !== '') $where['a.action'] = $faction;
         $fcard = (int)($_REQUEST['card_id'] ?? 0);
         if ($fcard > 0) $where['a.plugin_kanpro_cards_id'] = $fcard;
-        $ffrom = trim($_REQUEST['date_from'] ?? '');
+        $kanpro_norm_date = function ($v) {
+            $v = trim((string)($v ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}/', $v)) return substr($v, 0, 10);
+            if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/', $v, $m)) {
+                $d = (int)$m[1]; $mo = (int)$m[2]; $y = (int)$m[3];
+                if (strlen($m[3]) === 2) $y += ($y <= 30 ? 2000 : 1900);
+                if (checkdate($mo, $d, $y)) return sprintf('%04d-%02d-%02d', $y, $mo, $d);
+            }
+            // só dígitos (ex: 24092026 vindo de máscara sem barra)
+            $dig = preg_replace('/\D+/', '', $v);
+            if (strlen($dig) === 8 && preg_match('/^(\d{2})(\d{2})(\d{4})$/', $dig, $m)) {
+                if (checkdate((int)$m[2], (int)$m[1], (int)$m[3])) return $m[3] . '-' . $m[2] . '-' . $m[1];
+            }
+            return '';
+        };
+        $ffrom = $kanpro_norm_date($_REQUEST['date_from'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ffrom)) $ffrom = '';
-        $fto = trim($_REQUEST['date_to'] ?? '');
+        $fto = $kanpro_norm_date($_REQUEST['date_to'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fto)) $fto = '';
         $rows = [];
         $aiter = $DB->request([

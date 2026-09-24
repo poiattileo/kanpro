@@ -57,6 +57,79 @@
     if (isNaN(d)) return s;
     return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
   }
+  // ---- Datas BR (dd/mm/aaaa) — corrige bug "24/09/0026" do type=date ----
+  // O input nativo type=date segmenta dia/mês/ano e, ao digitar o ano,
+  // só fixava os 2 últimos dígitos (0026). Agora usamos texto com máscara.
+  function onlyDigits(s){ return String(s == null ? '' : s).replace(/\D/g, ''); }
+  function maskDateBR(v){
+    var raw = String(v == null ? '' : v);
+    var d = onlyDigits(raw).slice(0, 8);
+    if (d.length <= 2) return d;
+    if (d.length <= 4) {
+      var base = d.slice(0, 2) + '/' + d.slice(2);
+      // preserva a barra recém-digitada ("24/09/") p/ digitação ficar fluida
+      if (d.length === 4 && /\/$/.test(raw)) return base + '/';
+      return base;
+    }
+    return d.slice(0, 2) + '/' + d.slice(2, 4) + '/' + d.slice(4);
+  }
+  function isoToBr(iso){
+    var s = String(iso == null ? '' : iso).trim();
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[3] + '/' + m[2] + '/' + m[1];
+    // já está em BR ou vazio — devolve com máscara aplicada
+    if (/^\d/.test(s)) return maskDateBR(s);
+    return s;
+  }
+  function brToIso(br){
+    var s = String(br == null ? '' : br).trim();
+    if (!s) return '';
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + '-' + m[2] + '-' + m[3]; // já ISO (compat)
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!m) {
+      // incompleto (ex: "24/09/") — sem filtro
+      // se tem 8 dígitos sem barra, tenta mesmo assim
+      var d8 = onlyDigits(s);
+      if (d8.length === 8) s = maskDateBR(d8);
+      else return '';
+      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (!m) return '';
+    }
+    var d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (m[3].length === 2) y += (y <= 30 ? 2000 : 1900); // 26 -> 2026
+    if (!(d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 1900 && y <= 2100)) return '';
+    var dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return '';
+    var ps = function(n){ return (n < 10 ? '0' : '') + n; };
+    return y + '-' + ps(mo) + '-' + ps(d);
+  }
+  function bindDateMask(id){
+    var el = document.getElementById(id);
+    if (!el || el._kphMask) return;
+    el._kphMask = true;
+    el.addEventListener('input', function(){
+      var pos = el.selectionStart;
+      var beforeLen = el.value.length;
+      el.value = maskDateBR(el.value);
+      // mantém cursor no fim na maioria dos casos (evita pulo no meio)
+      try {
+        var diff = el.value.length - beforeLen;
+        el.setSelectionRange(pos + diff, pos + diff);
+      } catch(e){}
+    });
+    el.addEventListener('change', function(){
+      var v = el.value.trim();
+      if (v !== '' && !brToIso(v)) {
+        el.style.borderColor = '#eb5a46';
+        el.title = 'Data inválida — use dd/mm/aaaa';
+        return;
+      }
+      el.style.borderColor = '#dfe1e6';
+      el.title = '';
+      H.reload();
+    });
+  }
 
   var H = {
     boardId: 0,
@@ -95,8 +168,9 @@
     },
     filters: function(){
       var g = function(id){ var el = document.getElementById(id); return el ? el.value : ''; };
-      return {users_id: g('kph-f-user'), type: g('kph-f-type'), date_from: g('kph-f-from'),
-        date_to: g('kph-f-to'), card_id: g('kph-f-card')};
+      return {users_id: g('kph-f-user'), type: g('kph-f-type'),
+        date_from: brToIso(g('kph-f-from')),
+        date_to: brToIso(g('kph-f-to')), card_id: g('kph-f-card')};
     },
     reload: function(){
       var self = this;
@@ -122,14 +196,18 @@
       var peopleOpts = '<option value="">Todas as pessoas</option>' + this.people.map(function(p){
         return '<option value="' + p.id + '"' + (String(p.id)===String(f.users_id||'')?' selected':'') + '>' + esc(p.name) + (p.extra ? ' (' + esc(p.extra) + ')' : '') + '</option>';
       }).join('');
+      var brFrom = isoToBr(f.date_from || '');
+      var brTo = isoToBr(f.date_to || '');
       var html = '<label style="font-size:11px;font-weight:600;color:#5e6c84">Pessoa<br><select id="kph-f-user" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;min-width:150px;background:#fff">' + peopleOpts + '</select></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Tipo<br><select id="kph-f-type" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;min-width:150px;background:#fff">'
         + '<option value="">Todos os tipos</option>' + this.typeOptions(f.type) + '</select></label>'
-        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">De<br><input id="kph-f-from" type="date" value="' + esc(f.date_from||'') + '" onchange="KanproHistory.reload()" style="padding:6px;border:1px solid #dfe1e6;border-radius:6px;background:#fff"></label>'
-        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Até<br><input id="kph-f-to" type="date" value="' + esc(f.date_to||'') + '" onchange="KanproHistory.reload()" style="padding:6px;border:1px solid #dfe1e6;border-radius:6px;background:#fff"></label>'
+        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">De<br><input id="kph-f-from" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brFrom) + '" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:110px"></label>'
+        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Até<br><input id="kph-f-to" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brTo) + '" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:110px"></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Cartão #<br><input id="kph-f-card" type="number" min="1" placeholder="#" value="' + esc(f.card_id||'') + '" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;width:90px;background:#fff"></label>'
         + '<button onclick="KanproHistory.clearFilters()" style="padding:7px 12px;border:1px solid #dfe1e6;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Limpar</button>';
       box.innerHTML = html;
+      bindDateMask('kph-f-from');
+      bindDateMask('kph-f-to');
     },
     typeOptions: function(selected){
       // tipos vindos das linhas + catálogo conhecido
