@@ -129,6 +129,91 @@
       el.title = '';
       H.reload();
     });
+    // clicar no quadrado abre o calendariozinho
+    el.addEventListener('focus', function(){ try { H.calOpen(id); } catch(e){} });
+    el.addEventListener('click', function(){ try { H.calOpen(id); } catch(e){} });
+  }
+  // ---- Calendariozinho popup (sem dependência externa) ----
+  var KPH_MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  function kphCloseCalendar(){
+    var c = document.getElementById('kph-cal');
+    if (c && c.parentNode) c.parentNode.removeChild(c);
+    try { document.removeEventListener('mousedown', kphOutside, true); } catch(e){}
+    try { if (typeof H !== 'undefined' && H) H._calInput = null; } catch(e){}
+  }
+  function kphOutside(e){
+    var c = document.getElementById('kph-cal');
+    if (!c) return;
+    if (c.contains(e.target)) return;
+    try {
+      var inp = (typeof H !== 'undefined' && H) ? H._calInput : null;
+      if (inp && (e.target === inp || (inp.parentNode && inp.parentNode.contains(e.target)))) return;
+    } catch(err){}
+    kphCloseCalendar();
+  }
+  function kphRenderCalendar(){
+    var inp = H._calInput;
+    if (!inp || !document.body.contains(inp)) { kphCloseCalendar(); return; }
+    var wrap = inp.parentNode;
+    if (!wrap || wrap.tagName !== 'SPAN') wrap = inp;
+    var old = document.getElementById('kph-cal');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var y = H._calY, m = H._calM;
+    var selIso = null;
+    try { selIso = brToIso(inp.value.trim()); } catch(e){ selIso = null; }
+    var today = new Date();
+    var todayIso = today.getFullYear() + '-' + (today.getMonth() < 9 ? '0' : '') + (today.getMonth() + 1) + '-' + (today.getDate() < 10 ? '0' : '') + today.getDate();
+    var first = new Date(y, m, 1).getDay(); // 0=dom
+    var dim = new Date(y, m + 1, 0).getDate();
+    var ps = function(n){ return (n < 10 ? '0' : '') + n; };
+    var cells = '';
+    var wd = ['D','S','T','Q','Q','S','S'];
+    cells += wd.map(function(w){ return '<span style="text-align:center;font-size:10px;font-weight:800;color:#97a0af;padding:4px 0">' + w + '</span>'; }).join('');
+    for (var i = 0; i < first; i++) cells += '<span></span>';
+    for (var d = 1; d <= dim; d++) {
+      var iso = y + '-' + ps(m + 1) + '-' + ps(d);
+      var isSel = (selIso === iso);
+      var isToday = (todayIso === iso);
+      var bg = isSel ? '#0079bf' : (isToday ? '#e6fcff' : '#fff');
+      var fg = isSel ? '#fff' : '#172b4d';
+      var bd = isSel ? '#0079bf' : (isToday ? '#0079bf' : 'transparent');
+      cells += '<button type="button" data-day="' + d + '" style="border:1px solid ' + bd + ';background:' + bg + ';color:' + fg + ';border-radius:6px;padding:5px 0;cursor:pointer;font-size:12px;font-weight:' + (isSel || isToday ? '800' : '400') + '" onmouseover="this.style.background=\'' + (isSel ? '#0065a8' : '#f4f5f7') + '\'" onmouseout="this.style.background=\'' + bg + '\'">' + d + '</button>';
+    }
+    var cal = document.createElement('div');
+    cal.id = 'kph-cal';
+    cal.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:30000;background:#fff;border:1px solid #dfe1e6;border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.22);padding:10px;width:232px;box-sizing:border-box;font-family:Arial,sans-serif';
+    cal.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+      + '<button type="button" id="kph-cal-prev" style="border:1px solid #dfe1e6;background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1">‹</button>'
+      + '<strong style="font-size:13px;color:#172b4d;text-transform:capitalize">' + KPH_MONTHS[m] + ' ' + y + '</strong>'
+      + '<button type="button" id="kph-cal-next" style="border:1px solid #dfe1e6;background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1">›</button>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">' + cells + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:10px">'
+      + '<button type="button" id="kph-cal-today" style="flex:1;border:none;background:#e6fcff;color:#0079bf;border-radius:6px;padding:6px 0;cursor:pointer;font-size:11px;font-weight:700">Hoje</button>'
+      + '<button type="button" id="kph-cal-clear" style="flex:1;border:1px solid #dfe1e6;background:#fff;color:#5e6c84;border-radius:6px;padding:6px 0;cursor:pointer;font-size:11px">Limpar</button>'
+      + '</div>';
+    // garante posicionamento relativo no wrapper
+    try {
+      var cs = window.getComputedStyle(wrap);
+      if (cs.position === 'static') wrap.style.position = 'relative';
+    } catch(e){ try { wrap.style.position = 'relative'; } catch(err){} }
+    wrap.appendChild(cal);
+    var prev = document.getElementById('kph-cal-prev');
+    var next = document.getElementById('kph-cal-next');
+    if (prev) prev.addEventListener('click', function(e){ e.stopPropagation(); H.calNav(-1); });
+    if (next) next.addEventListener('click', function(e){ e.stopPropagation(); H.calNav(1); });
+    var td = document.getElementById('kph-cal-today');
+    if (td) td.addEventListener('click', function(e){ e.stopPropagation(); H.calToday(); });
+    var cl = document.getElementById('kph-cal-clear');
+    if (cl) cl.addEventListener('click', function(e){ e.stopPropagation(); H.calClear(); });
+    var btns = cal.querySelectorAll('button[data-day]');
+    for (var k = 0; k < btns.length; k++) {
+      (function(b){
+        b.addEventListener('click', function(e){ e.stopPropagation(); H.calPick(parseInt(b.getAttribute('data-day'), 10)); });
+      })(btns[k]);
+    }
+    cal.addEventListener('mousedown', function(e){ e.stopPropagation(); });
   }
 
   var H = {
@@ -136,6 +221,59 @@
     people: [],
     rows: [],
     lastFetch: null,
+    _calInput: null,
+    _calY: 0,
+    _calM: 0,
+    calOpen: function(inputId){
+      var el = document.getElementById(inputId);
+      if (!el) return;
+      var cur = document.getElementById('kph-cal');
+      if (cur && this._calInput === el) return; // já aberto p/ este campo
+      kphCloseCalendar();
+      this._calInput = el;
+      var y = new Date().getFullYear(), m = new Date().getMonth();
+      try {
+        var iso = brToIso(el.value.trim());
+        var mm = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (mm) { y = parseInt(mm[1], 10); m = parseInt(mm[2], 10) - 1; }
+      } catch(e){}
+      this._calY = y; this._calM = m;
+      kphRenderCalendar();
+      try { document.addEventListener('mousedown', kphOutside, true); } catch(e){}
+    },
+    calNav: function(delta){
+      this._calM += delta;
+      while (this._calM < 0) { this._calM += 12; this._calY--; }
+      while (this._calM > 11) { this._calM -= 12; this._calY++; }
+      kphRenderCalendar();
+    },
+    calPick: function(day){
+      var inp = this._calInput;
+      if (!inp) { kphCloseCalendar(); return; }
+      var ps = function(n){ return (n < 10 ? '0' : '') + n; };
+      inp.value = ps(day) + '/' + ps(this._calM + 1) + '/' + this._calY;
+      inp.style.borderColor = '#dfe1e6';
+      inp.title = '';
+      kphCloseCalendar();
+      try { inp.blur(); } catch(e){}
+      this.reload();
+    },
+    calToday: function(){
+      var t = new Date();
+      this._calY = t.getFullYear(); this._calM = t.getMonth();
+      this.calPick(t.getDate());
+    },
+    calClear: function(){
+      var inp = this._calInput;
+      kphCloseCalendar();
+      if (inp) {
+        inp.value = '';
+        inp.style.borderColor = '#dfe1e6';
+        inp.title = '';
+        this.reload();
+      }
+    },
+    calClose: function(){ kphCloseCalendar(); },
 
     open: function(boardId){
       this.boardId = parseInt(boardId) || 0;
@@ -163,6 +301,7 @@
       this.reload();
     },
     close: function(){
+      try { kphCloseCalendar(); } catch(e){}
       var ov = document.getElementById('kph-overlay');
       if(ov) ov.remove();
     },
@@ -191,6 +330,8 @@
     },
     renderFilters: function(f){
       f = f || {};
+      try { kphCloseCalendar(); } catch(e){}
+      this._calInput = null;
       var box = document.getElementById('kph-filters');
       if(!box) return;
       var peopleOpts = '<option value="">Todas as pessoas</option>' + this.people.map(function(p){
@@ -201,8 +342,8 @@
       var html = '<label style="font-size:11px;font-weight:600;color:#5e6c84">Pessoa<br><select id="kph-f-user" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;min-width:150px;background:#fff">' + peopleOpts + '</select></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Tipo<br><select id="kph-f-type" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;min-width:150px;background:#fff">'
         + '<option value="">Todos os tipos</option>' + this.typeOptions(f.type) + '</select></label>'
-        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">De<br><input id="kph-f-from" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brFrom) + '" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:110px"></label>'
-        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Até<br><input id="kph-f-to" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brTo) + '" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:110px"></label>'
+        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">De<br><span style="position:relative;display:inline-block"><input id="kph-f-from" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brFrom) + '" style="padding:7px 26px 7px 7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:128px;box-sizing:border-box;cursor:pointer"><span onclick="KanproHistory.calOpen(\'kph-f-from\')" title="Abrir calendário" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;user-select:none;line-height:1">📅</span></span></label>'
+        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Até<br><span style="position:relative;display:inline-block"><input id="kph-f-to" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brTo) + '" style="padding:7px 26px 7px 7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:128px;box-sizing:border-box;cursor:pointer"><span onclick="KanproHistory.calOpen(\'kph-f-to\')" title="Abrir calendário" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;user-select:none;line-height:1">📅</span></span></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Cartão #<br><input id="kph-f-card" type="number" min="1" placeholder="#" value="' + esc(f.card_id||'') + '" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;width:90px;background:#fff"></label>'
         + '<button onclick="KanproHistory.clearFilters()" style="padding:7px 12px;border:1px solid #dfe1e6;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Limpar</button>';
       box.innerHTML = html;
@@ -223,6 +364,8 @@
     },
     clearFilters: function(){ this.reloadFresh(); },
     reloadFresh: function(){
+      try { kphCloseCalendar(); } catch(e){}
+      this._calInput = null;
       var box = document.getElementById('kph-filters');
       if(box) box.innerHTML = '';
       this.people = [];
@@ -313,6 +456,8 @@
 
   document.addEventListener('keydown', function(e){
     if(e.key === 'Escape'){
+      var cal = document.getElementById('kph-cal');
+      if(cal){ try { kphCloseCalendar(); } catch(err){ cal.remove(); } return; }
       var ov = document.getElementById('kph-overlay');
       if(ov) H.close();
     }
