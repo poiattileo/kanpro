@@ -457,8 +457,10 @@ function kanpro_migrate_schema_once() {
                 $charset = DBConnection::getDefaultCharset();
                 $collation = DBConnection::getDefaultCollation();
                 $sign = DBConnection::getDefaultPrimaryKeySignOption();
-                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_board_groups_items` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `groups_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `plugin_kanpro_boards_id` INT {$sign} NOT NULL DEFAULT '0', PRIMARY KEY (`id`), UNIQUE KEY `uniq_user_board` (`users_id`, `plugin_kanpro_boards_id`), KEY `groups_id` (`groups_id`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_board_groups_items` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `groups_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `plugin_kanpro_boards_id` INT {$sign} NOT NULL DEFAULT '0', `rank` DOUBLE NOT NULL DEFAULT '0', PRIMARY KEY (`id`), UNIQUE KEY `uniq_user_board` (`users_id`, `plugin_kanpro_boards_id`), KEY `groups_id` (`groups_id`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
             } catch (Throwable $e) {}
+        } elseif (!$DB->fieldExists('glpi_plugin_kanpro_board_groups_items', 'rank')) {
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_board_groups_items` ADD `rank` DOUBLE NOT NULL DEFAULT '0' COMMENT 'ordem do quadro na lista (0=não ordenado)'"); } catch (Throwable $e) {}
         }
     } catch (Throwable $e) {}
 }
@@ -1431,13 +1433,51 @@ switch ($action) {
                 $grow = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['id' => $gid, 'users_id' => $owner]])->current();
                 if (!$grow) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
             }
-            $DB->delete('glpi_plugin_kanpro_board_groups_items', ['users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
-            if ($gid > 0) {
-                $DB->insert('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
+            $cur = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]])->current();
+            if ($cur && (int)($cur['groups_id'] ?? -1) === $gid) {
+                jexit(['success'=>true]); // já está lá: mantém posição
+            }
+            // vai p/ o fim da lista destino
+            $maxR = 0;
+            $rmax = $DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'groups_id' => $gid]])->current();
+            if ($rmax) $maxR = (float)($rmax['m'] ?? 0);
+            $newRank = $maxR > 0 ? $maxR + 1024 : 1024;
+            if ($cur) {
+                $DB->update('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'rank' => $newRank], ['id' => (int)$cur['id']]);
+            } else {
+                $DB->insert('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner, 'plugin_kanpro_boards_id' => $bid, 'rank' => $newRank]);
             }
             jexit(['success'=>true]);
         } catch (Throwable $e) {
             jexit(['success'=>false,'msg'=>'Erro ao mover quadro']);
+        }
+
+    case 'reorder_board_group':
+        // ordem manual dos quadros na lista (drag entre/na lista) — salva rank de todos da lista
+        try {
+            $owner = kanpro_groups_owner_id();
+            $gid = (int)($_POST['groups_id'] ?? 0);
+            $order = json_decode($_POST['order'] ?? '[]', true);
+            if (!is_array($order)) jexit(['success'=>false,'msg'=>'Ordem inválida']);
+            if ($gid > 0) {
+                $grow = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['id' => $gid, 'users_id' => $owner]])->current();
+                if (!$grow) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+            }
+            $rank = 1024;
+            foreach ($order as $obid) {
+                $obid = (int)$obid;
+                if ($obid <= 0 || !kanpro_can_view_board($obid)) continue;
+                $cur = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'plugin_kanpro_boards_id' => $obid]])->current();
+                if ($cur) {
+                    $DB->update('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'rank' => $rank], ['id' => (int)$cur['id']]);
+                } else {
+                    $DB->insert('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner, 'plugin_kanpro_boards_id' => $obid, 'rank' => $rank]);
+                }
+                $rank += 1024;
+            }
+            jexit(['success'=>true]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao salvar ordem']);
         }
 
     case 'get_board_members':

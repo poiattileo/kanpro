@@ -466,9 +466,10 @@ function plugin_kanpro_install(): bool {
         $DB->doQuery("
             CREATE TABLE `glpi_plugin_kanpro_board_groups_items` (
                 `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
-                `groups_id`                   INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_plugin_kanpro_board_groups.id',
+                `groups_id`                   INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_plugin_kanpro_board_groups.id (0=sem grupo)',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'dono (redundante p/ limpeza rápida)',
                 `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `rank`                        DOUBLE       NOT NULL DEFAULT '0' COMMENT 'ordem do quadro na lista (0=não ordenado)',
                 PRIMARY KEY (`id`),
                 UNIQUE KEY `uniq_user_board` (`users_id`, `plugin_kanpro_boards_id`),
                 KEY `groups_id` (`groups_id`)

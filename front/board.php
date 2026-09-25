@@ -75,15 +75,18 @@ echo "</div>";
 $__owner = kanpro_groups_owner_id();
 $__myGroups = [];
 $__myBoardGroup = []; // boards_id => groups_id (meus)
+$__myBoardRank = []; // boards_id => rank (ordem manual na lista)
 try {
     if ($DB->tableExists('glpi_plugin_kanpro_board_groups')) {
         foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $__owner], 'ORDER' => 'rank ASC, id ASC']) as $__g) {
             $__myGroups[(int)$__g['id']] = ['id' => (int)$__g['id'], 'name' => $__g['name'], 'count' => 0];
         }
     }
-    if ($DB->tableExists('glpi_plugin_kanpro_board_groups_items') && !empty($__myGroups)) {
+    if ($DB->tableExists('glpi_plugin_kanpro_board_groups_items')) {
+        $__hasRank = $DB->fieldExists('glpi_plugin_kanpro_board_groups_items', 'rank');
         foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $__owner]]) as $__it) {
             $__myBoardGroup[(int)$__it['plugin_kanpro_boards_id']] = (int)$__it['groups_id'];
+            if ($__hasRank) $__myBoardRank[(int)$__it['plugin_kanpro_boards_id']] = (float)$__it['rank'];
         }
     }
 } catch (Throwable $e) {}
@@ -178,12 +181,20 @@ if (count($iterator) === 0) {
         }
         echo "</select></div>";
         echo "</div>";
-        $__colCards[$__bGroup][] = ob_get_clean();
+        $__colCards[$__bGroup][] = ['bid' => $bid, 'rank' => ($__myBoardRank[$bid] ?? 0) > 0 ? (float)$__myBoardRank[$bid] : 0, 'seq' => count($__colCards[$__bGroup] ?? []), 'html' => ob_get_clean()];
     }
+    // ordena cada lista: rank manual primeiro, resto mantém ordem padrão (favorito/data)
+    $__sortCol = function($list) {
+        $ranked = [];
+        $plain = [];
+        foreach ($list as $it) { if ($it['rank'] > 0) $ranked[] = $it; else $plain[] = $it; }
+        usort($ranked, function($a, $b) { return ($a['rank'] <=> $b['rank']) ?: ($a['seq'] <=> $b['seq']); });
+        return array_merge($ranked, $plain);
+    };
     // renderiza cada grupo como uma lista (estilo Trello) + Sem grupo + Nova lista
     echo "<div id='kpg-board' style='display:flex;gap:16px;overflow-x:auto;padding:4px 4px 16px;align-items:flex-start'>";
     foreach ($__myGroups as $__g) {
-        $__cards = $__colCards[$__g['id']] ?? [];
+        $__cards = $__sortCol($__colCards[$__g['id']] ?? []);
         echo "<div class='kpg-col' data-gid='" . $__g['id'] . "' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column'>";
         echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
             . "<strong style='flex:1;font-size:14px;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" . htmlspecialchars($__g['name']) . "</strong>"
@@ -193,10 +204,10 @@ if (count($iterator) === 0) {
             . "</div>";
         echo "<div class='kpg-col-body' data-gid='" . $__g['id'] . "' style='padding:0 10px 10px;display:grid;gap:12px;align-content:start;min-height:60px'>";
         if (empty($__cards)) echo "<div class='kpg-empty' style='border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px'>Arraste quadros pra cá</div>";
-        else foreach ($__cards as $__c) echo $__c;
+        else foreach ($__cards as $__c) echo $__c['html'];
         echo "</div></div>";
     }
-    $__nog = $__colCards[0] ?? [];
+    $__nog = $__sortCol($__colCards[0] ?? []);
     echo "<div class='kpg-col' data-gid='0' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column'>";
     echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
         . "<strong style='flex:1;font-size:14px;color:#172b4d'>Sem grupo</strong>"
@@ -204,7 +215,7 @@ if (count($iterator) === 0) {
         . "</div>";
     echo "<div class='kpg-col-body' data-gid='0' style='padding:0 10px 10px;display:grid;gap:12px;align-content:start;min-height:60px'>";
     if (empty($__nog)) echo "<div class='kpg-empty' style='border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px'>Nada por aqui</div>";
-    else foreach ($__nog as $__c) echo $__c;
+    else foreach ($__nog as $__c) echo $__c['html'];
     echo "</div></div>";
     // + nova lista
     echo "<div style='flex:0 0 280px;min-width:280px;background:rgba(255,255,255,.55);border-radius:10px;padding:10px'>";
@@ -474,18 +485,32 @@ window.KanproGroups = (function(){
       });
     },
     move: function(boardId, groupId){
-      // arrastar-e-soltar: move o cartão no DOM sem reload
+      // compat: reposiciona no fim da lista destino
       var node = KanproGroups.findCard(boardId);
       var target = document.querySelector(".kpg-col-body[data-gid='" + groupId + "']");
       if (!node || !target) { location.reload(); return; }
-      post('assign_board_group', {boards_id: boardId, groups_id: groupId}).then(function(res){
-        if (!res.success) { alert(res.msg || 'Erro'); location.reload(); return; }
-        var empty = target.querySelector('.kpg-empty');
-        if (empty) empty.remove();
-        target.appendChild(node);
-        var sel = node.querySelector('select');
-        if (sel) sel.value = String(groupId);
-        KanproGroups.refreshCounts();
+      var empty = target.querySelector('.kpg-empty');
+      if (empty) empty.remove();
+      target.appendChild(node);
+      var sel = node.querySelector('select');
+      if (sel) sel.value = String(groupId);
+      KanproGroups.refreshCounts();
+      KanproGroups.saveOrder(groupId, target);
+    },
+    columnOrder: function(body){
+      var order = [];
+      var kids = body.children;
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i].classList.contains('kpg-empty')) continue;
+        var a = kids[i].querySelector("a[href*='kanban.php?boards_id=']");
+        var m = a && a.href.match(/boards_id=(\d+)/);
+        if (m) order.push(parseInt(m[1], 10));
+      }
+      return order;
+    },
+    saveOrder: function(groupId, body){
+      post('reorder_board_group', {groups_id: groupId, order: JSON.stringify(KanproGroups.columnOrder(body))}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); location.reload(); }
       });
     },
     findCard: function(boardId){
@@ -554,6 +579,16 @@ window.KanproGroups = (function(){
     var m = a && a.href.match(/boards_id=(\d+)/);
     return m ? parseInt(m[1], 10) : 0;
   }
+  function afterCard(body, y){
+    var kids = body.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].classList.contains('kpg-empty')) continue;
+      if (kids[i].style.opacity === '.4') continue; // o arrastado
+      var r = kids[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return kids[i];
+    }
+    return null;
+  }
   var bodies = document.querySelectorAll('.kpg-col-body');
   for (var b = 0; b < bodies.length; b++) {
     (function(body){
@@ -589,8 +624,15 @@ window.KanproGroups = (function(){
         var gid = parseInt(body.getAttribute('data-gid'), 10);
         if (!bid || isNaN(gid)) return;
         var node = KanproGroups.findCard(bid);
-        if (node && node.parentNode === body) return; // mesma lista: nada a fazer
-        KanproGroups.move(bid, gid);
+        if (!node) { location.reload(); return; }
+        // insere na posição soltada (antes do cartão da metade de baixo, senão no fim)
+        var after = afterCard(body, e.clientY);
+        if (after && after !== node) body.insertBefore(node, after);
+        else if (!after) body.appendChild(node);
+        var sel = node.querySelector('select');
+        if (sel) sel.value = String(gid);
+        KanproGroups.refreshCounts();
+        KanproGroups.saveOrder(gid, body);
       });
     })(bodies[b]);
   }
