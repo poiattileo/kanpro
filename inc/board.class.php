@@ -239,6 +239,12 @@ class PluginKanproBoard extends CommonDBTM {
             'mirage'      => 'mirage.svg',
             'lol'         => 'lol.svg',
             'valorant'    => 'valorant.svg',
+            'kanban'        => 'kanban.svg',
+            'inventario'    => 'inventario.svg',
+            'protocolo'     => 'protocolo.svg',
+            'acesso-escola' => 'acesso-escola.svg',
+            'agenda-carros' => 'agenda-carros.svg',
+            'whatsapp'      => 'whatsapp.svg',
         ];
     }
 

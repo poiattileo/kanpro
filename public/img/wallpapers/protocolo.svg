@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="pr-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#004d40"/>
+      <stop offset=".55" stop-color="#00796b"/>
+      <stop offset="1" stop-color="#4db6ac"/>
+    </linearGradient>
+    <linearGradient id="pr-paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e0f2f1"/>
+    </linearGradient>
+    <radialGradient id="pr-seal" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffca28"/>
+      <stop offset=".75" stop-color="#ff8f00"/>
+      <stop offset="1" stop-color="#e65100"/>
+    </radialGradient>
+    <radialGradient id="pr-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#pr-bg)"/>
+  <circle cx="1620" cy="200" r="320" fill="url(#pr-glow)"/>
+  <circle cx="260" cy="880" r="280" fill="url(#pr-glow)"/>
+  <g opacity=".12" fill="#ffffff">
+    <circle cx="200" cy="200" r="90"/>
+    <circle cx="1720" cy="880" r="110"/>
+    <circle cx="480" cy="540" r="50"/>
+    <circle cx="1480" cy="540" r="60"/>
+  </g>
+  <g transform="rotate(-6 960 540)">
+    <rect x="760" y="220" width="400" height="640" rx="16" fill="url(#pr-paper)" opacity=".55"/>
+    <rect x="800" y="260" width="400" height="640" rx="16" fill="url(#pr-paper)"/>
+    <rect x="800" y="260" width="400" height="90" rx="16" fill="#00796b"/>
+    <rect x="840" y="390" width="320" height="24" rx="12" fill="#00796b" opacity=".65"/>
+    <rect x="840" y="440" width="320" height="24" rx="12" fill="#00796b" opacity=".35"/>
+    <rect x="840" y="490" width="240" height="24" rx="12" fill="#00796b" opacity=".35"/>
+    <rect x="840" y="540" width="320" height="24" rx="12" fill="#00796b" opacity=".35"/>
+    <rect x="840" y="640" width="180" height="60" rx="10" fill="none" stroke="#00796b" stroke-width="5" opacity=".6"/>
+  </g>
+  <g transform="rotate(12 1330 760)">
+    <circle cx="1330" cy="760" r="110" fill="url(#pr-seal)"/>
+    <circle cx="1330" cy="760" r="110" fill="none" stroke="#fff3e0" stroke-width="8" stroke-dasharray="18 12"/>
+    <circle cx="1330" cy="760" r="62" fill="none" stroke="#fff3e0" stroke-width="7"/>
+    <path d="M1302,760 L1322,782 L1362,738" stroke="#fff3e0" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

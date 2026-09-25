@@ -3866,6 +3866,12 @@
         {key:'mirage', file:'mirage.svg', label:'Mirage (CS2)'},
         {key:'lol', file:'lol.svg', label:'League of Legends'},
         {key:'valorant', file:'valorant.svg', label:'Valorant'},
+        {key:'kanban', file:'kanban.svg', label:'Kanban'},
+        {key:'inventario', file:'inventario.svg', label:'Inventário'},
+        {key:'protocolo', file:'protocolo.svg', label:'Protocolo'},
+        {key:'acesso-escola', file:'acesso-escola.svg', label:'Acesso Escola'},
+        {key:'agenda-carros', file:'agenda-carros.svg', label:'Agenda Carros'},
+        {key:'whatsapp', file:'whatsapp.svg', label:'WhatsApp'},
       ];
     },
     wallpaperThumbUrl(file){

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="inv-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b1a5e"/>
+      <stop offset=".55" stop-color="#5e35b1"/>
+      <stop offset="1" stop-color="#9575cd"/>
+    </linearGradient>
+    <linearGradient id="inv-box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ede9fe"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+    <radialGradient id="inv-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#inv-bg)"/>
+  <circle cx="240" cy="180" r="300" fill="url(#inv-glow)"/>
+  <circle cx="1700" cy="920" r="340" fill="url(#inv-glow)"/>
+  <g opacity=".14" stroke="#ffffff" stroke-width="3">
+    <path d="M0,180 H1920 M0,420 H1920 M0,660 H1920 M0,900 H1920"/>
+    <path d="M240,0 V1080 M640,0 V1080 M1040,0 V1080 M1440,0 V1080"/>
+  </g>
+  <g>
+    <rect x="560" y="620" width="380" height="300" rx="18" fill="url(#inv-box)" opacity=".95"/>
+    <rect x="980" y="620" width="380" height="300" rx="18" fill="url(#inv-box)" opacity=".75"/>
+    <rect x="770" y="380" width="380" height="300" rx="18" fill="url(#inv-box)"/>
+    <rect x="770" y="380" width="380" height="64" rx="18" fill="#5e35b1" opacity=".85"/>
+  </g>
+  <g stroke="#5e35b1" stroke-width="26" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M900,560 L970,630 L1070,490"/>
+  </g>
+  <g fill="#5e35b1" opacity=".5">
+    <rect x="610" y="680" width="280" height="26" rx="13"/>
+    <rect x="610" y="730" width="200" height="26" rx="13"/>
+    <rect x="1030" y="680" width="280" height="26" rx="13"/>
+    <rect x="1030" y="730" width="220" height="26" rx="13"/>
+  </g>
+</svg>

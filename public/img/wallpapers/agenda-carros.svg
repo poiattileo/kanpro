@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="ag-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset=".6" stop-color="#334155"/>
+      <stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="ag-road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e293b"/>
+      <stop offset="1" stop-color="#0b1120"/>
+    </linearGradient>
+    <linearGradient id="ag-car" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f87171"/>
+      <stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+    <radialGradient id="ag-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#ag-bg)"/>
+  <circle cx="1600" cy="180" r="300" fill="url(#ag-glow)"/>
+  <g opacity=".2" fill="#ffffff">
+    <circle cx="240" cy="160" r="70"/>
+    <circle cx="520" cy="120" r="40"/>
+    <circle cx="1760" cy="900" r="80"/>
+  </g>
+  <path d="M0,720 C500,660 900,780 1300,720 C1550,685 1750,700 1920,740 L1920,1080 L0,1080 Z" fill="url(#ag-road)"/>
+  <g stroke="#facc15" stroke-width="14" stroke-dasharray="70 50" opacity=".9">
+    <path d="M0,880 C500,830 900,930 1300,880 C1550,855 1750,865 1920,895" fill="none"/>
+  </g>
+  <g>
+    <rect x="420" y="180" width="330" height="330" rx="22" fill="#ffffff"/>
+    <rect x="420" y="180" width="330" height="86" rx="22" fill="#b91c1c"/>
+    <rect x="420" y="240" width="330" height="26" fill="#b91c1c"/>
+    <circle cx="452" cy="223" r="10" fill="#ffffff" opacity=".7"/>
+    <circle cx="480" cy="223" r="10" fill="#ffffff" opacity=".7"/>
+    <circle cx="508" cy="223" r="10" fill="#ffffff" opacity=".7"/>
+    <g fill="#0f172a">
+      <rect x="460" y="300" width="60" height="70" rx="10"/>
+      <rect x="540" y="300" width="60" height="70" rx="10"/>
+      <rect x="620" y="300" width="60" height="70" rx="10"/>
+      <rect x="460" y="390" width="60" height="70" rx="10"/>
+      <rect x="540" y="390" width="60" height="70" rx="10" fill="#b91c1c"/>
+      <rect x="620" y="390" width="60" height="70" rx="10"/>
+    </g>
+  </g>
+  <g>
+    <ellipse cx="1180" cy="760" rx="300" ry="40" fill="#000000" opacity=".35"/>
+    <rect x="940" y="560" width="480" height="150" rx="60" fill="url(#ag-car)"/>
+    <path d="M1010,560 C1030,490 1080,460 1140,460 L1260,460 C1320,460 1370,490 1390,560 Z" fill="url(#ag-car)"/>
+    <rect x="1060" y="490" width="120" height="70" rx="12" fill="#bae6fd" opacity=".9"/>
+    <rect x="1200" y="490" width="120" height="70" rx="12" fill="#bae6fd" opacity=".9"/>
+    <circle cx="1040" cy="710" r="62" fill="#0b1120"/>
+    <circle cx="1040" cy="710" r="28" fill="#94a3b8"/>
+    <circle cx="1320" cy="710" r="62" fill="#0b1120"/>
+    <circle cx="1320" cy="710" r="28" fill="#94a3b8"/>
+    <rect x="1390" y="600" width="50" height="26" rx="8" fill="#fde68a"/>
+    <rect x="920" y="600" width="40" height="26" rx="8" fill="#f87171"/>
+  </g>
+</svg>
