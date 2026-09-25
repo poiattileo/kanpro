@@ -1,5 +1,5 @@
 # KanPro • WhatsApp de ATRASO (texto puro, sem HTML)
-# Gatilho: cron diário — 7, 14 ou 30 dias após data_recebimento
+# Gatilho: cron diário — card em Retirada há 5+ dias, reenvia a cada 5 dias
 # Placeholders: {escola} {card_id} {card_nome} {data_recebimento}
 #               {dias} {quantidade} {maquinas}
 

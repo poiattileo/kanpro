@@ -15,7 +15,7 @@ if (!defined('GLPI_ROOT')) {
  * Gatilhos:
  *   entrada   setup_maintenance_machines (1ª configuração) — uma vez por card
  *   retirada  retirada_machine / finalize_maintenance — uma vez por card
- *   atraso    cron diário PluginKanproMaintenanceZap::cronZapatraso — 7/14/30 dias
+ *   atraso    cron diário: card em Retirada recebe lembrete a cada 5 dias
  *   cancelado revert_maintenance
  *
  * Anti-duplicado: tabela glpi_plugin_kanpro_maintenance_zaplog (milestone por card).
@@ -288,12 +288,51 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         } catch (Throwable $e) {}
     }
 
-    // ---------- CRON diário: atraso 7/14/30 dias ----------
+    // ---------- CRON diário: atraso a cada 5 dias em Retirada ----------
     public static function cronInfo(): array {
         return [
-            'description' => 'WhatsApp de atraso da manutenção (7/14/30 dias)',
+            'description' => 'WhatsApp de atraso: cards em Retirada recebem lembrete a cada 5 dias',
             'parameter'   => 'Máximo de cards por execução',
         ];
+    }
+
+    /**
+     * Estado da transferência do card: null (sem termo), 'retirada' (aguardando
+     * assinatura/retirada) ou 'concluido' (assinado = já buscou).
+     * Retorna ['state'=>?, 'days'=>dias em retirada, 'date'=>data].
+     */
+    static function cardTransferState(int $cards_id): array {
+        global $DB;
+        $none = ['state' => null, 'days' => 0, 'date' => null];
+        try {
+            if (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) return $none;
+            $like = "%[KanPro #{$cards_id}]%";
+            $tr = $DB->request(['FROM' => 'glpi_plugin_assetmgrstatus_transfers', 'WHERE' => ['reason' => ['LIKE', $like]], 'ORDER' => 'id DESC', 'LIMIT' => 1])->current();
+            if (!$tr) return $none;
+            $signed = !empty($tr['assinatura_image']) && !empty($tr['assinatura_tecnico_image']);
+            if ($signed) return ['state' => 'concluido', 'days' => 0, 'date' => null];
+            $ref = (string)($tr['date_pronto'] ?? $tr['date_creation'] ?? '');
+            if ($ref === '' || $ref === '0000-00-00 00:00:00') return ['state' => 'retirada', 'days' => 0, 'date' => null];
+            try {
+                $days = (int)floor((time() - (new DateTime($ref))->getTimestamp()) / 86400);
+            } catch (Throwable $e) { return $none; }
+            return ['state' => 'retirada', 'days' => max(0, $days), 'date' => $ref];
+        } catch (Throwable $e) { return $none; }
+    }
+
+    /** Data do último atraso enviado com sucesso (null = nunca) */
+    static function lastAtrasoDate(int $cards_id): ?string {
+        global $DB;
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) return null;
+            $row = $DB->request([
+                'SELECT' => ['MAX' => 'date_creation AS m'],
+                'FROM'   => 'glpi_plugin_kanpro_maintenance_zaplog',
+                'WHERE'  => ['plugin_kanpro_cards_id' => $cards_id, 'success' => 1, 'milestone' => ['LIKE', 'atraso%']],
+            ])->current();
+            $m = (string)($row['m'] ?? '');
+            return ($m !== '' && $m !== '0000-00-00 00:00:00') ? $m : null;
+        } catch (Throwable $e) { return null; }
     }
 
     public static function cronZapatraso($task = null): int {
@@ -309,32 +348,30 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         try {
             if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) return 0;
             $iter = $DB->request([
-                'SELECT' => ['id', 'name', 'maintenance_date', 'date_creation'],
+                'SELECT' => ['id'],
                 'FROM'   => 'glpi_plugin_kanpro_cards',
                 'WHERE'  => ['is_maintenance' => 1, 'is_archived' => 0],
-                'ORDER'  => 'maintenance_date ASC',
+                'ORDER'  => 'id ASC',
                 'LIMIT'  => 500,
             ]);
             foreach ($iter as $c) {
                 if ($sent + $fail >= $limit) break;
                 $cid = (int)$c['id'];
-                $ref = (string)($c['maintenance_date'] ?? $c['date_creation'] ?? '');
-                if ($ref === '' || $ref === '0000-00-00 00:00:00') continue;
-                try {
-                    $days = (int)floor((time() - (new DateTime($ref))->getTimestamp()) / 86400);
-                } catch (Throwable $e) { continue; }
-                $ms = null;
-                $msDays = 0;
-                if ($days >= 30) { $ms = 'atraso_30'; $msDays = 30; }
-                elseif ($days >= 14) { $ms = 'atraso_14'; $msDays = 14; }
-                elseif ($days >= 7) { $ms = 'atraso_7'; $msDays = 7; }
-                if ($ms === null || self::alreadySent($cid, $ms)) continue;
-                $r = self::send('atraso', $cid, ['dias' => (string)$msDays], $ms);
-                if (!empty($r['ok'])) $sent++;
-                else {
-                    // 'duplicate' e 'sem telefone' não são falha transitória p/ contagem
-                    if (!in_array($r['error'] ?? '', ['duplicate', 'sem telefone'], true)) $fail++;
+                // só cobra quem está em Retirada (com termo, sem assinatura)
+                $tst = self::cardTransferState($cid);
+                if (($tst['state'] ?? null) !== 'retirada') continue;
+                if (($tst['days'] ?? 0) < 5) continue; // carência: 5 dias em retirada
+                // reenvia a cada 5 dias
+                $last = self::lastAtrasoDate($cid);
+                if ($last !== null) {
+                    try {
+                        $gap = (int)floor((time() - (new DateTime($last))->getTimestamp()) / 86400);
+                    } catch (Throwable $e) { continue; }
+                    if ($gap < 5) continue;
                 }
+                $r = self::send('atraso', $cid, ['dias' => (string)$tst['days']], 'atraso_' . date('Y-m-d'));
+                if (!empty($r['ok'])) $sent++;
+                elseif (!in_array($r['error'] ?? '', ['duplicate', 'sem telefone'], true)) $fail++;
             }
         } catch (Throwable $e) {
             return 1;
@@ -368,7 +405,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'logs_lifetime' => 30,
                     'hourmin'       => 0,
                     'hourmax'       => 24,
-                    'comment'       => 'KanPro: WhatsApp de atraso da manutenção (7/14/30 dias)',
+                    'comment'       => 'KanPro: WhatsApp de atraso (lembrete a cada 5 dias em Retirada)',
                 ]);
             }
         } catch (Throwable $e) {
