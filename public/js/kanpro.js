@@ -481,8 +481,18 @@
       board.innerHTML = '';
       // ordena listas por rank
       this.lists.sort((a,b)=> parseFloat(a.rank)-parseFloat(b.rank));
-      // fixados primeiro, depois rank
-      this.cards.sort((a,b)=> ((b.is_pinned||0)-(a.is_pinned||0)) || (parseFloat(a.rank)-parseFloat(b.rank)));
+      // ordem dos cartões: urgência primeiro (A-Z), depois fixados, depois rank
+      const urgentOf = (c)=> ((this.maintenanceProgress && this.maintenanceProgress[c.id] && this.maintenanceProgress[c.id].urgent>0) ? 1 : 0);
+      this.cards.sort((a,b)=>{
+        const ua = urgentOf(a), ub = urgentOf(b);
+        if(ua!==ub) return ub-ua;
+        if(ua && ub){
+          const na = this.normText(a.name||''), nb = this.normText(b.name||'');
+          if(na!==nb) return na<nb?-1:1;
+          return (a.id||0)-(b.id||0);
+        }
+        return ((b.is_pinned||0)-(a.is_pinned||0)) || (parseFloat(a.rank)-parseFloat(b.rank));
+      });
 
       this.lists.forEach(list=>{
         if(list.is_archived==1) return;
