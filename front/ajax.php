@@ -1358,68 +1358,87 @@ switch ($action) {
 
     // --- GRUPOS PESSOAIS DE QUADROS (cada usuário organiza os seus do seu jeito) ---
     case 'my_board_groups':
-        $owner = kanpro_groups_owner_id();
-        if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
-        $groups = [];
-        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $owner], 'ORDER' => 'rank ASC, id ASC']) as $g) {
-            $bids = [];
-            foreach ($DB->request(['SELECT' => ['plugin_kanpro_boards_id'], 'FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['groups_id' => (int)$g['id'], 'users_id' => $owner]]) as $it) {
-                $bids[] = (int)$it['plugin_kanpro_boards_id'];
+        try {
+            $owner = kanpro_groups_owner_id();
+            if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
+            $groups = [];
+            foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $owner], 'ORDER' => 'rank ASC, id ASC']) as $g) {
+                $bids = [];
+                foreach ($DB->request(['SELECT' => ['plugin_kanpro_boards_id'], 'FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['groups_id' => (int)$g['id'], 'users_id' => $owner]]) as $it) {
+                    $bids[] = (int)$it['plugin_kanpro_boards_id'];
+                }
+                $groups[] = ['id' => (int)$g['id'], 'name' => $g['name'], 'boards' => $bids];
             }
-            $groups[] = ['id' => (int)$g['id'], 'name' => $g['name'], 'boards' => $bids];
+            jexit(['success'=>true, 'groups'=>$groups]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao listar grupos']);
         }
-        jexit(['success'=>true, 'groups'=>$groups]);
 
     case 'add_board_group':
-        $owner = kanpro_groups_owner_id();
-        if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
-        $name = trim($_POST['name'] ?? '');
-        if ($name === '') jexit(['success'=>false,'msg'=>'Dê um nome ao grupo']);
-        $name = mb_substr($name, 0, 100);
-        $maxRank = 0;
-        foreach ($DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $owner]]) as $r) {
-            $maxRank = (float)($r['m'] ?? 0);
+        try {
+            $owner = kanpro_groups_owner_id();
+            if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
+            $name = trim($_POST['name'] ?? '');
+            if ($name === '') jexit(['success'=>false,'msg'=>'Dê um nome ao grupo']);
+            $name = mb_substr($name, 0, 100);
+            $maxRank = 0;
+            $rmax = $DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $owner]])->current();
+            if ($rmax) $maxRank = (float)($rmax['m'] ?? 0);
+            $ok = $DB->insert('glpi_plugin_kanpro_board_groups', ['users_id' => $owner, 'name' => $name, 'rank' => $maxRank + 1024, 'date_creation' => date('Y-m-d H:i:s')]);
+            $id = $ok ? (int)$DB->insertId() : 0;
+            if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o grupo']);
+            jexit(['success'=>true, 'id'=>$id]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao criar grupo']);
         }
-        $ng = new PluginKanproBoardGroup();
-        $id = $ng->add(['users_id' => $owner, 'name' => $name, 'rank' => $maxRank + 1024]);
-        if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o grupo']);
-        jexit(['success'=>true, 'id'=>(int)$id]);
 
     case 'rename_board_group':
-        $owner = kanpro_groups_owner_id();
-        $gid = (int)($_POST['id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
-        if ($gid <= 0 || $name === '') jexit(['success'=>false,'msg'=>'Grupo ou nome inválido']);
-        $gchk = new PluginKanproBoardGroup();
-        if (!$gchk->getFromDB($gid) || (int)($gchk->fields['users_id'] ?? 0) !== $owner) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
-        $gchk->update(['id' => $gid, 'name' => mb_substr($name, 0, 100), 'date_mod' => date('Y-m-d H:i:s')]);
-        jexit(['success'=>true]);
+        try {
+            $owner = kanpro_groups_owner_id();
+            $gid = (int)($_POST['id'] ?? 0);
+            $name = trim($_POST['name'] ?? '');
+            if ($gid <= 0 || $name === '') jexit(['success'=>false,'msg'=>'Grupo ou nome inválido']);
+            $grow = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['id' => $gid, 'users_id' => $owner]])->current();
+            if (!$grow) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+            $DB->update('glpi_plugin_kanpro_board_groups', ['name' => mb_substr($name, 0, 100), 'date_mod' => date('Y-m-d H:i:s')], ['id' => $gid]);
+            jexit(['success'=>true]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao renomear grupo']);
+        }
 
     case 'delete_board_group':
-        $owner = kanpro_groups_owner_id();
-        $gid = (int)($_POST['id'] ?? 0);
-        if ($gid <= 0) jexit(['success'=>false,'msg'=>'Grupo inválido']);
-        $gchk = new PluginKanproBoardGroup();
-        if (!$gchk->getFromDB($gid) || (int)($gchk->fields['users_id'] ?? 0) !== $owner) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
-        $DB->delete('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner]);
-        $gchk->delete(['id' => $gid], true);
-        jexit(['success'=>true]);
+        try {
+            $owner = kanpro_groups_owner_id();
+            $gid = (int)($_POST['id'] ?? 0);
+            if ($gid <= 0) jexit(['success'=>false,'msg'=>'Grupo inválido']);
+            $grow = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['id' => $gid, 'users_id' => $owner]])->current();
+            if (!$grow) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+            $DB->delete('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner]);
+            $DB->delete('glpi_plugin_kanpro_board_groups', ['id' => $gid, 'users_id' => $owner]);
+            jexit(['success'=>true]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao excluir grupo']);
+        }
 
     case 'assign_board_group':
-        $owner = kanpro_groups_owner_id();
-        $bid = (int)($_POST['boards_id'] ?? 0);
-        $gid = (int)($_POST['groups_id'] ?? 0); // 0 = sem grupo
-        if ($bid <= 0) jexit(['success'=>false,'msg'=>'Quadro inválido']);
-        if (!kanpro_can_view_board($bid)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
-        if ($gid > 0) {
-            $gchk = new PluginKanproBoardGroup();
-            if (!$gchk->getFromDB($gid) || (int)($gchk->fields['users_id'] ?? 0) !== $owner) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+        try {
+            $owner = kanpro_groups_owner_id();
+            $bid = (int)($_POST['boards_id'] ?? 0);
+            $gid = (int)($_POST['groups_id'] ?? 0); // 0 = sem grupo
+            if ($bid <= 0) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+            if (!kanpro_can_view_board($bid)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+            if ($gid > 0) {
+                $grow = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['id' => $gid, 'users_id' => $owner]])->current();
+                if (!$grow) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+            }
+            $DB->delete('glpi_plugin_kanpro_board_groups_items', ['users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
+            if ($gid > 0) {
+                $DB->insert('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
+            }
+            jexit(['success'=>true]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro ao mover quadro']);
         }
-        $DB->delete('glpi_plugin_kanpro_board_groups_items', ['users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
-        if ($gid > 0) {
-            $DB->insert('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
-        }
-        jexit(['success'=>true]);
 
     case 'get_board_members':
         $bid = (int)($_POST['boards_id'] ?? 0);
