@@ -427,7 +427,7 @@ echo <<<HTML
     <div style="padding:16px 16px 16px 56px;position:relative">
       <i class="ti ti-credit-card" style="position:absolute;left:16px;top:18px;font-size:22px;color:#172b4d"></i>
       <div id="card-modal-title" style="font-size:20px;font-weight:700;color:#172b4d;cursor:pointer" onclick="Kanpro.editCardTitle()"></div>
-      <div style="font-size:14px;color:#6b778c;margin-top:4px">na lista <span id="card-modal-listname" style="text-decoration:underline"></span></div>
+      <div style="font-size:14px;color:#6b778c;margin-top:4px">na lista <span id="card-modal-listname" style="text-decoration:underline"></span><span id="card-modal-created" style="font-size:12px;color:#97a0af"></span></div>
       <div id="card-modal-badges" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
     </div>
     <div style="display:flex;gap:16px;padding:0 16px 16px 16px">

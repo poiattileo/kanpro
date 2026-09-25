@@ -715,6 +715,12 @@
         membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
       }
 
+      // data de criação — pequenininha no canto inferior direito
+      let createdHtml = '';
+      if(card.date_creation){
+        createdHtml = `<span title="Criado em ${this.formatDate(card.date_creation)}" style="font-size:10px;color:#97a0af;white-space:nowrap;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-clock" style="font-size:11px"></i>${this.formatDateTiny(card.date_creation)}</span>`;
+      }
+
       div.innerHTML = `
         ${coverHtml}
         ${labelsHtml}
@@ -723,6 +729,7 @@
         ${checkBarHtml}
         ${dueBarHtml}
         ${membersHtml}
+        ${createdHtml?`<div style="display:flex;justify-content:flex-end;margin-top:4px">${createdHtml}</div>`:''}
         <button class="kp-card-edit" onclick="event.stopPropagation(); Kanpro.quickEditCard(${card.id}, event)"><i class="ti ti-pencil" style="font-size:14px"></i></button>
       `;
       div.addEventListener('click', ()=> this.openCard(card.id));
@@ -1149,6 +1156,8 @@
     renderCardModal(data){
       $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${data.id}</span>${this.escape(data.name)}`;
       $('#card-modal-listname').textContent = data.list_name||'Lista';
+      const createdEl = $('#card-modal-created');
+      if(createdEl) createdEl.textContent = data.date_creation ? ` • 🕐 Criado em ${this.formatDate(data.date_creation)}` : '';
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
       // cover
       const cover = $('#card-modal-cover');
@@ -4264,6 +4273,13 @@
       if(!s) return '';
       const d = new Date(s);
       return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
+    },
+    formatDateTiny(s){
+      if(!s) return '';
+      const d = new Date(s);
+      if(isNaN(d)) return '';
+      const pad=n=>String(n).padStart(2,'0');
+      return `${pad(d.getDate())}/${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
     formatFileSize(b){
       if(b<1024) return b+' B';
