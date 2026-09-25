@@ -408,14 +408,25 @@
     refreshCardModal(after){
       const cardId = this.currentCardId;
       if(!cardId) return Promise.resolve();
+      // sequência: se dois refreshes concorrem, só o mais recente pode renderizar
+      // (sem isso uma resposta velha chegava por último e "desmarcava" o Feito)
+      const seq = (this._modalSeq = (this._modalSeq||0)+1);
       this._modalChain = (this._modalChain || Promise.resolve()).catch(()=>{}).then(()=>
         this.ajax('get_card', {cards_id: cardId}).then(r=>{
+          if(seq !== this._modalSeq) return r; // resposta velha: descarta
           if(r && r.success && this.currentCardId===cardId) this.renderCardModal(r.data);
           this.renderBoard();
           if(typeof after === 'function'){ try{ after(r); }catch(e){} }
         }).catch(()=>{})
       );
       return this._modalChain;
+    },
+    scheduleModalRefresh(delay){
+      // coalesce: cliques rápidos (Feito + Status) viram UM refresh só, com folga
+      // p/ não matar o <select> que o usuário acabou de abrir nem piscar a tela
+      clearTimeout(this._modalRefreshTimer);
+      const d = (delay==null ? 800 : delay);
+      this._modalRefreshTimer = setTimeout(()=> this.refreshCardModal(), d);
     },
     /* ---------- seleção por teclado ---------- */
     clearCardSelection(){
@@ -1385,6 +1396,51 @@
     },
 
     // ==================== MANUTENÇÃO ====================
+    maintStatusMeta(rawStatus){
+      let s = String(rawStatus||"").trim().toLowerCase();
+      if(s==="pending") s="pendente";
+      if(s==="defect"||s==="defeito"||s==="nok") s="inservivel";
+      if(s==="garantia") return {status:s, label:"🛡️ Garantia", color:"#0052cc", text:"#fff"};
+      if(s==="ok") return {status:s, label:"✅ OK", color:"#61bd4f", text:"#fff"};
+      if(s==="inservivel") return {status:s, label:"❌ Inservível", color:"#eb5a46", text:"#fff"};
+      if(s==="pendente") return {status:s, label:"⏳ Pendente", color:"#ffab00", text:"#172b4d"};
+      return {status:"", label:"— Selecione *", color:"#ffebe6", text:"#bf2600"};
+    },
+    maintMachineById(mid){
+      const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+      return ms.find(m=> String(m.id)===String(mid)) || null;
+    },
+    patchMaintUI(mid){
+      // atualiza visuals a partir do cache local SEM rebuildar innerHTML:
+      // não pisca, não fecha <select> aberto, não tira o foco do relatório
+      const data = this._lastModalData;
+      if(!data || !data.maintenance_machines) return;
+      const machines = data.maintenance_machines;
+      const total = machines.length;
+      const done = machines.filter(m=>m.is_done==1).length;
+      const pct = total ? Math.round(done/total*100) : 0;
+      const allDone = total>0 && done===total;
+      const lab = document.getElementById('maint-progress-label');
+      if(lab) lab.textContent = `${done}/${total} • ${pct}%`;
+      const pctEl = document.getElementById('maint-progress-pct');
+      if(pctEl) pctEl.textContent = pct+'%';
+      const bar = document.getElementById('maint-progress-bar');
+      if(bar){ bar.style.width = pct+'%'; bar.style.background = allDone ? '#61bd4f' : '#ffab00'; }
+      if(mid==null) return;
+      const m = machines.find(x=> String(x.id)===String(mid));
+      const row = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
+      if(!m || !row) return;
+      const isDone = m.is_done==1;
+      const meta = this.maintStatusMeta(m.status);
+      const isUrgent = String(m.is_urgent)==="1" || m.is_urgent===1;
+      row.style.borderLeft = `4px solid ${isUrgent ? "#eb5a46" : (!meta.status ? "#eb5a46" : (isDone ? "#61bd4f" : "#ffab00"))}`;
+      const head = row.firstElementChild;
+      if(head) head.style.background = isUrgent ? "#ffecec" : (isDone ? "#e3fcef" : "#f4f5f7");
+      const pill = document.getElementById('maint-row-stpill-'+mid);
+      if(pill){ pill.textContent = meta.label; pill.style.background = meta.color; pill.style.color = meta.text; }
+      const foot = document.getElementById('maint-row-foot-'+mid);
+      if(foot) foot.innerHTML = isDone ? '<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>' : '<span style="color:#ff991f">Em andamento</span>';
+    },
     renderMaintenanceInModal(data){
       this._lastModalData = data;
       const wrap = document.getElementById("card-modal-maintenance");
@@ -1401,6 +1457,10 @@
       wrap.querySelectorAll('textarea[id^="maint-diary-"]').forEach(ta=>{
         pendingDiaries[ta.id.replace('maint-diary-','')] = ta.value;
       });
+      // preserva foco + posição do cursor (re-render não pode tirar o usuário do relatório)
+      const ae = document.activeElement;
+      const focusId = (ae && wrap.contains(ae) && ae.id) ? ae.id : null;
+      const focusSel = (focusId && typeof ae.selectionStart === 'number') ? {s: ae.selectionStart, e: ae.selectionEnd} : null;
       const machines = data.maintenance_machines || [];
       const progress = data.maintenance_progress || {total:machines.length, done: machines.filter(m=>m.is_done==1).length, percent: 0};
       if(progress.total && !progress.percent){
@@ -1434,7 +1494,7 @@
       let html = `
         <div style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);overflow:hidden;margin-bottom:16px;border-left:4px solid #ffab00">
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:10px 12px;justify-content:space-between;flex-wrap:wrap">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span id="maint-progress-label" style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
               ${total? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
@@ -1461,7 +1521,7 @@
           </div>`:""}
           ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
           ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
-          ${total? `<div style="padding:10px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:#5e6c84;min-width:36px">${pct}%</span><div class="kp-progress" style="flex:1;height:8px"><div class="kp-progress-bar" style="width:${pct}%;background:${allDone?"#61bd4f":"#ffab00"}"></div></div></div></div>` : ""}
+          ${total? `<div style="padding:10px 16px"><div style="display:flex;align-items:center;gap:8px"><span id="maint-progress-pct" style="font-size:11px;color:#5e6c84;min-width:36px">${pct}%</span><div class="kp-progress" style="flex:1;height:8px"><div id="maint-progress-bar" class="kp-progress-bar" style="width:${pct}%;background:${allDone?"#61bd4f":"#ffab00"}"></div></div></div></div>` : ""}
         </div>
       `;
       if(total===0){
@@ -1563,7 +1623,7 @@
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
                 <span style="font-size:10px;color:#97a0af;font-style:italic">💾 salvamento automático a cada digitação</span>
-                <span style="margin-left:auto;font-size:11px;color:#97a0af;display:flex;align-items:center;gap:6px;flex-wrap:wrap">Status Final: <span style="background:${statusColor};color:${statusTextColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${statusLabel}</span> • ${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'} • <span style="background:${!needsInv?"#dfe1e6":(isInventoried?"#61bd4f":"#ffab00")};color:${!needsInv?"#5e6c84":(isInventoried?"#fff":"#172b4d")};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${!needsInv?"—":(isInventoried?"✓ Inventariado":"◷ Falta inventariar")}</span></span>
+                <span style="margin-left:auto;font-size:11px;color:#97a0af;display:flex;align-items:center;gap:6px;flex-wrap:wrap">Status Final: <span id="maint-row-stpill-${m.id}" style="background:${statusColor};color:${statusTextColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${statusLabel}</span> • <span id="maint-row-foot-${m.id}">${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span> • <span style="background:${!needsInv?"#dfe1e6":(isInventoried?"#61bd4f":"#ffab00")};color:${!needsInv?"#5e6c84":(isInventoried?"#fff":"#172b4d")};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${!needsInv?"—":(isInventoried?"✓ Inventariado":"◷ Falta inventariar")}</span></span>
               </div>
             </div>
           </div>
@@ -1586,6 +1646,19 @@
           this._diaryTimers[mid] = setTimeout(()=> this.autoSaveDiary(mid), 600);
         }
       });
+      // restaura foco + cursor de onde o usuário estava digitando
+      if(focusId){
+        const el = document.getElementById(focusId);
+        if(el && typeof el.focus === 'function'){
+          try{
+            el.focus({preventScroll:true});
+            if(focusSel && typeof el.setSelectionRange === 'function'){
+              const len = (el.value||'').length;
+              el.setSelectionRange(Math.min(focusSel.s,len), Math.min(focusSel.e,len));
+            }
+          }catch(e){}
+        }
+      }
     },
 
     openMaintenanceFlow(){
@@ -2145,12 +2218,23 @@
         if(cb) cb.checked = false;
         return;
       }
+      // otimista: atualiza cache + visuals na hora, SEM rebuild (não pisca, não fecha select)
+      const m = this.maintMachineById(mid);
+      const prevDone = m ? m.is_done : null;
+      if(m){ m.is_done = checked?1:0; this.patchMaintUI(mid); }
       this.ajax("update_maintenance_machine", {id: mid, is_done: checked?1:0}).then(res=>{
         if(res.success){
-          const cardId=this.currentCardId;
-          this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
           this.showToast(checked?"Máquina marcada como feita":"Marca removida");
-        } else alert(res.msg||"Erro");
+          // refresh coalescido: confirma com o servidor sem matar interação em andamento
+          this.scheduleModalRefresh(700);
+        } else {
+          if(m && prevDone!==null){ m.is_done = prevDone; this.patchMaintUI(mid); }
+          const cb2 = document.querySelector(`.kp-maint-machine[data-mid="${mid}"] input[type=checkbox]`);
+          if(cb2) cb2.checked = !checked;
+          alert(res.msg||"Erro");
+        }
+      }).catch(()=>{
+        if(m && prevDone!==null){ m.is_done = prevDone; this.patchMaintUI(mid); }
       });
     },
     updateMaintenanceStatus(mid, status){
@@ -2164,9 +2248,25 @@
       } else if(cb){
         cb.disabled = false; cb.title = '';
       }
+      // otimista: espelha no cache + patch visual imediato (o <select> já mostra o novo valor)
+      const m = this.maintMachineById(mid);
+      let prev = null;
+      if(m){
+        prev = {status: m.status, is_done: m.is_done};
+        const meta = this.maintStatusMeta(status);
+        m.status = meta.status || status;
+        if(status==='pendente' || status==='pending') m.is_done = 0;
+        this.patchMaintUI(mid);
+      }
       this.ajax("update_maintenance_machine", data).then(res=>{
-        if(!res.success) alert(res.msg||"Erro ao salvar status");
-        this.refreshCardModal();
+        if(!res.success){
+          if(m && prev){ m.status = prev.status; m.is_done = prev.is_done; this.patchMaintUI(mid); }
+          alert(res.msg||"Erro ao salvar status");
+        }
+        // coalescido: não fecha nada que o usuário abriu logo em seguida
+        this.scheduleModalRefresh(700);
+      }).catch(()=>{
+        if(m && prev){ m.status = prev.status; m.is_done = prev.is_done; this.patchMaintUI(mid); }
       });
     },
     /* ---------- folha informativa ---------- */
@@ -2291,12 +2391,16 @@
       const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
       const current = data ? Number(data.needs_inventory)||0 : 0;
       const newVal = current ? 0 : 1;
+      if(data){ data.needs_inventory = newVal; if(!newVal) data.is_inventoried = 0; this.patchMaintUI(mid); }
       this.ajax("update_maintenance_machine", {id: mid, needs_inventory: newVal}).then(res=>{
         if(res.success){
           this.showToast(newVal ? "📋 Precisa inventariar" : "Não precisa inventariar");
-          this.refreshCardModal();
-        } else alert(res.msg||"Erro");
-      });
+          this.scheduleModalRefresh(600);
+        } else {
+          if(data){ data.needs_inventory = current; this.patchMaintUI(mid); }
+          alert(res.msg||"Erro");
+        }
+      }).catch(()=>{ if(data){ data.needs_inventory = current; this.patchMaintUI(mid); } });
     },
     toggleMaintenanceInventoried(mid){
       // busca estado atual para inverter
@@ -2312,16 +2416,20 @@
       } catch(e){}
       const newVal = currentVal ? 0 : 1;
       if(btn){ btn.disabled=true; btn.style.opacity=".6"; }
+      const mInv = this.maintMachineById(mid);
+      if(mInv){ mInv.is_inventoried = newVal; this.patchMaintUI(mid); }
       this.ajax("update_maintenance_machine", {id: mid, is_inventoried: newVal}).then(res=>{
         if(btn){ btn.disabled=false; btn.style.opacity="1"; }
         if(res.success){
           this.showToast(newVal ? "✓ Inventariado" : "Inventário desmarcado");
-          this.refreshCardModal();
+          this.scheduleModalRefresh(600);
         } else {
+          if(mInv){ mInv.is_inventoried = currentVal; this.patchMaintUI(mid); }
           alert(res.msg||"Erro ao atualizar inventário");
           if(btn){ btn.disabled=false; btn.style.opacity="1"; }
         }
       }).catch(()=>{
+        if(mInv){ mInv.is_inventoried = currentVal; this.patchMaintUI(mid); }
         if(btn){ btn.disabled=false; btn.style.opacity="1"; }
       });
     },
@@ -2329,12 +2437,16 @@
       const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
       const current = data ? Number(data.is_urgent)||0 : 0;
       const newVal = current ? 0 : 1;
+      if(data){ data.is_urgent = newVal; this.patchMaintUI(mid); }
       this.ajax("update_maintenance_machine", {id: mid, is_urgent: newVal}).then(res=>{
         if(res.success){
           this.showToast(newVal ? "🔥 Urgência marcada" : "Urgência removida");
-          this.refreshCardModal();
-        } else alert(res.msg||"Erro");
-      });
+          this.scheduleModalRefresh(600);
+        } else {
+          if(data){ data.is_urgent = current; this.patchMaintUI(mid); }
+          alert(res.msg||"Erro");
+        }
+      }).catch(()=>{ if(data){ data.is_urgent = current; this.patchMaintUI(mid); } });
     },
     retiradaMachine(mid){
       if(!confirm("Criar card de Retirada para esta máquina (urgência)? O card atual perderá esta máquina e um novo card será criado com as mesmas informações, indo para Assinatura.")) return;
