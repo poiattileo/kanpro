@@ -574,6 +574,10 @@ window.KanproGroups = (function(){
   };
 })();
 (function kpgInitDnD(){
+  var dragNode = null;   // cartão sendo arrastado (fica translúcido e já encaixa no preview)
+  var dragFromBody = null;
+  var dragNext = null;   // posição original (p/ desfazer se soltar fora)
+  var dropped = false;
   function bidOf(node){
     var a = node.querySelector("a[href*='kanban.php?boards_id=']");
     var m = a && a.href.match(/boards_id=(\d+)/);
@@ -583,7 +587,7 @@ window.KanproGroups = (function(){
     var kids = body.children;
     for (var i = 0; i < kids.length; i++) {
       if (kids[i].classList.contains('kpg-empty')) continue;
-      if (kids[i].style.opacity === '.4') continue; // o arrastado
+      if (kids[i] === dragNode) continue; // o arrastado
       var r = kids[i].getBoundingClientRect();
       if (y < r.top + r.height / 2) return kids[i];
     }
@@ -602,12 +606,25 @@ window.KanproGroups = (function(){
           var inners = card.querySelectorAll('img,a');
           for (var k = 0; k < inners.length; k++) inners[k].draggable = false;
           card.addEventListener('dragstart', function(e){
+            dragNode = card;
+            dragFromBody = body;
+            dragNext = card.nextSibling;
+            dropped = false;
             e.dataTransfer.setData('text/plain', String(bidOf(card)));
             e.dataTransfer.effectAllowed = 'move';
             try { e.dataTransfer.setDragImage(card, 20, 20); } catch (err) {}
             setTimeout(function(){ card.style.opacity = '.4'; }, 0);
           });
-          card.addEventListener('dragend', function(){ card.style.opacity = ''; });
+          card.addEventListener('dragend', function(){
+            card.style.opacity = '';
+            if (!dropped && dragNode === card && dragFromBody) {
+              // soltou fora de qualquer lista: volta pra posição original
+              if (dragNext && dragNext.parentNode === dragFromBody) dragFromBody.insertBefore(card, dragNext);
+              else dragFromBody.appendChild(card);
+              KanproGroups.refreshCounts();
+            }
+            if (dragNode === card) { dragNode = null; dragFromBody = null; dragNext = null; }
+          });
         })(kids[i]);
       }
       body.addEventListener('dragover', function(e){
@@ -615,6 +632,12 @@ window.KanproGroups = (function(){
         e.dataTransfer.dropEffect = 'move';
         body.style.outline = '2px dashed #6554c0';
         body.style.outlineOffset = '-2px';
+        // preview ao vivo: encaixa o cartão translúcido onde vai cair
+        if (dragNode) {
+          var after = afterCard(body, e.clientY);
+          if (after && after !== dragNode) body.insertBefore(dragNode, after);
+          else if (!after && body.lastChild !== dragNode) body.appendChild(dragNode);
+        }
       });
       body.addEventListener('dragleave', function(){ body.style.outline = ''; });
       body.addEventListener('drop', function(e){
@@ -623,12 +646,13 @@ window.KanproGroups = (function(){
         var bid = parseInt(e.dataTransfer.getData('text/plain'), 10);
         var gid = parseInt(body.getAttribute('data-gid'), 10);
         if (!bid || isNaN(gid)) return;
-        var node = KanproGroups.findCard(bid);
+        var node = dragNode && bidOf(dragNode) === bid ? dragNode : KanproGroups.findCard(bid);
         if (!node) { location.reload(); return; }
-        // insere na posição soltada (antes do cartão da metade de baixo, senão no fim)
+        dropped = true;
+        // garante posição final (caso o último dragover não tenha rodado)
         var after = afterCard(body, e.clientY);
         if (after && after !== node) body.insertBefore(node, after);
-        else if (!after) body.appendChild(node);
+        else if (!after && body.lastChild !== node) body.appendChild(node);
         var sel = node.querySelector('select');
         if (sel) sel.value = String(gid);
         KanproGroups.refreshCounts();
