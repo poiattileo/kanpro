@@ -4,15 +4,7 @@ include('../../../inc/includes.php');
 
 $board = new PluginKanproBoard();
 
-// migração silenciosa para quem atualizou via git sem reinstalar
-try {
-    global $DB;
-    if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
-        $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
-    }
-} catch (Throwable $e) {
-    error_log('[KanPro] ' . "KanPro board.form migration: " . $e->getMessage());
-}
+// Schema canônico em hook.php — sem DDL no caminho quente.
 
 if (!function_exists('kanpro_normalize_board_color_input')) {
 // Normaliza cor/tema vinda do picker (hex ou linear-gradient). Aceita sólidos e degradês.

@@ -76,6 +76,11 @@ function plugin_kanpro_install(): bool {
                 KEY `rank` (`rank`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
+    } else {
+        // antes em kanpro_ensure_board_extras() a cada request — agora versionado aqui
+        if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin'");
+        }
     }
 
     // --- CARDS (Cartões) ---
@@ -118,6 +123,13 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_completed')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_completed` TINYINT(1) NOT NULL DEFAULT '0'");
         }
+        // antes ficavam em kanpro_ensure_board_extras() rodando a cada request — agora versionado aqui
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=fixado no topo da lista'");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'approval_from')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `approval_from` INT NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia'");
+        }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_maintenance` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_completed`");
         }
@@ -145,6 +157,11 @@ function plugin_kanpro_install(): bool {
                 KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
+    } else {
+        // antes em kanban.php/ajax.php a cada request — agora versionado aqui
+        if (!$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL COMMENT 'prazo: cartão fica vermelho ao vencer'");
+        }
     }
 
     // --- CARD_LABELS ---
@@ -257,6 +274,11 @@ function plugin_kanpro_install(): bool {
                 KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
+    } else {
+        // antes em kanpro_ensure_board_extras() a cada request — agora versionado aqui
+        if (!$DB->fieldExists('glpi_plugin_kanpro_comments', 'is_pinned')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_comments` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=comentário fixado no topo'");
+        }
     }
 
     // --- ATTACHMENTS ---
@@ -344,6 +366,11 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_inventoried')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_inventoried` TINYINT(1) NOT NULL DEFAULT '0' AFTER `status`");
+        }
+        // antes só existia no ensure runtime — agora versionado aqui
+        if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'needs_inventory')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `needs_inventory` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
+            $DB->doQuery("UPDATE `glpi_plugin_kanpro_maintenance_machines` SET `needs_inventory`=1 WHERE `is_inventoried`=1");
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_urgent')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");

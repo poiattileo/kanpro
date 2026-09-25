@@ -119,24 +119,15 @@ function kanpro_user_brief($uid) {
     return ['users_id' => (int)$uid, 'name' => $name, 'login' => $login, 'initials' => $initials];
 }
 // Migração runtime das novidades (fixar, aprovação, etiqueta com prazo, lixeira) — sem reinstalar.
+// DEPRECATED: schema canônico em hook.php. Mantido como wrapper barato (1x por request) p/ git-update sem reinstall.
 function kanpro_ensure_board_extras() {
+    static $doneTrash = false;
+    kanpro_migrate_schema_once();
+    if ($doneTrash) return;
+    $doneTrash = true;
     global $DB;
     try {
-        if ($DB->tableExists('glpi_plugin_kanpro_cards') && !$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=fixado no topo da lista'");
-        }
-        if ($DB->tableExists('glpi_plugin_kanpro_cards') && !$DB->fieldExists('glpi_plugin_kanpro_cards', 'approval_from')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `approval_from` INT NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia'");
-        }
-        if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin'");
-        }
-        if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL COMMENT 'prazo: cartão fica vermelho ao vencer'");
-        }
-        if ($DB->tableExists('glpi_plugin_kanpro_comments') && !$DB->fieldExists('glpi_plugin_kanpro_comments', 'is_pinned')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_comments` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=comentário fixado no topo'");
-        }        if (!$DB->tableExists('glpi_plugin_kanpro_trash')) {
+        if (!$DB->tableExists('glpi_plugin_kanpro_trash')) {
             $charset = DBConnection::getDefaultCharset();
             $collation = DBConnection::getDefaultCollation();
             $sign = DBConnection::getDefaultPrimaryKeySignOption();
@@ -264,6 +255,10 @@ function kanpro_parse_maintenance_raw($raw) {
 }
 
 function kanpro_ensure_maintenance_tables() {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    kanpro_migrate_schema_once();
     global $DB;
     $charset = method_exists('DBConnection','getDefaultCharset') ? DBConnection::getDefaultCharset() : 'utf8mb4';
     $collation = method_exists('DBConnection','getDefaultCollation') ? DBConnection::getDefaultCollation() : 'utf8mb4_unicode_ci';
@@ -377,16 +372,52 @@ function kanpro_ticket_info(int $tid): ?array {
     ];
 }
 
-// Migration em runtime: garante coluna do chamado vinculado sem depender do update do plugin
-function kanpro_ensure_v11() {
+// Migração de schema: roda 1x por request (guard static) em vez de DDL espalhado no caminho quente.
+// Schema canônico está em hook.php (install). Aqui é só fallback p/ quem atualizou via git sem reinstalar.
+function kanpro_migrate_schema_once() {
+    static $done = false;
+    if ($done) return;
+    $done = true;
     global $DB;
     try {
-        if ($DB->tableExists('glpi_plugin_kanpro_cards') && !$DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`");
+        if ($DB->tableExists('glpi_plugin_kanpro_boards')) {
+            if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`"); } catch (Throwable $e) {}
+            }
+        }
+        if ($DB->tableExists('glpi_plugin_kanpro_cards')) {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'approval_from')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `approval_from` INT NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_maintenance` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_completed`"); } catch (Throwable $e) {}
+            }
+        }
+        if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
+        }
+        if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL"); } catch (Throwable $e) {}
+        }
+        if ($DB->tableExists('glpi_plugin_kanpro_comments') && !$DB->fieldExists('glpi_plugin_kanpro_comments', 'is_pinned')) {
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_comments` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
         }
     } catch (Throwable $e) {}
 }
-kanpro_ensure_v11();
+// Migration em runtime: garante coluna do chamado vinculado sem depender do update do plugin
+function kanpro_ensure_v11() {
+    kanpro_migrate_schema_once();
+}
+kanpro_migrate_schema_once();
 function kanpro_card_id_of_checklist(int $checklists_id): int {
     global $DB;
     try {
@@ -405,6 +436,21 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
         $exists = countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cards_id, 'users_id' => $uid]);
         if (!$exists) {
             $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cards_id, 'users_id' => $uid]);
+        }
+    } catch (Throwable $e) {}
+}
+
+// Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
+// Comentários/checks/anexos não geravam activity nem tocavam datas — o selo ficava cego.
+function kanpro_touch_card(int $cards_id) {
+    global $DB;
+    try {
+        if ($cards_id <= 0) return;
+        $now = date('Y-m-d H:i:s');
+        $DB->update('glpi_plugin_kanpro_cards', ['date_mod' => $now], ['id' => $cards_id]);
+        $row = $DB->request(['SELECT' => ['plugin_kanpro_boards_id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['id' => $cards_id]])->current();
+        if ($row && !empty($row['plugin_kanpro_boards_id'])) {
+            $DB->update('glpi_plugin_kanpro_boards', ['date_mod' => $now], ['id' => (int)$row['plugin_kanpro_boards_id']]);
         }
     } catch (Throwable $e) {}
 }
@@ -1106,12 +1152,7 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Cor inválida — use hex #rrggbb ou degradê']);
         }
         if (strlen($color) > 255) $color = substr($color, 0, 255);
-        // migração automática: garante VARCHAR(255) para degradês (evita 500 Data too long)
-        try {
-            if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'color')) {
-                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` MODIFY `color` VARCHAR(255) NOT NULL DEFAULT '#0079bf'");
-            }
-        } catch (Throwable $e) {}
+        // schema em hook.php (+ migrate_once no topo); aqui só retry se a coluna antiga estourar
         try {
             $DB->update('glpi_plugin_kanpro_boards', ['color'=>$color], ['id'=>$id]);
             if ($DB->error() && stripos($DB->error(), 'Data too long') !== false) {
@@ -1134,12 +1175,7 @@ switch ($action) {
         $board = new PluginKanproBoard();
         if (!$board->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
         if (empty($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) jexit(['success'=>false,'msg'=>'Nenhum arquivo enviado']);
-        // garante coluna background existe (migração automática)
-        try {
-            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
-                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
-            }
-        } catch (Throwable $e) {}
+        // schema em hook.php — sem ALTER aqui (migrate_once já rodou no topo)
         $rel = PluginKanproBoard::handleBackgroundUpload($bid, $_FILES['file']);
         if (!$rel) jexit(['success'=>false,'msg'=>'Falha ao salvar imagem — verifique formato (JPG/PNG/WebP/GIF) e tamanho máximo 5MB. Resolução recomendada 1920×1080 (16:9)']);
         $board->getFromDB($bid);
@@ -1361,7 +1397,94 @@ switch ($action) {
         } else {
             $DB->insert('glpi_plugin_kanpro_presence', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $uid, 'last_seen' => date('Y-m-d H:i:s')]);
         }
+        // poda linhas antigas (evita crescimento infinito — antes nunca deletava)
+        try {
+            $DB->delete('glpi_plugin_kanpro_presence', ['last_seen' => ['<', date('Y-m-d H:i:s', time() - 300)]]);
+        } catch (Throwable $e) {}
         jexit(['success' => true]);
+
+    case 'get_board_stamp':
+        // Selo leve p/ polling inteligente: JS só baixa o snapshot pesado se o selo mudou
+        $boards_id = (int) ($_POST['boards_id'] ?? 0);
+        if (!$boards_id) jexit(['success' => false]);
+        $board_chk = new PluginKanproBoard();
+        if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
+        try {
+            // aproveita o selo p/ heartbeat (1 request leve faz os dois — antes eram 2 a cada 2s)
+            $uid0 = (int)Session::getLoginUserID();
+            if ($uid0 > 0) {
+                $ex0 = $DB->request(['FROM' => 'glpi_plugin_kanpro_presence', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $uid0]])->current();
+                if ($ex0) {
+                    $DB->update('glpi_plugin_kanpro_presence', ['last_seen' => date('Y-m-d H:i:s')], ['id' => $ex0['id']]);
+                } else {
+                    $DB->insert('glpi_plugin_kanpro_presence', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $uid0, 'last_seen' => date('Y-m-d H:i:s')]);
+                }
+            }
+            $bmod = (string)($board_chk->fields['date_mod'] ?? '');
+            $lmax = '';
+            $lcnt = 0;
+            foreach ($DB->request(['SELECT' => ['MAX' => 'date_mod AS m', 'COUNT' => 'id AS c'], 'FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]) as $r) {
+                $lmax = (string)($r['m'] ?? '');
+                $lcnt = (int)($r['c'] ?? 0);
+            }
+            $cmax = '';
+            $ccnt = 0;
+            foreach ($DB->request(['SELECT' => ['MAX' => 'date_mod AS m', 'COUNT' => 'id AS c'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0]]) as $r) {
+                $cmax = (string)($r['m'] ?? '');
+                $ccnt = (int)($r['c'] ?? 0);
+            }
+            $amax = '';
+            foreach ($DB->request(['SELECT' => ['MAX' => 'date_creation AS m'], 'FROM' => 'glpi_plugin_kanpro_activities', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]) as $r) {
+                $amax = (string)($r['m'] ?? '');
+            }
+            // comentários/anexos/checks nem sempre tocam card.date_mod nem geram activity — inclui no selo
+            $cardIds = [];
+            foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]) as $r) {
+                $cardIds[] = (int)$r['id'];
+            }
+            $cardIds = $cardIds ?: [0];
+            $comax = '';
+            foreach ($DB->request(['SELECT' => ['MAX' => 'date_creation AS m'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['plugin_kanpro_cards_id' => $cardIds]]) as $r) {
+                $comax = (string)($r['m'] ?? '');
+            }
+            $atmax = '';
+            foreach ($DB->request(['SELECT' => ['MAX' => 'date_creation AS m'], 'FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => ['plugin_kanpro_cards_id' => $cardIds]]) as $r) {
+                $atmax = (string)($r['m'] ?? '');
+            }
+            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax]));
+            // viewers junto (barato) p/ avatares continuarem vivos sem snapshot pesado
+            $viewers = [];
+            $cutoff = date('Y-m-d H:i:s', time() - 15);
+            $__vrows = [];
+            $__vuids = [];
+            foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_presence', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'last_seen' => ['>', $cutoff]]]) as $v) {
+                $__vrows[] = $v;
+                $__vuids[] = (int)$v['users_id'];
+            }
+            $__vusers = [];
+            if (!empty($__vuids)) {
+                foreach ($DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_values(array_unique($__vuids))]]) as $ur) {
+                    $__vusers[(int)$ur['id']] = $ur;
+                }
+            }
+            foreach ($__vrows as $v) {
+                $uid2 = (int)$v['users_id'];
+                $ur = $__vusers[$uid2] ?? null;
+                if ($ur) {
+                    $tmpU = new User();
+                    $tmpU->fields = $ur + ($tmpU->fields ?? []);
+                    $uname = $tmpU->getFriendlyName();
+                    $initials = strtoupper(substr($ur['firstname'] ?? $ur['name'] ?? '?', 0, 1));
+                } else {
+                    $uname = '#' . $uid2;
+                    $initials = '?';
+                }
+                $viewers[] = ['users_id' => $uid2, 'name' => $uname, 'initials' => $initials];
+            }
+            jexit(['success' => true, 'stamp' => $stamp, 'viewers' => $viewers]);
+        } catch (Throwable $e) {
+            jexit(['success' => false]);
+        }
 
     case 'get_board_snapshot':
         $boards_id = (int) ($_POST['boards_id'] ?? 0);
@@ -1373,18 +1496,33 @@ switch ($action) {
         $labels = PluginKanproLabel::getForBoard($boards_id);
 
         $members_raw = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]);
-        $members_list = [];
-        foreach ($members_raw as $m) {
-            $u = new User();
-            $uname = 'Usuário #' . $m['users_id'];
-            $initials = '?';
-            if ($u->getFromDB($m['users_id'])) {
-                $uname = $u->getFriendlyName();
-                $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1) . substr($u->fields['realname'] ?? '', 0, 1));
-                if (trim($initials) === '') $initials = strtoupper(substr($uname, 0, 2));
+        $__mrows = [];
+        $__muids = [];
+        foreach ($members_raw as $m) { $__mrows[] = $m; $__muids[] = (int)$m['users_id']; }
+        $__musers = [];
+        if (!empty($__muids)) {
+            foreach ($DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname', 'picture'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_values(array_unique($__muids))]]) as $ur) {
+                $__musers[(int)$ur['id']] = $ur;
             }
-            $members_list[] = ['users_id' => $m['users_id'], 'role' => $m['role'], 'name' => $uname, 'initials' => $initials,
-                'picture_url' => (($u->fields['picture'] ?? '') !== '' ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $u->fields['picture'] : '')];
+        }
+        $members_list = [];
+        foreach ($__mrows as $m) {
+            $uid = (int)$m['users_id'];
+            $ur = $__musers[$uid] ?? null;
+            if ($ur) {
+                $tmpU = new User();
+                $tmpU->fields = $ur + ($tmpU->fields ?? []);
+                $uname = $tmpU->getFriendlyName();
+                $initials = strtoupper(substr($ur['firstname'] ?? $ur['name'] ?? '?', 0, 1) . substr($ur['realname'] ?? '', 0, 1));
+                if (trim($initials) === '') $initials = strtoupper(substr($uname, 0, 2));
+                $pic = $ur['picture'] ?? '';
+            } else {
+                $uname = 'Usuário #' . $uid;
+                $initials = '?';
+                $pic = '';
+            }
+            $members_list[] = ['users_id' => $uid, 'role' => $m['role'], 'name' => $uname, 'initials' => $initials,
+                'picture_url' => ($pic !== '' ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $pic : '')];
         }
 
         $all_cards = [];
@@ -1392,7 +1530,6 @@ switch ($action) {
         foreach ($cards_iter as $c) $all_cards[] = $c;
 
         $card_labels_map = [];
-        kanpro_ensure_board_extras();
         $cl_iter = $DB->request([
             'SELECT' => ['cl.plugin_kanpro_cards_id', 'l.id', 'l.name', 'l.color', 'l.due_date'],
             'FROM'   => 'glpi_plugin_kanpro_cards_labels AS cl',
@@ -1404,29 +1541,56 @@ switch ($action) {
         }
 
         $card_members_map = [];
+        $__cmrows = [];
+        $__cmuids = [];
         $cm_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => array_column($all_cards, 'id') ?: [0]]]);
-        foreach ($cm_iter as $r) {
-            $u = new User();
-            $initials = '?';
-            $uname = '#' . $r['users_id'];
-            if ($u->getFromDB($r['users_id'])) {
-                $uname = $u->getFriendlyName();
-                $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1));
+        foreach ($cm_iter as $r) { $__cmrows[] = $r; $__cmuids[] = (int)$r['users_id']; }
+        $__cmusers = [];
+        if (!empty($__cmuids)) {
+            foreach ($DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname', 'picture'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_values(array_unique($__cmuids))]]) as $ur) {
+                $__cmusers[(int)$ur['id']] = $ur;
             }
-            $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $r['users_id'], 'name' => $uname, 'initials' => $initials,
-                'picture_url' => (($u->fields['picture'] ?? '') !== '' ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $u->fields['picture'] : '')];
+        }
+        foreach ($__cmrows as $r) {
+            $uid = (int)$r['users_id'];
+            $ur = $__cmusers[$uid] ?? null;
+            if ($ur) {
+                $tmpU = new User();
+                $tmpU->fields = $ur + ($tmpU->fields ?? []);
+                $uname = $tmpU->getFriendlyName();
+                $initials = strtoupper(substr($ur['firstname'] ?? $ur['name'] ?? '?', 0, 1));
+                $pic = $ur['picture'] ?? '';
+            } else {
+                $uname = '#' . $uid;
+                $initials = '?';
+                $pic = '';
+            }
+            $card_members_map[$r['plugin_kanpro_cards_id']][] = ['users_id' => $uid, 'name' => $uname, 'initials' => $initials,
+                'picture_url' => ($pic !== '' ? ($CFG_GLPI['root_doc'] ?? '') . '/front/document.send.php?file=_pictures/' . $pic : '')];
         }
 
         $check_progress = [];
         $__cp_ids = array_column($all_cards, 'id') ?: [0];
-        $check_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $__cp_ids]]);
-        $check_ids_by_card = [];
-        foreach ($check_iter as $cl) $check_ids_by_card[$cl['plugin_kanpro_cards_id']][] = $cl['id'];
-        foreach ($check_ids_by_card as $cid => $cids) {
-            $total = countElementsInTable('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id' => $cids]);
-            $done  = countElementsInTable('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id' => $cids, 'is_checked' => 1]);
-            $check_progress[$cid] = ['total' => $total, 'done' => $done];
-        }
+        try {
+            $check_ids_by_card = [];
+            $cl2card = [];
+            $check_iter = $DB->request(['SELECT' => ['id', 'plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $__cp_ids]]);
+            foreach ($check_iter as $cl) { $check_ids_by_card[$cl['plugin_kanpro_cards_id']][] = (int)$cl['id']; $cl2card[(int)$cl['id']] = (int)$cl['plugin_kanpro_cards_id']; }
+            if (!empty($cl2card)) {
+                $totals = []; $dones = [];
+                foreach ($DB->request(['SELECT' => ['plugin_kanpro_checklists_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['plugin_kanpro_checklists_id' => array_keys($cl2card)], 'GROUPBY' => ['plugin_kanpro_checklists_id']]) as $r) {
+                    $totals[(int)$r['plugin_kanpro_checklists_id']] = (int)$r['total'];
+                }
+                foreach ($DB->request(['SELECT' => ['plugin_kanpro_checklists_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['plugin_kanpro_checklists_id' => array_keys($cl2card), 'is_checked' => 1], 'GROUPBY' => ['plugin_kanpro_checklists_id']]) as $r) {
+                    $dones[(int)$r['plugin_kanpro_checklists_id']] = (int)$r['total'];
+                }
+                foreach ($check_ids_by_card as $cid => $cids) {
+                    $t = 0; $d = 0;
+                    foreach ($cids as $clid) { $t += $totals[$clid] ?? 0; $d += $dones[$clid] ?? 0; }
+                    $check_progress[$cid] = ['total' => $t, 'done' => $d];
+                }
+            }
+        } catch (Throwable $e) {}
 
         $maintenance_progress = [];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
@@ -1468,40 +1632,69 @@ switch ($action) {
 
         $comment_counts = [];
         $att_counts = [];
-        foreach ($all_cards as $c) {
-            $comment_counts[$c['id']] = countElementsInTable('glpi_plugin_kanpro_comments', ['plugin_kanpro_cards_id' => $c['id']]);
-            $att_counts[$c['id']] = countElementsInTable('glpi_plugin_kanpro_attachments', ['plugin_kanpro_cards_id' => $c['id']]);
-        }
+        try {
+            $__card_ids = array_column($all_cards, 'id') ?: [0];
+            foreach ($DB->request(['SELECT' => ['plugin_kanpro_cards_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['plugin_kanpro_cards_id' => $__card_ids], 'GROUPBY' => ['plugin_kanpro_cards_id']]) as $r) {
+                $comment_counts[(int)$r['plugin_kanpro_cards_id']] = (int)$r['total'];
+            }
+            foreach ($DB->request(['SELECT' => ['plugin_kanpro_cards_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => ['plugin_kanpro_cards_id' => $__card_ids], 'GROUPBY' => ['plugin_kanpro_cards_id']]) as $r) {
+                $att_counts[(int)$r['plugin_kanpro_cards_id']] = (int)$r['total'];
+            }
+            foreach ($all_cards as $c) {
+                $cid = (int)$c['id'];
+                if (!isset($comment_counts[$cid])) $comment_counts[$cid] = 0;
+                if (!isset($att_counts[$cid])) $att_counts[$cid] = 0;
+            }
+        } catch (Throwable $e) {}
 
         $viewers = [];
         $cutoff = date('Y-m-d H:i:s', time() - 15);
         $viewers_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_presence', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'last_seen' => ['>', $cutoff]]]);
-        foreach ($viewers_iter as $v) {
-            $u = new User();
-            $uname = '#' . $v['users_id'];
-            $initials = '?';
-            if ($u->getFromDB($v['users_id'])) {
-                $uname = $u->getFriendlyName();
-                $initials = strtoupper(substr($u->fields['firstname'] ?? $u->fields['name'] ?? '?', 0, 1));
+        $__vrows = [];
+        $__vuids = [];
+        foreach ($viewers_iter as $v) { $__vrows[] = $v; $__vuids[] = (int)$v['users_id']; }
+        $__vusers = [];
+        if (!empty($__vuids)) {
+            foreach ($DB->request(['SELECT' => ['id', 'name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_values(array_unique($__vuids))]]) as $ur) {
+                $__vusers[(int)$ur['id']] = $ur;
             }
-            $viewers[] = ['users_id' => (int) $v['users_id'], 'name' => $uname, 'initials' => $initials];
+        }
+        foreach ($__vrows as $v) {
+            $uid = (int)$v['users_id'];
+            $ur = $__vusers[$uid] ?? null;
+            if ($ur) {
+                $tmpU = new User();
+                $tmpU->fields = $ur + ($tmpU->fields ?? []);
+                $uname = $tmpU->getFriendlyName();
+                $initials = strtoupper(substr($ur['firstname'] ?? $ur['name'] ?? '?', 0, 1));
+            } else {
+                $uname = '#' . $uid;
+                $initials = '?';
+            }
+            $viewers[] = ['users_id' => $uid, 'name' => $uname, 'initials' => $initials];
         }
 
         $transfer_status = [];
         if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
-            foreach ($all_cards as $c) {
-                if (empty($c['is_maintenance'])) continue;
-                $like = "%[KanPro #{$c['id']}]%";
-                $trIter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
-                if ($trIter->count()===0) continue;
-                $tr = $trIter->current();
-                if (!$tr) continue;
-                $hasRec = !empty($tr['assinatura_image']);
-                $hasTec = !empty($tr['assinatura_tecnico_image']);
-                $isAssinado = $hasRec && $hasTec;
-                if ($isAssinado) $transfer_status[$c['id']] = ['label'=>'Concluído','status'=>'concluido'];
-                else $transfer_status[$c['id']] = ['label'=>'Retirada','status'=>'retirada'];
-            }
+            try {
+                $__maint_cids = [];
+                foreach ($all_cards as $c) { if (!empty($c['is_maintenance'])) $__maint_cids[] = (int)$c['id']; }
+                if (!empty($__maint_cids)) {
+                    $trIter = $DB->request(['SELECT' => ['id', 'reason', 'assinatura_image', 'assinatura_tecnico_image'], 'FROM' => 'glpi_plugin_assetmgrstatus_transfers', 'WHERE' => ['reason' => ['LIKE', '%KanPro #%']], 'ORDER' => 'id DESC', 'LIMIT' => 500]);
+                    $seen = [];
+                    foreach ($trIter as $tr) {
+                        if (!preg_match_all('/\[KanPro #(\d+)\]/', (string)($tr['reason'] ?? ''), $mm)) continue;
+                        foreach ($mm[1] as $cidStr) {
+                            $cid = (int)$cidStr;
+                            if (!in_array($cid, $__maint_cids, true) || isset($seen[$cid])) continue;
+                            $seen[$cid] = true;
+                            $isAssinado = !empty($tr['assinatura_image']) && !empty($tr['assinatura_tecnico_image']);
+                            $transfer_status[$cid] = $isAssinado ? ['label' => 'Concluído', 'status' => 'concluido'] : ['label' => 'Retirada', 'status' => 'retirada'];
+                        }
+                        if (count($seen) >= count($__maint_cids)) break;
+                    }
+                }
+            } catch (Throwable $e) {}
         }
 
         jexit([
@@ -2177,6 +2370,7 @@ switch ($action) {
         $name = trim($_POST['name'] ?? 'Checklist');
         $cl = new PluginKanproChecklist();
         $id = $cl->add(['plugin_kanpro_cards_id'=>$cid,'name'=>$name]);
+        kanpro_touch_card($cid);
         jexit(['success'=>true,'id'=>$id]);
 
     case 'rename_checklist':
@@ -2184,13 +2378,16 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $DB->update('glpi_plugin_kanpro_checklists', ['name'=>$name], ['id'=>$id]);
+        kanpro_touch_card(kanpro_card_id_of_checklist($id));
         jexit(['success'=>true]);
 
     case 'delete_checklist':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
+        $delCid = kanpro_card_id_of_checklist($id);
         $DB->delete('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id'=>$id]);
         $DB->delete('glpi_plugin_kanpro_checklists', ['id'=>$id]);
+        kanpro_touch_card($delCid);
         jexit(['success'=>true]);
 
     case 'add_checkitem':
@@ -2200,7 +2397,9 @@ switch ($action) {
         if (!$name) jexit(['success'=>false]);
         $it = new PluginKanproChecklistItem();
         $id = $it->add(['plugin_kanpro_checklists_id'=>$clid,'name'=>$name]);
-        kanpro_touch_member(kanpro_card_id_of_checklist($clid));
+        $addCid = kanpro_card_id_of_checklist($clid);
+        kanpro_touch_member($addCid);
+        kanpro_touch_card($addCid);
         jexit(['success'=>true,'id'=>$id]);
 
     case 'toggle_checkitem':
@@ -2210,20 +2409,26 @@ switch ($action) {
         if (!$row) jexit(['success'=>false]);
         $new = $row['is_checked'] ? 0 : 1;
         $DB->update('glpi_plugin_kanpro_checklist_items', ['is_checked'=>$new], ['id'=>$id]);
-        kanpro_touch_member(kanpro_card_id_of_checklist((int)$row['plugin_kanpro_checklists_id']));
+        $togCid = kanpro_card_id_of_checklist((int)$row['plugin_kanpro_checklists_id']);
+        kanpro_touch_member($togCid);
+        kanpro_touch_card($togCid);
         jexit(['success'=>true,'is_checked'=>$new]);
 
     case 'rename_checkitem':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
+        $rnRow = $DB->request(['SELECT' => ['plugin_kanpro_checklists_id'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['id' => $id]])->current();
         $DB->update('glpi_plugin_kanpro_checklist_items', ['name'=>$name], ['id'=>$id]);
+        if ($rnRow) kanpro_touch_card(kanpro_card_id_of_checklist((int)$rnRow['plugin_kanpro_checklists_id']));
         jexit(['success'=>true]);
 
     case 'delete_checkitem':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
+        $delRow = $DB->request(['SELECT' => ['plugin_kanpro_checklists_id'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['id' => $id]])->current();
         $DB->delete('glpi_plugin_kanpro_checklist_items', ['id'=>$id]);
+        if ($delRow) kanpro_touch_card(kanpro_card_id_of_checklist((int)$delRow['plugin_kanpro_checklists_id']));
         jexit(['success'=>true]);
 
     case 'reorder_checkitems':
@@ -2235,6 +2440,7 @@ switch ($action) {
             $DB->update('glpi_plugin_kanpro_checklist_items', ['rank'=>$rank], ['id'=>$iid,'plugin_kanpro_checklists_id'=>$clid]);
             $rank+=1024;
         }
+        kanpro_touch_card(kanpro_card_id_of_checklist($clid));
         jexit(['success'=>true]);
 
     // --- COMMENTS ---
@@ -2246,19 +2452,24 @@ switch ($action) {
         $co = new PluginKanproComment();
         $id = $co->add(['plugin_kanpro_cards_id'=>$cid,'content'=>$content]);
         kanpro_touch_member($cid);
+        kanpro_touch_card($cid);
         jexit(['success'=>true,'id'=>$id]);
 
     case 'update_comment':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
         $content = trim($_POST['content'] ?? '');
+        $upRow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
         $DB->update('glpi_plugin_kanpro_comments', ['content'=>$content,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$id,'users_id'=>[Session::getLoginUserID(), kanpro_acting_user_id()]]);
+        if ($upRow) kanpro_touch_card((int)$upRow['plugin_kanpro_cards_id']);
         jexit(['success'=>true]);
 
     case 'delete_comment':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
+        $delCrow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
         $DB->delete('glpi_plugin_kanpro_comments', ['id'=>$id]);
+        if ($delCrow) kanpro_touch_card((int)$delCrow['plugin_kanpro_cards_id']);
         jexit(['success'=>true]);
 
     case 'toggle_comment_pin':
@@ -2269,6 +2480,7 @@ switch ($action) {
         if (!$row) jexit(['success'=>false,'msg'=>'Comentário não encontrado']);
         $new = !empty($row['is_pinned']) ? 0 : 1;
         $DB->update('glpi_plugin_kanpro_comments', ['is_pinned'=>$new], ['id'=>$id]);
+        kanpro_touch_card((int)($row['plugin_kanpro_cards_id'] ?? 0));
         jexit(['success'=>true,'is_pinned'=>$new]);
 
     // --- ATTACHMENTS ---
@@ -2278,17 +2490,20 @@ switch ($action) {
         if (!isset($_FILES['file'])) jexit(['success'=>false,'msg'=>'Nenhum arquivo']);
         $id = PluginKanproAttachment::handleUpload($cid, $_FILES['file']);
         kanpro_touch_member($cid);
+        kanpro_touch_card($cid);
         jexit(['success'=> (bool)$id,'id'=>$id]);
 
     case 'delete_attachment':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_attachments','WHERE'=>['id'=>$id]])->current();
+        $attCid = (int)($row['plugin_kanpro_cards_id'] ?? 0);
         if ($row && !empty($row['filepath'])) {
             $path = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $row['filepath'];
             if (file_exists($path)) @unlink($path);
         }
         $DB->delete('glpi_plugin_kanpro_attachments', ['id'=>$id]);
+        if ($attCid) kanpro_touch_card($attCid);
         jexit(['success'=>true]);
 
     case 'set_cover':

@@ -1,5 +1,11 @@
 <?php
 include('../../../inc/includes.php');
+if (!Session::getLoginUserID()) {
+    http_response_code(401);
+    die('Não autenticado');
+}
+// Debug expunha UID/perfil/direitos p/ qualquer logado — restringe a admin (config UPDATE)
+Session::checkRight('config', UPDATE);
 header('Content-Type: text/plain; charset=UTF-8');
 echo "UID=" . Session::getLoginUserID() . "\n";
 echo "profile_id=" . ($_SESSION['glpiactiveprofile']['id'] ?? 'null') . "\n";

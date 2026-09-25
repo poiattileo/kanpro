@@ -166,7 +166,8 @@
       });
     },
 
-    // ---------- ATUALIZAÇÃO EM TEMPO REAL (polling) ----------
+    // ---------- ATUALIZAÇÃO EM TEMPO REAL (polling inteligente) ----------
+    // Selo leve a cada 8s; snapshot pesado só se o selo mudou. Sem selo (backend antigo) faz fallback p/ snapshot.
     startPolling(){
       this._lastSnapshotJson = JSON.stringify({
         lists: this.lists, cards: this.cards, labels: this.labels,
@@ -174,16 +175,50 @@
         checkProgress: this.checkProgress, maintenanceProgress: this.maintenanceProgress, commentCounts: this.commentCounts,
         attCounts: this.attCounts, members: this.members, transferStatus: this.transferStatus
       });
+      this._lastStamp = null;
+      this._unchangedRounds = 0;
+      this._pollIntervalMs = 8000;
       this.ajax('presence_heartbeat', {boards_id: this.board.id});
-      if(this._pollTimer) clearInterval(this._pollTimer);
+      if(this._pollTimer) clearTimeout(this._pollTimer);
       this._pollingStartedAt = Date.now();
-      this._pollTimer = setInterval(()=> this.pollBoardUpdates(), 2000);
+      const loop = ()=>{
+        this.pollBoardUpdates().finally(()=>{
+          // backoff adaptativo: quadro parado poll a cada 15s, com mudança volta p/ 8s
+          const idle = (this._unchangedRounds||0) >= 5;
+          this._pollIntervalMs = idle ? 15000 : 8000;
+          this._pollTimer = setTimeout(loop, this._pollIntervalMs);
+        });
+      };
+      this._pollTimer = setTimeout(loop, this._pollIntervalMs);
+      // volta de aba/foco atualiza na hora (sem esperar o intervalo)
+      if(!this._pollFocusBound){
+        this._pollFocusBound = true;
+        document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) this.pollBoardUpdates(); });
+        window.addEventListener('focus', ()=> this.pollBoardUpdates());
+      }
     },
     pollBoardUpdates(){
-      if(document.hidden) return; // economiza requisição em aba não visível
-      this.ajax('presence_heartbeat', {boards_id: this.board.id});
-      if(this.dragCard || this.dragList) return; // não atrapalha um arraste em andamento
-      this.ajax('get_board_snapshot', {boards_id: this.board.id}).then(res=>{
+      if(document.hidden) return Promise.resolve(); // economiza requisição em aba não visível
+      if(this.dragCard || this.dragList) return Promise.resolve(); // não atrapalha um arraste em andamento
+      // passo 1 (leve): selo + presence. Só baixa snapshot pesado se o selo mudou.
+      return this.ajax('get_board_stamp', {boards_id: this.board.id}).then(stampRes=>{
+        if(stampRes && stampRes.success && stampRes.stamp){
+          this.renderViewerAvatars(stampRes.viewers || []);
+          if(this._lastStamp && stampRes.stamp === this._lastStamp){
+            this._unchangedRounds = (this._unchangedRounds||0) + 1;
+            return;
+          }
+          this._lastStamp = stampRes.stamp;
+          this._unchangedRounds = 0;
+          return this.fetchBoardSnapshot();
+        }
+        // backend antigo sem get_board_stamp: heartbeat + snapshot direto (comportamento anterior)
+        this.ajax('presence_heartbeat', {boards_id: this.board.id});
+        return this.fetchBoardSnapshot();
+      }).catch(()=>{});
+    },
+    fetchBoardSnapshot(){
+      return this.ajax('get_board_snapshot', {boards_id: this.board.id}).then(res=>{
         if(!res || !res.success) return;
 
         this.renderViewerAvatars(res.viewers || []);

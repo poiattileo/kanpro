@@ -306,6 +306,7 @@ class PluginKanproBoard extends CommonDBTM {
 
     static function handleBackgroundUpload(int $boards_id, array $file): ?string {
         if (empty($boards_id) || empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
+        if (!is_uploaded_file($file['tmp_name'] ?? '')) return null;
         $allowedMimes = ['image/jpeg','image/png','image/webp','image/gif'];
         $allowedExts = ['jpg','jpeg','png','webp','gif'];
         $maxBytes = 5 * 1024 * 1024; // 5MB
@@ -313,9 +314,21 @@ class PluginKanproBoard extends CommonDBTM {
             Session::addMessageAfterRedirect(__('Imagem muito grande — máximo 5MB', 'kanpro'), false, ERROR);
             return null;
         }
-        $mime = $file['type'] ?? '';
         $ext = strtolower(pathinfo($file['name'] ?? '', PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedExts, true) || (!empty($mime) && !in_array($mime, $allowedMimes, true) && strpos($mime, 'image/') !== 0)) {
+        if (!in_array($ext, $allowedExts, true)) {
+            Session::addMessageAfterRedirect(__('Formato inválido — use JPG, PNG, WebP ou GIF', 'kanpro'), false, ERROR);
+            return null;
+        }
+        // MIME real via finfo + getimagesize (não confia em $file['type'] do client)
+        $tmp = $file['tmp_name'] ?? '';
+        $realMime = null;
+        if (function_exists('finfo_open')) {
+            try {
+                $f = finfo_open(FILEINFO_MIME_TYPE);
+                if ($f) { $realMime = finfo_file($f, $tmp); finfo_close($f); }
+            } catch (Throwable $e) {}
+        }
+        if ($realMime && !in_array($realMime, $allowedMimes, true)) {
             Session::addMessageAfterRedirect(__('Formato inválido — use JPG, PNG, WebP ou GIF', 'kanpro'), false, ERROR);
             return null;
         }
@@ -349,14 +362,8 @@ class PluginKanproBoard extends CommonDBTM {
         $safeExt = in_array($ext, $allowedExts, true) ? $ext : 'jpg';
         $filename = 'bg_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $safeExt;
         $dest = $dir . $filename;
-        $moved = false;
-        if (is_uploaded_file($tmp)) {
-            $moved = @move_uploaded_file($tmp, $dest);
-        }
-        if (!$moved) {
-            $moved = @copy($tmp, $dest);
-        }
-        if (!$moved || !is_file($dest)) {
+        // só move_uploaded_file — sem fallback copy
+        if (!@move_uploaded_file($tmp, $dest) || !is_file($dest)) {
             Session::addMessageAfterRedirect(__('Falha ao salvar imagem', 'kanpro'), false, ERROR);
             return null;
         }
