@@ -184,25 +184,25 @@ if (count($iterator) === 0) {
     echo "<div id='kpg-board' style='display:flex;gap:16px;overflow-x:auto;padding:4px 4px 16px;align-items:flex-start'>";
     foreach ($__myGroups as $__g) {
         $__cards = $__colCards[$__g['id']] ?? [];
-        echo "<div class='kpg-col' data-gid='" . $__g['id'] . "' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 260px)'>";
+        echo "<div class='kpg-col' data-gid='" . $__g['id'] . "' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column'>";
         echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
             . "<strong style='flex:1;font-size:14px;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" . htmlspecialchars($__g['name']) . "</strong>"
             . "<span id='kpg-count-" . $__g['id'] . "' style='background:rgba(0,0,0,.08);padding:2px 8px;border-radius:10px;font-size:11px;color:#5e6c84'>" . count($__cards) . "</span>"
             . "<button onclick='KanproGroups.rename(" . $__g['id'] . ")' title='Renomear lista' style='background:none;border:none;cursor:pointer;color:#5e6c84;font-size:13px'>✏️</button>"
             . "<button onclick='KanproGroups.remove(" . $__g['id'] . ")' title='Excluir lista (os quadros ficam sem grupo)' style='background:none;border:none;cursor:pointer;color:#eb5a46;font-size:13px'>🗑️</button>"
             . "</div>";
-        echo "<div class='kpg-col-body' data-gid='" . $__g['id'] . "' style='padding:0 10px 10px;display:grid;gap:12px;overflow-y:auto;align-content:start;min-height:60px'>";
+        echo "<div class='kpg-col-body' data-gid='" . $__g['id'] . "' style='padding:0 10px 10px;display:grid;gap:12px;align-content:start;min-height:60px'>";
         if (empty($__cards)) echo "<div class='kpg-empty' style='border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px'>Arraste quadros pra cá</div>";
         else foreach ($__cards as $__c) echo $__c;
         echo "</div></div>";
     }
     $__nog = $__colCards[0] ?? [];
-    echo "<div class='kpg-col' data-gid='0' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 260px)'>";
+    echo "<div class='kpg-col' data-gid='0' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column'>";
     echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
         . "<strong style='flex:1;font-size:14px;color:#172b4d'>Sem grupo</strong>"
         . "<span id='kpg-count-0' style='background:rgba(0,0,0,.08);padding:2px 8px;border-radius:10px;font-size:11px;color:#5e6c84'>" . count($__nog) . "</span>"
         . "</div>";
-    echo "<div class='kpg-col-body' data-gid='0' style='padding:0 10px 10px;display:grid;gap:12px;overflow-y:auto;align-content:start;min-height:60px'>";
+    echo "<div class='kpg-col-body' data-gid='0' style='padding:0 10px 10px;display:grid;gap:12px;align-content:start;min-height:60px'>";
     if (empty($__nog)) echo "<div class='kpg-empty' style='border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px'>Nada por aqui</div>";
     else foreach ($__nog as $__c) echo $__c;
     echo "</div></div>";
