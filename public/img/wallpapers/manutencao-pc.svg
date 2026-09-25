@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="mp-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b2447"/>
+      <stop offset=".55" stop-color="#19376d"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="mp-screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0ea5e9"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <radialGradient id="mp-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#mp-bg)"/>
+  <circle cx="1700" cy="160" r="300" fill="url(#mp-glow)"/>
+  <circle cx="220" cy="900" r="280" fill="url(#mp-glow)"/>
+  <g opacity=".12" stroke="#ffffff" stroke-width="3">
+    <path d="M0,200 H1920 M0,440 H1920 M0,680 H1920 M0,920 H1920"/>
+    <path d="M260,0 V1080 M660,0 V1080 M1060,0 V1080 M1460,0 V1080"/>
+  </g>
+  <g>
+    <rect x="660" y="240" width="600" height="400" rx="26" fill="#0b1120"/>
+    <rect x="690" y="270" width="540" height="340" rx="14" fill="url(#mp-screen)"/>
+    <g fill="#ffffff" opacity=".85">
+      <rect x="730" y="320" width="220" height="30" rx="15"/>
+      <rect x="730" y="370" width="460" height="22" rx="11" opacity=".55"/>
+      <rect x="730" y="410" width="460" height="22" rx="11" opacity=".55"/>
+      <rect x="730" y="450" width="300" height="22" rx="11" opacity=".55"/>
+    </g>
+    <g stroke="#22c55e" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1080,470 L1120,510 L1180,430"/>
+    </g>
+    <rect x="900" y="640" width="120" height="70" fill="#0b1120"/>
+    <rect x="780" y="710" width="360" height="34" rx="17" fill="#0b1120"/>
+    <ellipse cx="960" cy="810" rx="340" ry="34" fill="#000000" opacity=".35"/>
+  </g>
+  <g transform="rotate(24 1390 780)">
+    <rect x="1280" y="620" width="220" height="56" rx="28" fill="#94a3b8"/>
+    <rect x="1460" y="632" width="120" height="32" rx="8" fill="#64748b"/>
+  </g>
+  <g transform="rotate(-24 1410 760)" stroke="#e2e8f0" stroke-width="30" fill="none" stroke-linecap="round">
+    <circle cx="1410" cy="700" r="52"/>
+    <path d="M1410,610 L1410,648 M1410,752 L1410,790 M1320,700 L1358,700 M1462,700 L1500,700 M1346,636 L1373,663 M1447,737 L1474,764 M1474,636 L1447,663 M1373,737 L1346,764" />
+  </g>
+</svg>

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="mr-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset=".55" stop-color="#4c1d95"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="mr-rack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e293b"/>
+      <stop offset="1" stop-color="#0b1120"/>
+    </linearGradient>
+    <radialGradient id="mr-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#mr-bg)"/>
+  <circle cx="1620" cy="180" r="300" fill="url(#mr-glow)"/>
+  <circle cx="260" cy="900" r="300" fill="url(#mr-glow)"/>
+  <g stroke="#a78bfa" stroke-width="5" opacity=".5" fill="none">
+    <path d="M300,540 L640,540 L760,380 L1160,380 L1280,540 L1620,540"/>
+    <path d="M640,540 L640,700 M1280,540 L1280,700"/>
+  </g>
+  <g fill="#22c55e">
+    <circle cx="300" cy="540" r="34"/>
+    <circle cx="640" cy="540" r="34"/>
+    <circle cx="1160" cy="380" r="34"/>
+    <circle cx="1280" cy="540" r="34"/>
+    <circle cx="1620" cy="540" r="34"/>
+  </g>
+  <g fill="none" stroke="#dcfce7" stroke-width="8">
+    <circle cx="300" cy="540" r="34"/>
+    <circle cx="640" cy="540" r="34"/>
+    <circle cx="1160" cy="380" r="34"/>
+    <circle cx="1280" cy="540" r="34"/>
+    <circle cx="1620" cy="540" r="34"/>
+  </g>
+  <g>
+    <rect x="760" y="620" width="400" height="360" rx="22" fill="url(#mr-rack)"/>
+    <rect x="760" y="620" width="400" height="360" rx="22" fill="none" stroke="#7c3aed" stroke-width="6"/>
+    <g>
+      <rect x="790" y="660" width="340" height="70" rx="10" fill="#1e293b" stroke="#475569" stroke-width="3"/>
+      <circle cx="820" cy="695" r="10" fill="#22c55e"/>
+      <circle cx="848" cy="695" r="10" fill="#facc15"/>
+      <rect x="880" y="686" width="200" height="18" rx="9" fill="#475569"/>
+      <rect x="790" y="750" width="340" height="70" rx="10" fill="#1e293b" stroke="#475569" stroke-width="3"/>
+      <circle cx="820" cy="785" r="10" fill="#22c55e"/>
+      <circle cx="848" cy="785" r="10" fill="#38bdf8"/>
+      <rect x="880" y="776" width="200" height="18" rx="9" fill="#475569"/>
+      <rect x="790" y="840" width="340" height="70" rx="10" fill="#1e293b" stroke="#475569" stroke-width="3"/>
+      <circle cx="820" cy="875" r="10" fill="#ef4444"/>
+      <circle cx="848" cy="875" r="10" fill="#facc15"/>
+      <rect x="880" y="866" width="200" height="18" rx="9" fill="#475569"/>
+    </g>
+  </g>
+</svg>

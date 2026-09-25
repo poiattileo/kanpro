@@ -245,6 +245,9 @@ class PluginKanproBoard extends CommonDBTM {
             'acesso-escola' => 'acesso-escola.svg',
             'agenda-carros' => 'agenda-carros.svg',
             'whatsapp'      => 'whatsapp.svg',
+            'manutencao-pc'       => 'manutencao-pc.svg',
+            'manutencao-notebook' => 'manutencao-notebook.svg',
+            'manutencao-rede'     => 'manutencao-rede.svg',
         ];
     }
 

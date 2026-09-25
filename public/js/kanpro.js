@@ -3872,6 +3872,9 @@
         {key:'acesso-escola', file:'acesso-escola.svg', label:'Acesso Escola'},
         {key:'agenda-carros', file:'agenda-carros.svg', label:'Agenda Carros'},
         {key:'whatsapp', file:'whatsapp.svg', label:'WhatsApp'},
+        {key:'manutencao-pc', file:'manutencao-pc.svg', label:'Manutenção PC'},
+        {key:'manutencao-notebook', file:'manutencao-notebook.svg', label:'Manutenção Notebook'},
+        {key:'manutencao-rede', file:'manutencao-rede.svg', label:'Manutenção Rede'},
       ];
     },
     wallpaperThumbUrl(file){
