@@ -277,29 +277,25 @@ if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
 }
 $maintenance_progress_json = json_encode($maintenance_progress, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
-// Transfer status para badge Retirada/Concluído (KanPro → assetmgrstatus) — 1 query (evita LIKE por card)
+// Transfer status para badge Retirada/Concluído (KanPro → assetmgrstatus)
 $transfer_status = [];
 if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
-    try {
-        $__maint_cids = [];
-        foreach ($all_cards as $c) { if (!empty($c['is_maintenance'])) $__maint_cids[] = (int)$c['id']; }
-        if (!empty($__maint_cids)) {
-            $trIter = $DB->request(['SELECT' => ['id', 'reason', 'assinatura_image', 'assinatura_tecnico_image'], 'FROM' => 'glpi_plugin_assetmgrstatus_transfers', 'WHERE' => ['reason' => ['LIKE', '%KanPro #%']], 'ORDER' => 'id DESC', 'LIMIT' => 500]);
-            $seen = [];
-            foreach ($trIter as $tr) {
-                if (!preg_match_all('/\[KanPro #(\d+)\]/', (string)($tr['reason'] ?? ''), $mm)) continue;
-                foreach ($mm[1] as $cidStr) {
-                    $cid = (int)$cidStr;
-                    if (!in_array($cid, $__maint_cids, true) || isset($seen[$cid])) continue;
-                    $seen[$cid] = true;
-                    $isAssinado = !empty($tr['assinatura_image']) && !empty($tr['assinatura_tecnico_image']);
-                    $transfer_status[$cid] = $isAssinado ? ['label' => 'Concluído', 'status' => 'concluido'] : ['label' => 'Retirada', 'status' => 'retirada'];
-                }
-                if (count($seen) >= count($__maint_cids)) break;
-            }
+    foreach ($all_cards as $c) {
+        if (empty($c['is_maintenance'])) continue;
+        $like = "%[KanPro #{$c['id']}]%";
+        $trIter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
+        if ($trIter->count()===0) continue;
+        $tr = $trIter->current();
+        if (!$tr) continue;
+        $hasRec = !empty($tr['assinatura_image']);
+        $hasTec = !empty($tr['assinatura_tecnico_image']);
+        $isAssinado = $hasRec && $hasTec;
+        if ($isAssinado) {
+            $transfer_status[$c['id']] = ['label'=>'Concluído','status'=>'concluido'];
+        } elseif (!empty($tr['id'])) {
+            // tem transferência mas falta assinatura → Retirada (amarelo)
+            $transfer_status[$c['id']] = ['label'=>'Retirada','status'=>'retirada'];
         }
-    } catch (Throwable $e) {
-        error_log('[KanPro] KanPro kanban transfer_status: ' . $e->getMessage());
     }
 }
 $transfer_status_json = json_encode($transfer_status, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
