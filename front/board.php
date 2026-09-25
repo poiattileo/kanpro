@@ -87,33 +87,7 @@ try {
         }
     }
 } catch (Throwable $e) {}
-$__groupFilter = $_GET['group'] ?? 'all'; // all | none | <id>
-$__baseQs = 'archived=' . ($show_archived ? '1' : '0') . ($search !== '' ? '&search=' . urlencode($search) : '');
-echo "<div style='display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;align-items:center'>";
-echo "<span style='font-size:12px;font-weight:700;color:#5e6c84'>📁 MEUS GRUPOS:</span>";
-$__chip = function($label, $val, $active) use ($__baseQs) {
-    $st = $active ? 'background:#6554c0;color:#fff;border-color:#6554c0' : '';
-    return "<a href='?{$__baseQs}&group=" . urlencode((string)$val) . "' class='btn btn-sm' style='border:1px solid #dfe1e6;{$st}'>" . htmlspecialchars($label) . "</a>";
-};
-echo $__chip('Todos', 'all', $__groupFilter === 'all');
-echo $__chip('Sem grupo', 'none', $__groupFilter === 'none');
-foreach ($__myGroups as $__g) {
-    echo $__chip($__g['name'], $__g['id'], (string)$__groupFilter === (string)$__g['id']);
-}
-echo "<button onclick='KanproGroups.toggleMgr()' class='btn btn-sm' style='border:1px dashed #6554c0;color:#6554c0'>⚙ Gerenciar</button>";
-echo "</div>";
-echo "<div id='kpg-mgr' style='display:none;background:#f9f8ff;border:1px solid #d5ccf5;border-radius:8px;padding:12px;margin-bottom:20px'>";
-echo "<div style='display:flex;gap:8px;margin-bottom:10px'><input id='kpg-new' type='text' placeholder='Nome do novo grupo...' maxlength='100' style='flex:1;padding:8px 12px;border:1px solid #dfe1e6;border-radius:6px'><button onclick='KanproGroups.create()' class='btn btn-sm' style='background:#6554c0;color:#fff'>Criar grupo</button></div>";
-echo "<div id='kpg-list' style='display:grid;gap:6px'>";
-foreach ($__myGroups as $__g) {
-    echo "<div style='display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:6px 10px'>"
-        . "<strong style='flex:1;font-size:13px'>" . htmlspecialchars($__g['name']) . "</strong>"
-        . "<button onclick='KanproGroups.rename(" . $__g['id'] . ")' class='btn btn-sm btn-outline-secondary' title='Renomear'>✏️</button>"
-        . "<button onclick='KanproGroups.remove(" . $__g['id'] . ")' class='btn btn-sm btn-outline-secondary' title='Excluir grupo (os quadros ficam sem grupo)' style='color:#eb5a46'>🗑️</button>"
-        . "</div>";
-}
-if (empty($__myGroups)) echo "<div style='font-size:12px;color:#5e6c84'>Nenhum grupo ainda. Crie um (ex: Escolas, Manutenção, Pessoal) e destine cada quadro ao seu grupo pelo seletor no cartão.</div>";
-echo "</div></div>";
+echo "<div style='font-size:12px;color:#5e6c84;margin-bottom:12px'>📁 Cada lista é um <strong>grupo seu</strong> — arraste os quadros entre as listas para organizar. Cada pessoa organiza do seu jeito.</div>";
 
 if (count($iterator) === 0) {
     echo "<div style='text-align:center;padding:60px 20px;background:#f4f5f7;border-radius:8px'>";
@@ -123,7 +97,7 @@ if (count($iterator) === 0) {
     if ($canedit) echo "<a href='board.form.php' class='btn btn-primary' style='margin-top:12px'><i class='ti ti-plus'></i> Criar quadro</a>";
     echo "</div>";
 } else {
-    echo "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px'>";
+    $__colCards = []; // groups_id => html dos cartões (cada grupo vira uma lista)
     foreach ($iterator as $row) {
         $bid = (int)$row['id'];
         // trava de visibilidade: criador, membro, perfil GLPI ou quadro legado sem membros E sem perfis
@@ -131,10 +105,9 @@ if (count($iterator) === 0) {
         if ($__creator !== $__me && !isset($__myBoards[$bid]) && !isset($__myProfileBoards[$bid]) && (isset($__restricted[$bid]) || isset($__restrictedProf[$bid]))) {
             continue;
         }
-        // filtro por grupo pessoal
         $__bGroup = $__myBoardGroup[$bid] ?? 0;
-        if ($__groupFilter === 'none' && $__bGroup > 0) continue;
-        if (is_numeric($__groupFilter) && (int)$__groupFilter > 0 && $__bGroup !== (int)$__groupFilter) continue;
+        if ($__bGroup > 0 && !isset($__myGroups[$__bGroup])) $__bGroup = 0; // grupo órfão
+        ob_start();
         $kanban_url = "kanban.php?boards_id={$bid}";
         $edit_url   = "board.form.php?id={$bid}";
         $card_count = PluginKanproBoard::countCardsInBoard($bid);
@@ -205,11 +178,45 @@ if (count($iterator) === 0) {
         }
         echo "</select></div>";
         echo "</div>";
+        $__colCards[$__bGroup][] = ob_get_clean();
     }
+    // renderiza cada grupo como uma lista (estilo Trello) + Sem grupo + Nova lista
+    echo "<div id='kpg-board' style='display:flex;gap:16px;overflow-x:auto;padding:4px 4px 16px;align-items:flex-start'>";
+    foreach ($__myGroups as $__g) {
+        $__cards = $__colCards[$__g['id']] ?? [];
+        echo "<div class='kpg-col' data-gid='" . $__g['id'] . "' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 260px)'>";
+        echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
+            . "<strong style='flex:1;font-size:14px;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" . htmlspecialchars($__g['name']) . "</strong>"
+            . "<span id='kpg-count-" . $__g['id'] . "' style='background:rgba(0,0,0,.08);padding:2px 8px;border-radius:10px;font-size:11px;color:#5e6c84'>" . count($__cards) . "</span>"
+            . "<button onclick='KanproGroups.rename(" . $__g['id'] . ")' title='Renomear lista' style='background:none;border:none;cursor:pointer;color:#5e6c84;font-size:13px'>✏️</button>"
+            . "<button onclick='KanproGroups.remove(" . $__g['id'] . ")' title='Excluir lista (os quadros ficam sem grupo)' style='background:none;border:none;cursor:pointer;color:#eb5a46;font-size:13px'>🗑️</button>"
+            . "</div>";
+        echo "<div class='kpg-col-body' data-gid='" . $__g['id'] . "' style='padding:0 10px 10px;display:grid;gap:12px;overflow-y:auto;align-content:start;min-height:60px'>";
+        if (empty($__cards)) echo "<div class='kpg-empty' style='border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px'>Arraste quadros pra cá</div>";
+        else foreach ($__cards as $__c) echo $__c;
+        echo "</div></div>";
+    }
+    $__nog = $__colCards[0] ?? [];
+    echo "<div class='kpg-col' data-gid='0' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 260px)'>";
+    echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
+        . "<strong style='flex:1;font-size:14px;color:#172b4d'>Sem grupo</strong>"
+        . "<span id='kpg-count-0' style='background:rgba(0,0,0,.08);padding:2px 8px;border-radius:10px;font-size:11px;color:#5e6c84'>" . count($__nog) . "</span>"
+        . "</div>";
+    echo "<div class='kpg-col-body' data-gid='0' style='padding:0 10px 10px;display:grid;gap:12px;overflow-y:auto;align-content:start;min-height:60px'>";
+    if (empty($__nog)) echo "<div class='kpg-empty' style='border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px'>Nada por aqui</div>";
+    else foreach ($__nog as $__c) echo $__c;
+    echo "</div></div>";
+    // + nova lista
+    echo "<div style='flex:0 0 280px;min-width:280px;background:rgba(255,255,255,.55);border-radius:10px;padding:10px'>";
+    echo "<button id='kpg-new-btn' onclick='KanproGroups.showNew()' style='width:100%;background:none;border:none;cursor:pointer;color:#5e6c84;font-weight:600;font-size:13px;padding:8px;text-align:left'>+ Novo grupo</button>";
+    echo "<div id='kpg-new-form' style='display:none'>";
+    echo "<input id='kpg-new' type='text' placeholder='Nome do grupo...' maxlength='100' onkeydown=\"if(event.key==='Enter')KanproGroups.create()\" style='width:100%;padding:8px 10px;border:1px solid #dfe1e6;border-radius:6px;margin-bottom:8px;box-sizing:border-box'>";
+    echo "<div style='display:flex;gap:8px'><button onclick='KanproGroups.create()' class='btn btn-sm' style='background:#6554c0;color:#fff'>Criar</button><button onclick='KanproGroups.hideNew()' class='btn btn-sm btn-outline-secondary'>✕</button></div>";
+    echo "</div></div>";
     // card "Criar novo quadro"
     if ($canedit) {
-        echo "<a href='board.form.php' style='border:2px dashed #dfe1e6;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;text-decoration:none;color:#6b778c;background:#fafbfc;transition:.15s' onmouseover=\"this.style.borderColor='#0079bf';this.style.color='#0079bf';this.style.background='#e6fcff'\" onmouseout=\"this.style.borderColor='#dfe1e6';this.style.color='#6b778c';this.style.background='#fafbfc'\">";
-        echo "<i class='ti ti-plus' style='font-size:28px'></i><span style='margin-top:8px;font-weight:600'>Criar novo quadro</span></a>";
+        echo "<a href='board.form.php' style='flex:0 0 200px;border:2px dashed #dfe1e6;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px;text-decoration:none;color:#6b778c;background:#fafbfc' onmouseover=\"this.style.borderColor='#0079bf';this.style.color='#0079bf';this.style.background='#e6fcff'\" onmouseout=\"this.style.borderColor='#dfe1e6';this.style.color='#6b778c';this.style.background='#fafbfc'\">";
+        echo "<i class='ti ti-plus' style='font-size:24px'></i><span style='margin-top:8px;font-weight:600;font-size:13px'>Criar novo quadro</span></a>";
     }
     echo "</div>";
 }
@@ -446,15 +453,72 @@ window.KanproGroups = (function(){
     }).catch(function(e){ return {success:false, msg:e.message}; });
   }
   return {
-    toggleMgr: function(){
-      var el = document.getElementById('kpg-mgr');
-      if (el) el.style.display = (el.style.display === 'none' ? 'block' : 'none');
+    showNew: function(){
+      var b = document.getElementById('kpg-new-btn');
+      var f = document.getElementById('kpg-new-form');
+      if (b) b.style.display = 'none';
+      if (f) f.style.display = 'block';
+      var inp = document.getElementById('kpg-new');
+      if (inp) inp.focus();
+    },
+    hideNew: function(){
+      var b = document.getElementById('kpg-new-btn');
+      var f = document.getElementById('kpg-new-form');
+      if (b) b.style.display = '';
+      if (f) f.style.display = 'none';
     },
     assign: function(boardId, groupId){
       post('assign_board_group', {boards_id: boardId, groups_id: groupId}).then(function(res){
         if (!res.success) { alert(res.msg || 'Erro'); location.reload(); return; }
         location.reload();
       });
+    },
+    move: function(boardId, groupId){
+      // arrastar-e-soltar: move o cartão no DOM sem reload
+      var node = KanproGroups.findCard(boardId);
+      var target = document.querySelector(".kpg-col-body[data-gid='" + groupId + "']");
+      if (!node || !target) { location.reload(); return; }
+      post('assign_board_group', {boards_id: boardId, groups_id: groupId}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); location.reload(); return; }
+        var empty = target.querySelector('.kpg-empty');
+        if (empty) empty.remove();
+        target.appendChild(node);
+        var sel = node.querySelector('select');
+        if (sel) sel.value = String(groupId);
+        KanproGroups.refreshCounts();
+      });
+    },
+    findCard: function(boardId){
+      var bodies = document.querySelectorAll('.kpg-col-body');
+      for (var i = 0; i < bodies.length; i++) {
+        var kids = bodies[i].children;
+        for (var j = 0; j < kids.length; j++) {
+          if (kids[j].classList.contains('kpg-empty')) continue;
+          var a = kids[j].querySelector("a[href*='kanban.php?boards_id=']");
+          var m = a && a.href.match(/boards_id=(\d+)/);
+          if (m && parseInt(m[1], 10) === boardId) return kids[j];
+        }
+      }
+      return null;
+    },
+    refreshCounts: function(){
+      var bodies = document.querySelectorAll('.kpg-col-body');
+      for (var i = 0; i < bodies.length; i++) {
+        var gid = bodies[i].getAttribute('data-gid');
+        var n = 0;
+        var kids = bodies[i].children;
+        for (var j = 0; j < kids.length; j++) { if (!kids[j].classList.contains('kpg-empty')) n++; }
+        var el = document.getElementById('kpg-count-' + gid);
+        if (el) el.textContent = n;
+        var empty = bodies[i].querySelector('.kpg-empty');
+        if (n === 0 && !empty) {
+          var d = document.createElement('div');
+          d.className = 'kpg-empty';
+          d.style.cssText = 'border:2px dashed #c1c7d0;border-radius:8px;padding:20px 12px;text-align:center;color:#97a0af;font-size:12px';
+          d.textContent = 'Arraste quadros pra cá';
+          bodies[i].appendChild(d);
+        } else if (n > 0 && empty) { empty.remove(); }
+      }
     },
     create: function(){
       var inp = document.getElementById('kpg-new');
@@ -483,6 +547,53 @@ window.KanproGroups = (function(){
       });
     }
   };
+})();
+(function kpgInitDnD(){
+  function bidOf(node){
+    var a = node.querySelector("a[href*='kanban.php?boards_id=']");
+    var m = a && a.href.match(/boards_id=(\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+  var bodies = document.querySelectorAll('.kpg-col-body');
+  for (var b = 0; b < bodies.length; b++) {
+    (function(body){
+      var kids = body.children;
+      for (var i = 0; i < kids.length; i++) {
+        (function(card){
+          if (card.classList.contains('kpg-empty')) return;
+          if (!card.querySelector("a[href*='kanban.php?boards_id=']")) return;
+          card.draggable = true;
+          card.style.cursor = 'grab';
+          var inners = card.querySelectorAll('img,a');
+          for (var k = 0; k < inners.length; k++) inners[k].draggable = false;
+          card.addEventListener('dragstart', function(e){
+            e.dataTransfer.setData('text/plain', String(bidOf(card)));
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setDragImage(card, 20, 20); } catch (err) {}
+            setTimeout(function(){ card.style.opacity = '.4'; }, 0);
+          });
+          card.addEventListener('dragend', function(){ card.style.opacity = ''; });
+        })(kids[i]);
+      }
+      body.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        body.style.outline = '2px dashed #6554c0';
+        body.style.outlineOffset = '-2px';
+      });
+      body.addEventListener('dragleave', function(){ body.style.outline = ''; });
+      body.addEventListener('drop', function(e){
+        e.preventDefault();
+        body.style.outline = '';
+        var bid = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        var gid = parseInt(body.getAttribute('data-gid'), 10);
+        if (!bid || isNaN(gid)) return;
+        var node = KanproGroups.findCard(bid);
+        if (node && node.parentNode === body) return; // mesma lista: nada a fazer
+        KanproGroups.move(bid, gid);
+      });
+    })(bodies[b]);
+  }
 })();
 </script>
 <?php
