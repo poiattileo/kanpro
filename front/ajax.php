@@ -425,6 +425,9 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_maintenance` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_completed`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `entities_id` INT NOT NULL DEFAULT '0' AFTER `tickets_id`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
@@ -461,6 +464,19 @@ function kanpro_migrate_schema_once() {
             } catch (Throwable $e) {}
         } elseif (!$DB->fieldExists('glpi_plugin_kanpro_board_groups_items', 'rank')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_board_groups_items` ADD `rank` DOUBLE NOT NULL DEFAULT '0' COMMENT 'ordem do quadro na lista (0=não ordenado)'"); } catch (Throwable $e) {}
+        }
+        // log anti-duplicado do WhatsApp da manutenção
+        if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_maintenance_zaplog` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_cards_id` INT {$sign} NOT NULL DEFAULT '0', `milestone` VARCHAR(30) NOT NULL DEFAULT '', `phone` VARCHAR(30) DEFAULT NULL, `success` TINYINT(1) NOT NULL DEFAULT '0', `detail` VARCHAR(255) DEFAULT NULL, `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`), KEY `milestone` (`milestone`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
+        }
+        // cron diário do zap de atraso (só cria a linha se não existir)
+        if (class_exists('PluginKanproMaintenanceZap')) {
+            try { PluginKanproMaintenanceZap::registerCron(); } catch (Throwable $e) {}
         }
     } catch (Throwable $e) {}
 }
@@ -1467,7 +1483,7 @@ switch ($action) {
             foreach ($order as $obid) {
                 $obid = (int)$obid;
                 if ($obid <= 0 || !kanpro_can_view_board($obid)) continue;
-                $cur = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'plugin_kanpro_boards_id' => $obid]])->current();
+                $cur = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'plugin_kanpro_cards_id' => $obid]])->current();
                 if ($cur) {
                     $DB->update('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'rank' => $rank], ['id' => (int)$cur['id']]);
                 } else {
@@ -1478,6 +1494,61 @@ switch ($action) {
             jexit(['success'=>true]);
         } catch (Throwable $e) {
             jexit(['success'=>false,'msg'=>'Erro ao salvar ordem']);
+        }
+
+    case 'send_test_zap':
+        // TESTE: envia os 4 modelos de WhatsApp p/ um fone (padrão: fone do usuário 'glpi').
+        // Não grava zaplog (pode repetir). Exige UPDATE no KanPro.
+        try {
+            if (!Session::haveRight('plugin_kanpro', UPDATE)) jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro)']);
+            if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Sender indisponível']);
+            $type  = trim($_POST['type'] ?? 'all'); // all|entrada|retirada|atraso|cancelado
+            $cid   = (int)($_POST['cards_id'] ?? 0);
+            $phone = trim($_POST['phone'] ?? '');
+            $phone = $phone !== ''
+                ? PluginKanproMaintenanceZap::normalizeBRPhone($phone)
+                : PluginKanproMaintenanceZap::resolveUserPhone('glpi');
+            if ($phone === '') jexit(['success'=>false,'msg'=>'Telefone inválido/ausente (usuário glpi sem fone cadastrado?)']);
+            $types = ($type === 'all' || $type === '')
+                ? PluginKanproMaintenanceZap::allowedTypes()
+                : [$type];
+            if ($cid > 0) {
+                $data = PluginKanproMaintenanceZap::baseData($cid);
+                $data['dias'] = '7';
+                $data['motivo'] = 'Teste de envio';
+                if (($data['observacao'] ?? '') === '') $data['observacao'] = '(mensagem de teste)';
+            } else {
+                $now = date('d/m/Y H:i');
+                $data = [
+                    'escola' => 'EE Teste de Demonstração', 'card_id' => '999', 'card_nome' => 'EE Teste de Demonstração',
+                    'data_recebimento' => $now, 'data_pronto' => $now, 'data_cancelamento' => $now,
+                    'quantidade' => '2',
+                    'maquinas'   => "#1 — Notebook Positivo (OK)\n#2 — Notebook Ultra (Garantia)",
+                    'observacao' => '(mensagem de teste)', 'motivo' => 'Teste de envio', 'dias' => '7',
+                ];
+            }
+            $results = [];
+            $allOk = true;
+            foreach ($types as $t) {
+                if (!in_array($t, PluginKanproMaintenanceZap::allowedTypes(), true)) {
+                    $results[$t] = ['ok' => false, 'error' => 'Tipo inválido'];
+                    $allOk = false;
+                    continue;
+                }
+                $txt = PluginKanproMaintenanceZap::renderTxt($t, $data);
+                if ($txt === null || $txt === '') {
+                    $results[$t] = ['ok' => false, 'error' => 'template vazio'];
+                    $allOk = false;
+                    continue;
+                }
+                $r = PluginKanproMaintenanceZap::evoSend($phone, $txt);
+                $results[$t] = ['ok' => !empty($r['ok']), 'error' => $r['error'] ?? null];
+                if (empty($r['ok'])) $allOk = false;
+                usleep(400000); // respira entre envios (evita flood na Evolution)
+            }
+            jexit(['success' => $allOk, 'phone' => $phone, 'results' => $results]);
+        } catch (Throwable $e) {
+            jexit(['success'=>false,'msg'=>'Erro no teste: ' . $e->getMessage()]);
         }
 
     case 'get_board_members':
@@ -2937,6 +3008,10 @@ switch ($action) {
             'date_mod'         => date('Y-m-d H:i:s'),
             'name'             => $newName
         ];
+        // guarda a entidade da escola no card (fone do WhatsApp) — 0 se nome digitado
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id')) {
+            $updateData['entities_id'] = (int)$entities_id;
+        }
         $DB->update('glpi_plugin_kanpro_cards', $updateData, ['id' => $cid]);
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_maintenance_convert', "Cartão convertido para manutenção por ". Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})");
         kanpro_touch_member($cid);
@@ -3066,6 +3141,10 @@ switch ($action) {
         foreach ($iter as $r) $all[] = $r;
         $done = count(array_filter($all, fn($x)=> $x['is_done']==1));
         $urgent = count(array_filter($all, fn($x)=> !empty($x['is_urgent'])));
+        // WhatsApp ENTRADA (1ª configuração do card) — nunca quebra o fluxo
+        if ($existing == 0 && class_exists('PluginKanproMaintenanceZap')) {
+            try { PluginKanproMaintenanceZap::sendOnce('entrada', $cid); } catch (Throwable $e) {}
+        }
         jexit(['success'=>true,'total'=>$total,'created'=>count($created),'machines'=>$all,'progress'=>['total'=>count($all),'done'=>$done,'percent'=> count($all)? round($done/count($all)*100):0,'urgent'=>$urgent]]);
 
     case 'get_maintenance':
@@ -3512,7 +3591,7 @@ switch ($action) {
             'description' => $card->fields['description'] ?? '',
         ]);
         if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de retirada']);
-        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newId]);
         // move máquina para novo card, re-sequencia como 1 e mantém infos
         $newLabel = "Máquina 1 - {$row['model']}";
         $DB->update('glpi_plugin_kanpro_maintenance_machines', [
@@ -3587,6 +3666,10 @@ switch ($action) {
                 $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
             }
         }
+        // WhatsApp RETIRADA (máquinas prontas no card novo) — nunca quebra o fluxo
+        if ($newId && class_exists('PluginKanproMaintenanceZap')) {
+            try { PluginKanproMaintenanceZap::sendOnce('retirada', (int)$newId); } catch (Throwable $e) {}
+        }
         jexit(['success'=>true,'new_card_id'=>$newId,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'msg'=>'Retirada criada']);
 
     case 'revert_maintenance':
@@ -3599,10 +3682,23 @@ switch ($action) {
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Não é manutenção']);
         if (!kanpro_verify_password($password)) jexit(['success'=>false,'msg'=>'Senha incorreta']);
+        // captura dados p/ WhatsApp CANCELADO antes de limpar
+        $zapData = null;
+        if (class_exists('PluginKanproMaintenanceZap')) {
+            try { $zapData = PluginKanproMaintenanceZap::baseData($cid); } catch (Throwable $e) {}
+        }
+        $zapMotivo = trim($_POST['motivo'] ?? '');
         $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>0,'maintenance_date'=>null,'maintenance_by'=>0], ['id'=>$cid]);
         // opcional: manter máquinas para histórico, mas aqui mantém; se quiser apagar, descomente:
         // $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_revert', "Manutenção revertida");
+        // WhatsApp CANCELADO (recebimento por engano — desconsidere)
+        if ($zapData !== null) {
+            try {
+                $zapData['motivo'] = $zapMotivo !== '' ? $zapMotivo : 'Registro por engano';
+                PluginKanproMaintenanceZap::sendOnce('cancelado', $cid, $zapData);
+            } catch (Throwable $e) {}
+        }
         jexit(['success'=>true]);
 
     case 'get_maintenance_term_data':
@@ -3688,7 +3784,7 @@ switch ($action) {
             ]);
             if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
             // garante que novo card também é manutenção
-            $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
+            $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newId]);
             // move pendentes para novo card com seq 1..N e zera Feito/Status/Relatório/Inventário
             $seq=1;
             foreach ($pendingMachines as $pm) {
@@ -3740,6 +3836,10 @@ switch ($action) {
                 if(!$base) $base = '/plugins/assetmgrstatus';
                 $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
                 $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
+                // WhatsApp RETIRADA (termo já existia — trava duplicado pelo zaplog)
+                if (class_exists('PluginKanproMaintenanceZap')) {
+                    try { PluginKanproMaintenanceZap::sendOnce('retirada', $cid); } catch (Throwable $e) {}
+                }
                 jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true]);
             }
         }
@@ -3816,6 +3916,7 @@ switch ($action) {
                     'is_maintenance'   => 1,
                     'maintenance_date' => date('Y-m-d H:i:s'),
                     'maintenance_by'   => kanpro_acting_user_id(),
+                    'entities_id'      => (int)($card->fields['entities_id'] ?? 0),
                     'date_mod'         => date('Y-m-d H:i:s')
                 ], ['id' => $pendingCardId]);
                 // copia máquinas pendentes para novo card re-sequenciando 1..N
@@ -3966,6 +4067,10 @@ switch ($action) {
         $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
         $resp = ['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$doneTerm,'percent'=>$total?round($doneTerm/$total*100):0,'garantia'=>$cntGarantiaTerm,'ok'=>$cntOkTerm,'inservivel'=>$cntInservivelTerm]];
         if ($pendingCardId) { $resp['pending_card_id']=$pendingCardId; $resp['pending_count']=$pendingCount; $resp['msg_pending']="Pendentes ({$pendingCount}) movidos para novo card #{$pendingCardId}"; }
+        // WhatsApp RETIRADA (máquinas prontas — transferência criada)
+        if (class_exists('PluginKanproMaintenanceZap')) {
+            try { PluginKanproMaintenanceZap::sendOnce('retirada', $cid); } catch (Throwable $e) {}
+        }
         jexit($resp);
 
     // --- CARD <-> CHAMADO GLPI ---

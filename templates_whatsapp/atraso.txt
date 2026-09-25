@@ -1,0 +1,17 @@
+# KanPro • WhatsApp de ATRASO (texto puro, sem HTML)
+# Gatilho: cron diário — 7, 14 ou 30 dias após data_recebimento
+# Placeholders: {escola} {card_id} {card_nome} {data_recebimento}
+#               {dias} {quantidade} {maquinas}
+
+⚠️ *RETIRADA PENDENTE — {dias} dias*
+
+Olá! As máquinas do card *#{card_id} "{card_nome}"* da escola *"{escola}"* estão paradas há *{dias} dias* e já podem ser buscadas (recebidas em *{data_recebimento}*).
+
+📦 *{quantidade} máquina(s):*
+{maquinas}
+
+⚠️ Para retirar: *termo impresso* + *documento com foto*.
+
+🔴 *Lembrete:* ao retirar, *remova as fitas com numeração* coladas em cada máquina.
+
+_Alerta automático — Manutenção de TI - URE Jales_

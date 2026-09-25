@@ -1,0 +1,17 @@
+# KanPro • WhatsApp de RETIRADA (texto puro, sem HTML)
+# Gatilho: retirada_machine / finalize_maintenance (transferência criada)
+# Placeholders: {escola} {card_id} {card_nome} {data_pronto}
+#               {quantidade} {maquinas} {observacao}
+
+✅ *MÁQUINAS PRONTAS* 🎉
+
+Olá! As máquinas do card *#{card_id} "{card_nome}"* da escola *"{escola}"* estão *PRONTAS* para retirada desde *{data_pronto}*.
+
+📦 *{quantidade} máquina(s):*
+{maquinas}
+
+⚠️ *Importante:* para retirar, apresente o *termo impresso* + *documento com foto*.
+
+🔴 *Lembrete:* ao retirar, *remova as fitas com numeração* coladas em cada máquina.
+
+_Manutenção de TI - URE Jales_

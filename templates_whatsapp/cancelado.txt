@@ -1,0 +1,18 @@
+# KanPro • WhatsApp de CANCELADO (texto puro, sem HTML)
+# Gatilho: revert_maintenance (recebimento por engano)
+# Placeholders: {escola} {card_id} {card_nome} {data_recebimento}
+#               {data_cancelamento} {quantidade} {maquinas} {motivo}
+
+❌ *RECEBIMENTO DESCONSIDERADO*
+
+Olá! Por engano, foi registrado o recebimento das máquinas do card *#{card_id} "{card_nome}"* da escola *"{escola}"* em *{data_recebimento}*.
+
+*Favor desconsiderar — não vale* e as máquinas abaixo *não ficaram retidas*. Cancelado em *{data_cancelamento}*.
+Motivo: {motivo}
+
+📦 *Recebimento a desconsiderar ({quantidade}):*
+{maquinas}
+
+Dúvidas? Fale com a SEINTEC informando o card *#{card_id}*.
+
+_Manutenção de TI - URE Jales_

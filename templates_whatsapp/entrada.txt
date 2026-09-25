@@ -1,0 +1,16 @@
+# KanPro • WhatsApp de ENTRADA (texto puro, sem HTML)
+# Gatilho: setup_maintenance_machines (primeira configuração)
+# Placeholders: {escola} {card_id} {card_nome} {data_recebimento}
+#               {quantidade} {maquinas} {observacao}
+# {maquinas} = linhas "#seq — modelo (Status)" separadas por quebra de linha
+
+✅ *MÁQUINAS RECEBIDAS*
+
+Olá! Recebemos as máquinas do card *#{card_id} "{card_nome}"* da escola *"{escola}"* em *{data_recebimento}*.
+
+📦 *{quantidade} máquina(s):*
+{maquinas}
+
+⚠️ *Importante:* na retirada, apresente o *termo impresso* + *documento com foto*. Avisaremos quando estiverem prontas.
+
+_Manutenção de TI - URE Jales_

@@ -105,6 +105,7 @@ function plugin_kanpro_install(): bool {
                 `is_pinned`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=fixado no topo da lista',
                 `approval_from`               INT {$sign} NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia',
                 `tickets_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'chamado GLPI vinculado',
+                `entities_id`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'escola/entidade da manutenção (p/ fone do WhatsApp)',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -141,6 +142,10 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tickets_id` INT NOT NULL DEFAULT '0' AFTER `cover_attachment_id`");
+        }
+        // entidade da escola (fone do WhatsApp) — antes só ia p/ o nome do card
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `entities_id` INT NOT NULL DEFAULT '0' AFTER `tickets_id`");
         }
     }
 
@@ -477,7 +482,26 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- MAINTENANCE ZAPLOG (anti-duplicado dos WhatsApps automáticos) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_maintenance_zaplog` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `milestone`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'entrada,retirada,atraso_7,atraso_14,atraso_30,cancelado',
+                `phone`                       VARCHAR(30)  DEFAULT NULL,
+                `success`                     TINYINT(1)   NOT NULL DEFAULT '0',
+                `detail`                      VARCHAR(255) DEFAULT NULL,
+                `date_creation`               DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
+                KEY `milestone` (`milestone`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
+    if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::registerCron();
     return true;
 }
 
@@ -485,8 +509,10 @@ function plugin_kanpro_uninstall(): bool {
     global $DB;
 
     PluginKanproProfile::uninstall();
+    if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
 
     $tables = [
+        'glpi_plugin_kanpro_maintenance_zaplog',
         'glpi_plugin_kanpro_board_groups_items',
         'glpi_plugin_kanpro_board_groups',
         'glpi_plugin_kanpro_boards_profiles',
