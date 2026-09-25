@@ -8,21 +8,12 @@ global $DB;
 $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => ['id' => $id]])->current();
 if (!$row) { http_response_code(404); die('Não encontrado'); }
 
-// Confere acesso ao quadro (mesma regra do kanban.php): criador, membro ou quadro legado sem membros
+// Confere acesso ao quadro (mesma regra do kanban.php): criador, membro, perfil GLPI ou legado aberto
 $card_id = (int)($row['plugin_kanpro_cards_id'] ?? 0);
 $card = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['id' => $card_id]])->current();
 if (!$card) { http_response_code(404); die('Cartão não encontrado'); }
 $boards_id = (int)($card['plugin_kanpro_boards_id'] ?? 0);
-$board = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['id' => $boards_id]])->current();
-if (!$board) { http_response_code(404); die('Quadro não encontrado'); }
-$me = (int)Session::getLoginUserID();
-$canView = ($me > 0 && (int)($board['users_id'] ?? 0) === $me);
-if (!$canView) {
-    $isMember = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]) > 0;
-    $hasMembers = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id]) > 0;
-    $canView = $isMember || !$hasMembers;
-}
-if (!$canView) { http_response_code(403); die('Sem acesso a este quadro'); }
+if (!kanpro_can_view_board($boards_id)) { http_response_code(403); die('Sem acesso a este quadro'); }
 
 // Anti path-traversal: resolve caminho real e garante que está dentro de files/_plugins/kanpro
 $base = realpath(GLPI_PLUGIN_DOC_DIR . '/kanpro');

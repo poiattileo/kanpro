@@ -126,3 +126,79 @@ if (!function_exists('kanpro_acting_user_id')) {
         return (int)Session::getLoginUserID();
     }
 }
+
+if (!function_exists('kanpro_my_profile_ids')) {
+    // Perfis GLPI vinculados ao usuário (todas as entidades — vale sessão e pessoa)
+    function kanpro_my_profile_ids(): array {
+        global $DB;
+        $ids = [];
+        try {
+            if (!$DB->tableExists('glpi_profiles_users')) return [];
+            $uids = array_values(array_unique(array_filter([(int)Session::getLoginUserID(), kanpro_acting_user_id()])));
+            if (empty($uids)) return [];
+            foreach ($DB->request(['SELECT' => ['profiles_id'], 'FROM' => 'glpi_profiles_users', 'WHERE' => ['users_id' => $uids]]) as $r) {
+                $ids[(int)$r['profiles_id']] = true;
+            }
+        } catch (Throwable $e) {}
+        return array_keys($ids);
+    }
+}
+
+if (!function_exists('kanpro_board_profile_role')) {
+    // Melhor papel concedido ao usuário via perfis do quadro (admin > member > observer)
+    function kanpro_board_profile_role($bid) {
+        global $DB;
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_boards_profiles')) return null;
+            $pids = kanpro_my_profile_ids();
+            if (empty($pids)) return null;
+            $rank = ['observer' => 1, 'member' => 2, 'admin' => 3];
+            $best = null;
+            foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_boards_profiles', 'WHERE' => ['plugin_kanpro_boards_id' => (int)$bid, 'profiles_id' => $pids]]) as $r) {
+                $x = $r['role'] ?? 'member';
+                if ($best === null || ($rank[$x] ?? 0) > ($rank[$best] ?? 0)) $best = $x;
+            }
+            return $best;
+        } catch (Throwable $e) { return null; }
+    }
+}
+
+if (!function_exists('kanpro_can_view_board')) {
+    // Pode ver o quadro? criador, membro direto, perfil GLPI ou legado aberto (sem membros E sem perfis)
+    function kanpro_can_view_board($bid): bool {
+        global $DB;
+        $bid = (int)$bid;
+        if ($bid <= 0) return false;
+        $b = new PluginKanproBoard();
+        if (!$b->getFromDB($bid)) return false;
+        $me = (int)Session::getLoginUserID();
+        if ($me > 0 && (int)($b->fields['users_id'] ?? 0) === $me) return true;
+        try {
+            if (countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $bid, 'users_id' => kanpro_viewer_ids()]) > 0) return true;
+            if (kanpro_board_profile_role($bid) !== null) return true;
+            $hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $bid]) > 0;
+            $hasP = $DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => $bid]) > 0;
+            if (!$hasM && !$hasP) return true; // legado aberto
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
+if (!function_exists('kanpro_board_is_restricted')) {
+    // O quadro tem controle de acesso configurado (membros ou perfis)?
+    function kanpro_board_is_restricted($bid): bool {
+        global $DB;
+        try {
+            if (countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => (int)$bid]) > 0) return true;
+            if ($DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => (int)$bid]) > 0) return true;
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
+if (!function_exists('kanpro_groups_owner_id')) {
+    // Dono dos grupos pessoais = a pessoa (vale login compartilhado)
+    function kanpro_groups_owner_id(): int {
+        return (int)kanpro_acting_user_id();
+    }
+}

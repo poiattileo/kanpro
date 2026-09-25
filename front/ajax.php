@@ -67,12 +67,36 @@ function kanpro_norm_text($s) {
 function kanpro_my_board_role($bid) {
     global $DB;
     // identidade da pessoa primeiro (login compartilhado), sessão como fallback
+    $best = null;
+    $rank = ['observer' => 1, 'member' => 2, 'admin' => 3];
     foreach (array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]) as $uid) {
         if ($uid <= 0) continue;
         $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $uid]])->current();
-        if ($row) return $row['role'] ?? 'member';
+        if ($row) {
+            $r = $row['role'] ?? 'member';
+            if ($best === null || ($rank[$r] ?? 0) > ($rank[$best] ?? 0)) $best = $r;
+        }
     }
-    return null;
+    // acesso via perfil GLPI soma junto (vale o maior privilégio entre pessoa e perfis)
+    $prof = kanpro_board_profile_role($bid);
+    if ($prof !== null && ($best === null || ($rank[$prof] ?? 0) > ($rank[$best] ?? 0))) $best = $prof;
+    return $best;
+}
+// Perfis GLPI vinculados ao usuário (todas as entidades — vale sessão e pessoa)
+// NB: helpers de visibilidade (kanpro_my_profile_ids, kanpro_board_profile_role,
+// kanpro_can_view_board, kanpro_board_is_restricted, kanpro_groups_owner_id)
+// moram em inc/acting.php p/ valer também em board.php, kanban.php e attachment.php.
+// Lista todos os perfis GLPI (p/ o seletor "adicionar por perfil")
+function kanpro_all_profiles() {
+    global $DB;
+    $out = [];
+    try {
+        if (!$DB->tableExists('glpi_profiles')) return [];
+        foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_profiles', 'ORDER' => 'name ASC']) as $r) {
+            $out[] = ['id' => (int)$r['id'], 'name' => (string)($r['name'] ?? ('Perfil #' . $r['id']))];
+        }
+    } catch (Throwable $e) {}
+    return $out;
 }
 function kanpro_is_board_creator($bid) {
     $b = new PluginKanproBoard();
@@ -410,6 +434,31 @@ function kanpro_migrate_schema_once() {
         }
         if ($DB->tableExists('glpi_plugin_kanpro_comments') && !$DB->fieldExists('glpi_plugin_kanpro_comments', 'is_pinned')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_comments` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
+        }
+        // acesso por perfil GLPI + grupos pessoais (schema canônico em hook.php)
+        if (!$DB->tableExists('glpi_plugin_kanpro_boards_profiles')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_boards_profiles` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_boards_id` INT {$sign} NOT NULL DEFAULT '0', `profiles_id` INT {$sign} NOT NULL DEFAULT '0', `role` VARCHAR(20) NOT NULL DEFAULT 'member', `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), UNIQUE KEY `uniq_board_profile` (`plugin_kanpro_boards_id`, `profiles_id`), KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
+        }
+        if (!$DB->tableExists('glpi_plugin_kanpro_board_groups')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_board_groups` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `users_id` INT {$sign} NOT NULL DEFAULT '0', `name` VARCHAR(255) NOT NULL DEFAULT '', `rank` DOUBLE NOT NULL DEFAULT '0', `date_creation` DATETIME DEFAULT NULL, `date_mod` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `users_id` (`users_id`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
+        }
+        if (!$DB->tableExists('glpi_plugin_kanpro_board_groups_items')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_board_groups_items` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `groups_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `plugin_kanpro_boards_id` INT {$sign} NOT NULL DEFAULT '0', PRIMARY KEY (`id`), UNIQUE KEY `uniq_user_board` (`users_id`, `plugin_kanpro_boards_id`), KEY `groups_id` (`groups_id`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
         }
     } catch (Throwable $e) {}
 }
@@ -1253,18 +1302,132 @@ switch ($action) {
         PluginKanproBoard::logActivity($bid, null, null, 'member_role', "Membro {$uid} agora é {$role}");
         jexit(['success'=>true]);
 
+    case 'invite_profile':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $pid = (int)($_POST['profiles_id'] ?? 0);
+        $role = $_POST['role'] ?? 'member';
+        if (!in_array($role, ['admin','member'], true)) $role = 'member';
+        if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
+        kanpro_need_manage_members($bid);
+        if (!$DB->tableExists('glpi_profiles')) jexit(['success'=>false,'msg'=>'Tabela de perfis indisponível']);
+        $pex = $DB->request(['FROM' => 'glpi_profiles', 'WHERE' => ['id' => $pid]])->current();
+        if (!$pex) jexit(['success'=>false,'msg'=>'Perfil não encontrado']);
+        $DB->insert('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id'=>$bid,'profiles_id'=>$pid,'role'=>$role,'date_creation'=>date('Y-m-d H:i:s')]);
+        if ($DB->error() && strpos($DB->error(), 'Duplicate')!==false) jexit(['success'=>false,'msg'=>'Perfil já tem acesso']);
+        PluginKanproBoard::logActivity($bid, null, null, 'member_add', "Perfil {$pid} (" . ($pex['name'] ?? '') . ") adicionado ({$role})");
+        jexit(['success'=>true]);
+
+    case 'remove_profile':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $pid = (int)($_POST['profiles_id'] ?? 0);
+        if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
+        kanpro_need_manage_members($bid);
+        // não permite se trancar para fora: garante outro caminho de gestão (criador, admin direto, UPDATE ou outro perfil admin)
+        $bchk2 = new PluginKanproBoard();
+        $isCreator = $bchk2->getFromDB($bid) && (int)($bchk2->fields['users_id'] ?? 0) === (int)Session::getLoginUserID();
+        $hasDirect = false;
+        foreach (array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]) as $auid) {
+            if ($auid <= 0) continue;
+            $ar = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $auid, 'role' => 'admin']])->current();
+            if ($ar) { $hasDirect = true; break; }
+        }
+        $hasOtherProf = false;
+        $myPids = kanpro_my_profile_ids();
+        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_boards_profiles', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'role' => 'admin']]) as $pr) {
+            if ((int)$pr['profiles_id'] !== $pid && in_array((int)$pr['profiles_id'], $myPids, true)) { $hasOtherProf = true; break; }
+        }
+        if (!$isCreator && !$hasDirect && !Session::haveRight('plugin_kanpro', UPDATE) && !$hasOtherProf) {
+            jexit(['success'=>false,'msg'=>'Você perderia a gestão deste quadro. Promova outro acesso a admin antes.']);
+        }
+        $DB->delete('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id'=>$bid,'profiles_id'=>$pid]);
+        PluginKanproBoard::logActivity($bid, null, null, 'member_remove', "Perfil {$pid} removido");
+        jexit(['success'=>true]);
+
+    case 'set_profile_role':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $pid = (int)($_POST['profiles_id'] ?? 0);
+        $role = $_POST['role'] ?? 'member';
+        if (!in_array($role, ['admin','member'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin ou member)']);
+        if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
+        kanpro_need_manage_members($bid);
+        $exists = countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id'=>$bid,'profiles_id'=>$pid]);
+        if (!$exists) jexit(['success'=>false,'msg'=>'Perfil não tem acesso ao quadro']);
+        $DB->update('glpi_plugin_kanpro_boards_profiles', ['role'=>$role], ['plugin_kanpro_boards_id'=>$bid,'profiles_id'=>$pid]);
+        PluginKanproBoard::logActivity($bid, null, null, 'member_role', "Perfil {$pid} agora é {$role}");
+        jexit(['success'=>true]);
+
+    // --- GRUPOS PESSOAIS DE QUADROS (cada usuário organiza os seus do seu jeito) ---
+    case 'my_board_groups':
+        $owner = kanpro_groups_owner_id();
+        if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
+        $groups = [];
+        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $owner], 'ORDER' => 'rank ASC, id ASC']) as $g) {
+            $bids = [];
+            foreach ($DB->request(['SELECT' => ['plugin_kanpro_boards_id'], 'FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['groups_id' => (int)$g['id'], 'users_id' => $owner]]) as $it) {
+                $bids[] = (int)$it['plugin_kanpro_boards_id'];
+            }
+            $groups[] = ['id' => (int)$g['id'], 'name' => $g['name'], 'boards' => $bids];
+        }
+        jexit(['success'=>true, 'groups'=>$groups]);
+
+    case 'add_board_group':
+        $owner = kanpro_groups_owner_id();
+        if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
+        $name = trim($_POST['name'] ?? '');
+        if ($name === '') jexit(['success'=>false,'msg'=>'Dê um nome ao grupo']);
+        $name = mb_substr($name, 0, 100);
+        $maxRank = 0;
+        foreach ($DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $owner]]) as $r) {
+            $maxRank = (float)($r['m'] ?? 0);
+        }
+        $ng = new PluginKanproBoardGroup();
+        $id = $ng->add(['users_id' => $owner, 'name' => $name, 'rank' => $maxRank + 1024]);
+        if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o grupo']);
+        jexit(['success'=>true, 'id'=>(int)$id]);
+
+    case 'rename_board_group':
+        $owner = kanpro_groups_owner_id();
+        $gid = (int)($_POST['id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        if ($gid <= 0 || $name === '') jexit(['success'=>false,'msg'=>'Grupo ou nome inválido']);
+        $gchk = new PluginKanproBoardGroup();
+        if (!$gchk->getFromDB($gid) || (int)($gchk->fields['users_id'] ?? 0) !== $owner) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+        $gchk->update(['id' => $gid, 'name' => mb_substr($name, 0, 100), 'date_mod' => date('Y-m-d H:i:s')]);
+        jexit(['success'=>true]);
+
+    case 'delete_board_group':
+        $owner = kanpro_groups_owner_id();
+        $gid = (int)($_POST['id'] ?? 0);
+        if ($gid <= 0) jexit(['success'=>false,'msg'=>'Grupo inválido']);
+        $gchk = new PluginKanproBoardGroup();
+        if (!$gchk->getFromDB($gid) || (int)($gchk->fields['users_id'] ?? 0) !== $owner) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+        $DB->delete('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner]);
+        $gchk->delete(['id' => $gid], true);
+        jexit(['success'=>true]);
+
+    case 'assign_board_group':
+        $owner = kanpro_groups_owner_id();
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $gid = (int)($_POST['groups_id'] ?? 0); // 0 = sem grupo
+        if ($bid <= 0) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        if (!kanpro_can_view_board($bid)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        if ($gid > 0) {
+            $gchk = new PluginKanproBoardGroup();
+            if (!$gchk->getFromDB($gid) || (int)($gchk->fields['users_id'] ?? 0) !== $owner) jexit(['success'=>false,'msg'=>'Grupo não encontrado']);
+        }
+        $DB->delete('glpi_plugin_kanpro_board_groups_items', ['users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
+        if ($gid > 0) {
+            $DB->insert('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'users_id' => $owner, 'plugin_kanpro_boards_id' => $bid]);
+        }
+        jexit(['success'=>true]);
+
     case 'get_board_members':
         $bid = (int)($_POST['boards_id'] ?? 0);
         if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
         $bchk = new PluginKanproBoard();
         if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
-        // trava de visibilidade (criador, membro ou legado sem membros — vale sessão e pessoa)
-        $__creator = (int)($bchk->fields['users_id'] ?? 0);
-        if ($__creator !== (int)Session::getLoginUserID()) {
-            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
-            $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
-            if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
-        }
+        // trava de visibilidade (criador, membro, perfil GLPI ou legado sem membros — vale sessão e pessoa)
+        if (!kanpro_can_view_board($bid)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
         $creatorId = (int)($bchk->fields['users_id'] ?? 0);
         $me = (int)Session::getLoginUserID();
         // só quem pode ver o quadro pode listar membros (criador, membro ou quadro legado sem membros)
@@ -1302,7 +1465,24 @@ switch ($action) {
             if (trim($initials) === '') $initials = strtoupper(substr($display, 0, 2));
             $available[] = ['id' => (int)$u['id'], 'name' => $display . ' (' . $u['name'] . ')', 'login' => $u['name'], 'initials' => $initials];
         }
+        // perfis GLPI com acesso ao quadro + perfis disponíveis para adicionar
+        $profiles = [];
+        $profileIds = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_boards_profiles')) {
+            $pname = [];
+            foreach (kanpro_all_profiles() as $ap) $pname[$ap['id']] = $ap['name'];
+            foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_boards_profiles', 'WHERE' => ['plugin_kanpro_boards_id' => $bid], 'ORDER' => 'date_creation ASC']) as $pr) {
+                $profiles[] = ['profiles_id' => (int)$pr['profiles_id'], 'name' => $pname[(int)$pr['profiles_id']] ?? ('Perfil #' . (int)$pr['profiles_id']), 'role' => $pr['role'] ?? 'member'];
+                $profileIds[(int)$pr['profiles_id']] = true;
+            }
+        }
+        $available_profiles = [];
+        foreach (kanpro_all_profiles() as $ap) {
+            if (isset($profileIds[$ap['id']])) continue;
+            $available_profiles[] = $ap;
+        }
         jexit(['success'=>true, 'board_name'=>$bchk->fields['name'] ?? '', 'members'=>$members,
+            'profiles'=>$profiles, 'available_profiles'=>$available_profiles,
             'my_role'=>kanpro_my_board_role($bid), 'is_creator'=>($me === $creatorId),
             'can_manage'=>kanpro_can_manage_members($bid), 'available'=>$available]);
 

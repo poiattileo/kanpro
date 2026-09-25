@@ -23,6 +23,20 @@ $__restricted = [];
 foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'GROUPBY' => ['plugin_kanpro_boards_id']]) as $__r) {
     $__restricted[(int)$__r['plugin_kanpro_boards_id']] = true;
 }
+// acesso via perfil GLPI: quadros liberados p/ meus perfis + quadros com perfis configurados
+$__myProfileBoards = [];
+$__restrictedProf = [];
+try {
+    $__myPids = kanpro_my_profile_ids();
+    if (!empty($__myPids) && $DB->tableExists('glpi_plugin_kanpro_boards_profiles')) {
+        foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_profiles', 'WHERE' => ['profiles_id' => $__myPids]]) as $__r) {
+            $__myProfileBoards[(int)$__r['plugin_kanpro_boards_id']] = true;
+        }
+        foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_profiles', 'GROUPBY' => ['plugin_kanpro_boards_id']]) as $__r) {
+            $__restrictedProf[(int)$__r['plugin_kanpro_boards_id']] = true;
+        }
+    }
+} catch (Throwable $e) {}
 // quadros onde sou admin (criador ou papel admin) — Histórico só para admins
 $__adminBoards = [];
 foreach ($DB->request(['SELECT' => 'plugin_kanpro_boards_id', 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['users_id' => kanpro_viewer_ids(), 'role' => 'admin']]) as $__r) {
@@ -57,6 +71,50 @@ echo "<a href='?archived=0' class='btn btn-sm' style='border:1px solid #dfe1e6;{
 echo "<a href='?archived=1' class='btn btn-sm' style='border:1px solid #dfe1e6;{$active_arc}'>Arquivados</a>";
 echo "</div>";
 
+// --- Grupos pessoais: cada usuário organiza os quadros que vê do seu jeito ---
+$__owner = kanpro_groups_owner_id();
+$__myGroups = [];
+$__myBoardGroup = []; // boards_id => groups_id (meus)
+try {
+    if ($DB->tableExists('glpi_plugin_kanpro_board_groups')) {
+        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['users_id' => $__owner], 'ORDER' => 'rank ASC, id ASC']) as $__g) {
+            $__myGroups[(int)$__g['id']] = ['id' => (int)$__g['id'], 'name' => $__g['name'], 'count' => 0];
+        }
+    }
+    if ($DB->tableExists('glpi_plugin_kanpro_board_groups_items') && !empty($__myGroups)) {
+        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $__owner]]) as $__it) {
+            $__myBoardGroup[(int)$__it['plugin_kanpro_boards_id']] = (int)$__it['groups_id'];
+        }
+    }
+} catch (Throwable $e) {}
+$__groupFilter = $_GET['group'] ?? 'all'; // all | none | <id>
+$__baseQs = 'archived=' . ($show_archived ? '1' : '0') . ($search !== '' ? '&search=' . urlencode($search) : '');
+echo "<div style='display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;align-items:center'>";
+echo "<span style='font-size:12px;font-weight:700;color:#5e6c84'>📁 MEUS GRUPOS:</span>";
+$__chip = function($label, $val, $active) use ($__baseQs) {
+    $st = $active ? 'background:#6554c0;color:#fff;border-color:#6554c0' : '';
+    return "<a href='?{$__baseQs}&group=" . urlencode((string)$val) . "' class='btn btn-sm' style='border:1px solid #dfe1e6;{$st}'>" . htmlspecialchars($label) . "</a>";
+};
+echo $__chip('Todos', 'all', $__groupFilter === 'all');
+echo $__chip('Sem grupo', 'none', $__groupFilter === 'none');
+foreach ($__myGroups as $__g) {
+    echo $__chip($__g['name'], $__g['id'], (string)$__groupFilter === (string)$__g['id']);
+}
+echo "<button onclick='KanproGroups.toggleMgr()' class='btn btn-sm' style='border:1px dashed #6554c0;color:#6554c0'>⚙ Gerenciar</button>";
+echo "</div>";
+echo "<div id='kpg-mgr' style='display:none;background:#f9f8ff;border:1px solid #d5ccf5;border-radius:8px;padding:12px;margin-bottom:20px'>";
+echo "<div style='display:flex;gap:8px;margin-bottom:10px'><input id='kpg-new' type='text' placeholder='Nome do novo grupo...' maxlength='100' style='flex:1;padding:8px 12px;border:1px solid #dfe1e6;border-radius:6px'><button onclick='KanproGroups.create()' class='btn btn-sm' style='background:#6554c0;color:#fff'>Criar grupo</button></div>";
+echo "<div id='kpg-list' style='display:grid;gap:6px'>";
+foreach ($__myGroups as $__g) {
+    echo "<div style='display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:6px 10px'>"
+        . "<strong style='flex:1;font-size:13px'>" . htmlspecialchars($__g['name']) . "</strong>"
+        . "<button onclick='KanproGroups.rename(" . $__g['id'] . ")' class='btn btn-sm btn-outline-secondary' title='Renomear'>✏️</button>"
+        . "<button onclick='KanproGroups.remove(" . $__g['id'] . ")' class='btn btn-sm btn-outline-secondary' title='Excluir grupo (os quadros ficam sem grupo)' style='color:#eb5a46'>🗑️</button>"
+        . "</div>";
+}
+if (empty($__myGroups)) echo "<div style='font-size:12px;color:#5e6c84'>Nenhum grupo ainda. Crie um (ex: Escolas, Manutenção, Pessoal) e destine cada quadro ao seu grupo pelo seletor no cartão.</div>";
+echo "</div></div>";
+
 if (count($iterator) === 0) {
     echo "<div style='text-align:center;padding:60px 20px;background:#f4f5f7;border-radius:8px'>";
     echo "<i class='ti ti-layout-kanban' style='font-size:48px;color:#97a0af'></i>";
@@ -68,11 +126,15 @@ if (count($iterator) === 0) {
     echo "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px'>";
     foreach ($iterator as $row) {
         $bid = (int)$row['id'];
-        // trava de visibilidade: criador, membro ou quadro legado sem membros
+        // trava de visibilidade: criador, membro, perfil GLPI ou quadro legado sem membros E sem perfis
         $__creator = (int)($row['users_id'] ?? 0);
-        if ($__creator !== $__me && !isset($__myBoards[$bid]) && isset($__restricted[$bid])) {
+        if ($__creator !== $__me && !isset($__myBoards[$bid]) && !isset($__myProfileBoards[$bid]) && (isset($__restricted[$bid]) || isset($__restrictedProf[$bid]))) {
             continue;
         }
+        // filtro por grupo pessoal
+        $__bGroup = $__myBoardGroup[$bid] ?? 0;
+        if ($__groupFilter === 'none' && $__bGroup > 0) continue;
+        if (is_numeric($__groupFilter) && (int)$__groupFilter > 0 && $__bGroup !== (int)$__groupFilter) continue;
         $kanban_url = "kanban.php?boards_id={$bid}";
         $edit_url   = "board.form.php?id={$bid}";
         $card_count = PluginKanproBoard::countCardsInBoard($bid);
@@ -133,6 +195,15 @@ if (count($iterator) === 0) {
         }
         echo "</div>";
         echo "</div>";
+        // seletor do grupo pessoal deste quadro (organização só sua)
+        echo "<div style='padding:0 12px 12px;background:#fff;border-radius:0 0 8px 8px'>";
+        echo "<select onchange='KanproGroups.assign({$bid}, this.value)' title='Meu grupo' style='width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#f9f8ff;color:#5e6c84'>";
+        echo "<option value='0'" . ($__bGroup === 0 ? ' selected' : '') . ">📁 Sem grupo</option>";
+        foreach ($__myGroups as $__g) {
+            $sel = ($__bGroup === $__g['id']) ? ' selected' : '';
+            echo "<option value='" . $__g['id'] . "'{$sel}>📁 " . htmlspecialchars($__g['name']) . "</option>";
+        }
+        echo "</select></div>";
         echo "</div>";
     }
     // card "Criar novo quadro"
@@ -191,6 +262,10 @@ window.KanproBoards = (function(){
     if (m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👁️ OBSERVADOR</small>';
     return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👤 MEMBRO</small>';
   }
+  function profileBadge(p){
+    if (p.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
+    return '<small style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">🎭 MEMBRO</small>';
+  }
   function render(){
     var d = state.data;
     var body = document.getElementById('kpb-body');
@@ -217,6 +292,34 @@ window.KanproBoards = (function(){
         + ctrl + '</div>';
     }).join('') + '</div>';
     if (d.can_manage) {
+      html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
+        + '<div style="font-size:13px;font-weight:700;color:#172b4d">🎭 Perfis do GLPI com acesso</div>'
+        + '<div style="font-size:11px;color:#5e6c84">Todos os usuários vinculados ao perfil passam a ver este quadro.</div>'
+        + '<div style="display:grid;gap:6px">' + (d.profiles || []).map(function(p){
+          var ctrl = '<span style="display:flex;gap:6px;align-items:center">'
+            + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:11px;background:#fff">'
+            + '<option value="admin"' + (p.role==='admin'?' selected':'') + '>⭐ Admin</option>'
+            + '<option value="member"' + (p.role==='member'?' selected':'') + '>🎭 Membro</option>'
+            + '</select>'
+            + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer">✕</button>'
+            + '</span>';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:8px;gap:8px">'
+            + '<span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:28px;height:28px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">🎭</span>'
+            + '<span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.name) + '</span> ' + profileBadge(p) + '</span>'
+            + ctrl + '</div>';
+        }).join('') + '</div>';
+      if ((d.available_profiles || []).length) {
+        html += '<label style="font-size:12px;font-weight:600;color:#5e6c84">Adicionar perfil '
+          + '<select id="kpb-profile" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
+          + d.available_profiles.map(function(p){ return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('')
+          + '</select></label>'
+          + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel do perfil '
+          + '<select id="kpb-profile-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
+          + '<option value="admin">⭐ Administrador</option>'
+          + '<option value="member" selected>🎭 Membro — só visualiza</option>'
+          + '</select></label>'
+          + '<button onclick="KanproBoards.addProfile(this)" style="background:#0050b3;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Adicionar perfil</button>';
+      }
       html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
         + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado '
         + '<select id="kpb-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
@@ -293,11 +396,94 @@ window.KanproBoards = (function(){
         state.dirty = true;
         reload();
       });
+    },
+    addProfile: function(btn){
+      var sel = document.getElementById('kpb-profile');
+      var roleEl = document.getElementById('kpb-profile-role');
+      if (!sel || !sel.value) return;
+      if (btn) { btn.disabled = true; btn.textContent = '...'; }
+      post('invite_profile', {boards_id: state.boardId, profiles_id: sel.value, role: roleEl ? roleEl.value : 'member'}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); if (btn) { btn.disabled = false; btn.textContent = 'Adicionar perfil'; } return; }
+        state.dirty = true;
+        reload();
+      });
+    },
+    setProfileRole: function(pid, role){
+      if (!confirm('Alterar papel deste perfil?')) { reload(); return; }
+      post('set_profile_role', {boards_id: state.boardId, profiles_id: pid, role: role}).then(function(res){
+        if (!res.success) alert(res.msg || 'Erro');
+        else state.dirty = true;
+        reload();
+      });
+    },
+    removeProfile: function(pid){
+      if (!confirm('Remover este perfil do quadro? Todos os usuários dele perdem o acesso (exceto quem tem acesso direto).')) return;
+      post('remove_profile', {boards_id: state.boardId, profiles_id: pid}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); return; }
+        state.dirty = true;
+        reload();
+      });
     }
   };
 })();
 document.getElementById('kpb-overlay').addEventListener('click', function(e){ if (e.target === this) KanproBoards.close(); });
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && document.getElementById('kpb-overlay').style.display !== 'none') KanproBoards.close(); });
+</script>
+<script>
+window.KanproGroups = (function(){
+  var ajaxUrl = <?php echo json_encode($__kpb_ajax); ?>;
+  var csrf = <?php echo json_encode($__kpb_csrf); ?>;
+  function post(action, params){
+    var fd = new FormData();
+    fd.append('action', action);
+    for (var k in params) { if (params[k] !== undefined && params[k] !== null) fd.append(k, params[k]); }
+    return fetch(ajaxUrl, {
+      method: 'POST', body: fd, credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf }
+    }).then(function(r){ return r.text(); }).then(function(txt){
+      try { return JSON.parse(txt); }
+      catch(e){ return {success:false, msg:'Resposta inesperada do servidor'}; }
+    }).catch(function(e){ return {success:false, msg:e.message}; });
+  }
+  return {
+    toggleMgr: function(){
+      var el = document.getElementById('kpg-mgr');
+      if (el) el.style.display = (el.style.display === 'none' ? 'block' : 'none');
+    },
+    assign: function(boardId, groupId){
+      post('assign_board_group', {boards_id: boardId, groups_id: groupId}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); location.reload(); return; }
+        location.reload();
+      });
+    },
+    create: function(){
+      var inp = document.getElementById('kpg-new');
+      var name = inp ? inp.value.trim() : '';
+      if (!name) { if (inp) inp.focus(); return; }
+      post('add_board_group', {name: name}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); return; }
+        location.reload();
+      });
+    },
+    rename: function(gid){
+      var cur = prompt('Novo nome do grupo:');
+      if (cur === null) return;
+      cur = cur.trim();
+      if (!cur) return;
+      post('rename_board_group', {id: gid, name: cur}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); return; }
+        location.reload();
+      });
+    },
+    remove: function(gid){
+      if (!confirm('Excluir este grupo? Os quadros dele ficam "Sem grupo".')) return;
+      post('delete_board_group', {id: gid}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); return; }
+        location.reload();
+      });
+    }
+  };
+})();
 </script>
 <?php
 Html::footer();

@@ -431,6 +431,51 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- BOARDS PROFILES (acesso ao quadro por perfil GLPI — vale p/ todos os usuários do perfil) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_boards_profiles')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_boards_profiles` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `profiles_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_profiles.id',
+                `role`                        VARCHAR(20)  NOT NULL DEFAULT 'member' COMMENT 'admin,member',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_board_profile` (`plugin_kanpro_boards_id`, `profiles_id`),
+                KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
+    // --- BOARD GROUPS (grupos pessoais: cada usuário organiza seus quadros do seu jeito) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_board_groups')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_board_groups` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'dono do grupo (organização pessoal)',
+                `name`                        VARCHAR(255) NOT NULL DEFAULT '',
+                `rank`                        DOUBLE       NOT NULL DEFAULT '0',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `users_id` (`users_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+    if (!$DB->tableExists('glpi_plugin_kanpro_board_groups_items')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_board_groups_items` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `groups_id`                   INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_plugin_kanpro_board_groups.id',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'dono (redundante p/ limpeza rápida)',
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_user_board` (`users_id`, `plugin_kanpro_boards_id`),
+                KEY `groups_id` (`groups_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
     return true;
 }
@@ -441,6 +486,9 @@ function plugin_kanpro_uninstall(): bool {
     PluginKanproProfile::uninstall();
 
     $tables = [
+        'glpi_plugin_kanpro_board_groups_items',
+        'glpi_plugin_kanpro_board_groups',
+        'glpi_plugin_kanpro_boards_profiles',
         'glpi_plugin_kanpro_trash',
         'glpi_plugin_kanpro_templates',
         'glpi_plugin_kanpro_maintenance_notes',

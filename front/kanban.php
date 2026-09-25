@@ -21,22 +21,15 @@ if (!$board->getFromDB($boards_id)) {
     Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
 }
 
-// Trava de visibilidade por membros (engrenagem em Seus Quadros): só criador/membros abrem.
-// Quadros legados sem nenhum membro seguem abertos até a primeira pessoa ser cadastrada.
+// Trava de visibilidade: criador, membro direto, perfil GLPI ou legado aberto (sem membros E sem perfis).
 $__me = (int)Session::getLoginUserID();
 $__creator = (int)($board->fields['users_id'] ?? 0);
-$__canView = ($__me > 0 && $__me === $__creator);
-if (!$__canView) {
-    $__isMember = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]) > 0;
-    $__hasMembers = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id]) > 0;
-    $__canView = $__isMember || !$__hasMembers;
-}
-if (!$__canView) {
+if (!kanpro_can_view_board($boards_id)) {
     Session::addMessageAfterRedirect('Você não tem acesso a este quadro.', false, ERROR);
     Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
 }
 
-// Histórico: só admin do quadro (criador ou papel admin — vale sessão e pessoa)
+// Histórico: só admin do quadro (criador, papel admin direto ou via perfil GLPI — vale sessão e pessoa)
 $__histAdmin = ($__creator === $__me && $__me > 0);
 if (!$__histAdmin) {
     $__miter = $DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]]);
@@ -47,6 +40,7 @@ if (!$__histAdmin) {
         }
     }
 }
+if (!$__histAdmin && kanpro_board_profile_role($boards_id) === 'admin') $__histAdmin = true;
 
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
 try {
