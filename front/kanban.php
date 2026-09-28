@@ -552,7 +552,7 @@ echo <<<HTML
             <button class="kp-sidebar-btn" onclick="Kanpro.copyCard()"><i class="ti ti-copy"></i> Copiar</button>
             <button class="kp-sidebar-btn" onclick="Kanpro.archiveCard()"><i class="ti ti-archive"></i> Arquivar</button>
             <button class="kp-sidebar-btn" id="kp-pin-btn" onclick="Kanpro.togglePin()"><i class="ti ti-pin"></i> Fixar no topo</button>
-            <button class="kp-sidebar-btn" style="color:#eb5a46" onclick="Kanpro.deleteCard()"><i class="ti ti-trash"></i> Excluir</button>
+            <button class="kp-sidebar-btn" id="kp-delete-btn" style="color:#eb5a46" onclick="Kanpro.deleteCard()"><i class="ti ti-trash"></i> Excluir</button>
           </div>
         </div>
       </div>

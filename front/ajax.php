@@ -706,10 +706,14 @@ function kanpro_card_is_locked(int $cards_id): bool {
     if (!$c->getFromDB($cards_id)) return false;
     return kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)) === 'pending';
 }
-function kanpro_need_card_editable(int $cards_id) {
-    if (kanpro_card_is_locked($cards_id)) {
-        jexit(['success'=>false,'msg'=>'Cartão da lista Pendente é travado: foi criado como Manutenção e o nome vem da entidade. Nada pode ser alterado dentro dele.']);
+// $allowBoardAdmin = true libera a ação travada para o criador/admin do quadro (ex.: excluir).
+function kanpro_need_card_editable(int $cards_id, bool $allowBoardAdmin = false) {
+    if (!kanpro_card_is_locked($cards_id)) return;
+    if ($allowBoardAdmin) {
+        $c = new PluginKanproCard();
+        if ($c->getFromDB($cards_id) && kanpro_can_manage_members((int)($c->fields['plugin_kanpro_boards_id'] ?? 0))) return;
     }
+    jexit(['success'=>false,'msg'=>'Cartão da lista Pendente é travado: foi criado como Manutenção e o nome vem da entidade. Nada pode ser alterado dentro dele.']);
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
@@ -3078,7 +3082,8 @@ switch ($action) {
         if (!Session::haveRight('plugin_kanpro', DELETE)) jexit(['success'=>false]);
         kanpro_ensure_board_extras();
         $cid = (int)($_POST['cards_id'] ?? 0);
-        kanpro_need_card_editable($cid);
+        // cartão travado (Pendente) só sai com o criador/admin do quadro
+        kanpro_need_card_editable($cid, true);
         $c = new PluginKanproCard();
         if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         // snapshot p/ lixeira antes do purge (anexos físicos não são restaurados)

@@ -1600,8 +1600,10 @@
       } catch(e){ return false; }
     },
     // Devolve true (e avisa) quando o cartão é travado — use no início das ações de edição.
-    cardLockedGuard(cardId){
+    // allowAdmin = libera a ação travada para o criador/admin do quadro (ex.: excluir).
+    cardLockedGuard(cardId, allowAdmin){
       if(!this.isCardLocked(cardId==null ? this.currentCardId : cardId)) return false;
+      if(allowAdmin && this.isBoardAdmin()) return false;
       this.showToast('🔒 Cartão da lista Pendente é travado — nada pode ser alterado dentro dele');
       return true;
     },
@@ -2352,7 +2354,7 @@
       if(lockBox){
         lockBox.style.display = locked ? 'block' : 'none';
         lockBox.innerHTML = locked
-          ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Cartão da lista Pendente é travado — foi criado como Manutenção e o nome vem da entidade. Título, descrição, etiquetas, responsáveis, datas, capa e checklists não podem ser alterados.</div>'
+          ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Cartão da lista Pendente é travado — foi criado como Manutenção e o nome vem da entidade. Título, descrição, etiquetas, responsáveis, datas, capa e checklists não podem ser alterados.' + (this.isBoardAdmin() ? ' <span style="font-weight:600">Como admin do quadro você ainda pode excluí-lo.</span>' : '') + '</div>'
           : '';
       }
       $('#card-modal-title').style.cursor = locked ? 'default' : 'pointer';
@@ -2361,6 +2363,9 @@
       if(descEditBtn) descEditBtn.style.display = locked ? 'none' : '';
       const addClBtn = document.getElementById('card-modal-add-checklist');
       if(addClBtn) addClBtn.style.display = locked ? 'none' : '';
+      // cartão travado só o admin do quadro exclui — esconde o botão de quem não pode
+      const delBtn = document.getElementById('kp-delete-btn');
+      if(delBtn) delBtn.style.display = (locked && !this.isBoardAdmin()) ? 'none' : '';
       // botão Notificado (aberto) — SÓ Retirada
       try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0, data); } catch(e){}
       // pendência chamado / pegar / solicitar (botões do fluxo)
@@ -5056,7 +5061,8 @@
       });
     },
     async deleteCard(){
-      if(this.cardLockedGuard()) return;
+      // cartão travado (Pendente): só o criador/admin do quadro consegue excluir
+      if(this.cardLockedGuard(null, true)) return;
       if(!await this.kpConfirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
       this.ajax('delete_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }
