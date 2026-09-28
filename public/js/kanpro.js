@@ -183,9 +183,8 @@
       this._pollingStartedAt = Date.now();
       const loop = ()=>{
         this.pollBoardUpdates().finally(()=>{
-          // backoff adaptativo: quadro parado poll a cada 10s, com mudança volta p/ 5s
-          const idle = (this._unchangedRounds||0) >= 5;
-          this._pollIntervalMs = idle ? 10000 : 5000;
+          // intervalo fixo de 5s (previsível: a novidade chega em ~5s no outro PC)
+          this._pollIntervalMs = 5000;
           this._pollTimer = setTimeout(loop, this._pollIntervalMs);
         });
       };
@@ -208,16 +207,17 @@
             this._unchangedRounds = (this._unchangedRounds||0) + 1;
             return;
           }
-          this._lastStamp = stampRes.stamp;
           this._unchangedRounds = 0;
-          return this.fetchBoardSnapshot();
+          // o selo só é marcado como visto dentro do fetchBoardSnapshot, DEPOIS de aplicar —
+          // se a aplicação for adiada (digitando) ou falhar, o próximo ciclo tenta de novo
+          return this.fetchBoardSnapshot(stampRes.stamp);
         }
         // backend antigo sem get_board_stamp: heartbeat + snapshot direto (comportamento anterior)
         this.ajax('presence_heartbeat', {boards_id: this.board.id});
         return this.fetchBoardSnapshot();
       }).catch(()=>{});
     },
-    fetchBoardSnapshot(){
+    fetchBoardSnapshot(stamp){
       return this.ajax('get_board_snapshot', {boards_id: this.board.id}).then(res=>{
         if(!res || !res.success) return;
 
@@ -230,14 +230,17 @@
           attCounts: res.attCounts, members: res.members, transferStatus: res.transferStatus || {}
         };
         const snapshotJson = JSON.stringify(snapshot);
-        if(snapshotJson === this._lastSnapshotJson) return; // nada mudou no quadro em si
+        if(snapshotJson === this._lastSnapshotJson){
+          if(stamp) this._lastStamp = stamp; // já espelha o selo: em dia
+          return; // nada mudou no quadro em si
+        }
         console.log('[KANPRO DEBUG] snapshot mudou, prosseguindo...');
 
         const boardEl = document.getElementById('kanpro-board');
         const activeInBoard = boardEl && document.activeElement && boardEl.contains(document.activeElement) &&
           ['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
         console.log('[KANPRO DEBUG] activeInBoard=', activeInBoard, 'activeElement=', document.activeElement);
-        if(activeInBoard) return;
+        if(activeInBoard) return; // digitando no quadro: não aplica agora e NÃO marca o selo — o próximo ciclo tenta de novo
 
         const oldCards = this.cards || [];
         const oldById = {};
@@ -253,6 +256,7 @@
         console.log('[KANPRO DEBUG] oldCards.length=', oldCards.length, 'newCards.length=', (res.cards||[]).length, 'changedCardIds=', changedCardIds, 'newCount=', newCount, 'isFirstLoad=', isFirstLoad);
 
         this._lastSnapshotJson = snapshotJson;
+        if(stamp) this._lastStamp = stamp; // aplicado: sela como visto
         this.lists = res.lists || [];
         this.cards = res.cards || [];
         this.labels = res.labels || [];
