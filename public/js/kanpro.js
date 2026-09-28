@@ -686,7 +686,7 @@
       div._isGhost = true;
       div.draggable = false;
       div.style.cssText = 'opacity:.75;filter:grayscale(.4)';
-      const nView = (h.viewer_ids||[]).length;
+      const nView = (h.viewer_count !== undefined && h.viewer_count !== null) ? parseInt(h.viewer_count) : (h.viewer_ids||[]).length;
       const canManage = !!h.can_manage_viewers;
       div.innerHTML = `
         <div class="kp-list-header" style="background:#f4f5f7">
@@ -1342,7 +1342,8 @@
           html: `
             <div style="display:grid;gap:6px">
               <div style="font-size:12px;color:#5e6c84">🔒 Você não vê os cards. ${canM ? 'Como você gerencia, pode ajustar quem vê.' : 'Peça a um admin para te incluir.'}</div>
-              <button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> Quem pode ver</button>
+              ${canM ? `<button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> Quem pode ver</button>`
+                     : `<div style="font-size:11px;color:#975500;background:#fffae6;border:1px solid #ffab00;border-radius:6px;padding:6px 8px">Sem acesso a esta lista — você não pode ver quem tem acesso.</div>`}
             </div>`
         });
         return;
@@ -1444,7 +1445,7 @@
         const l = (this.lists||[]).find(x=> x.id==listId);
         if(l){ l.viewer_ids = res.viewer_ids||[]; l.is_restricted = res.is_restricted ? 1 : 0; }
         const h = (this.hiddenLists||[]).find(x=> x.id==listId);
-        if(h){ h.viewer_ids = res.viewer_ids||[]; h.is_restricted = res.is_restricted ? 1 : 0; }
+        if(h){ h.viewer_ids = res.viewer_ids||[]; h.viewer_count = (res.viewer_ids||[]).length; h.is_restricted = res.is_restricted ? 1 : 0; }
         this.closePicker();
         this.showToast(res.is_restricted ? `Lista restrita (${(res.viewer_ids||[]).length} pessoa(s)) — some p/ quem não vê` : 'Lista liberada para todos');
         this.renderBoard();

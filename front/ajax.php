@@ -2008,6 +2008,12 @@ switch ($action) {
         $bid = (int)($lr->fields['plugin_kanpro_boards_id'] ?? 0);
         $viewerIds = function_exists('kanpro_list_viewer_ids') ? kanpro_list_viewer_ids($lid) : [];
         $canManage = function_exists('kanpro_can_manage_list') ? kanpro_can_manage_list($bid, $lr->fields) : false;
+        // Quem não tem acesso à lista restrita não pode nem ver a lista de quem tem
+        // (ela aparece como fantasma, sem cards). Só entra quem já vê ou quem gerencia.
+        $hasAccess = function_exists('kanpro_can_view_list') ? kanpro_can_view_list($lr->fields, $bid) : true;
+        if (!$canManage && !$hasAccess) {
+            jexit(['success'=>false,'msg'=>'Você não tem acesso a esta lista.']);
+        }
         $viewers = [];
         if (!empty($viewerIds)) {
             $urows = [];
@@ -2264,6 +2270,13 @@ switch ($action) {
         } catch (Throwable $e) {
             $lists = PluginKanproList::getListsForBoard($boards_id);
             $hiddenLists = [];
+        }
+        // Fantasma não deve carregar os ids de quem tem acesso: quem não vê a lista só
+        // precisa da contagem. Quem a gerencia precisa dos ids (edita a visibilidade).
+        foreach ($hiddenLists as $hi => $hl) {
+            if (!empty($hl['can_manage_viewers'])) continue;
+            $hiddenLists[$hi]['viewer_count'] = count((array)($hl['viewer_ids'] ?? []));
+            $hiddenLists[$hi]['viewer_ids'] = [];
         }
         $visibleListIds = array_map(function ($l) { return (int)($l['id'] ?? 0); }, $lists);
         $labels = PluginKanproLabel::getForBoard($boards_id);
