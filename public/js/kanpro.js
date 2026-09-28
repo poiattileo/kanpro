@@ -2386,11 +2386,15 @@
       // members
       const membersWrap = $('#card-modal-members');
       const membersList = $('#card-modal-members-list');
+      this._cardMembersData = data.members || [];
       if(data.members && data.members.length){
         membersWrap.style.display='block';
         membersList.innerHTML = data.members.map(m=>{
           const initials = (m.firstname?.[0]||m.name?.[0]||'?').toUpperCase();
-          return this.avatarHtml(m.picture_url, initials, m.realname||m.name);
+          const nome = [m.firstname, m.realname].map(s=>String(s||'').trim()).filter(Boolean).join(' ') || String(m.name||'Usuário');
+          // a bolinha abre a ficha (foto grande + nome). stopPropagation: o handler
+          // global de "clique fora" não pode fechar o picker que acabamos de abrir.
+          return `<button type="button" onclick="event.stopPropagation();Kanpro.openUserCard(${parseInt(m.id)||0})" title="Ver ficha de ${this.escape(nome)}" style="background:none;border:none;padding:0;margin:0;cursor:pointer;line-height:0;border-radius:50%">${this.avatarHtml(m.picture_url, initials, nome, '', 'border:2px solid #fff')}</button>`;
         }).join('') + (locked ? '' : `<button onclick="Kanpro.openMembersPicker()" style="width:28px;height:28px;border-radius:50%;border:none;background:#dfe1e6;cursor:pointer"><i class="ti ti-plus"></i></button>`);
       } else { membersWrap.style.display='none'; membersList.innerHTML=''; }
 
@@ -6177,6 +6181,33 @@
       }).join('');
     },
     /* ---------- avatar com foto do GLPI (fallback: inicial) ---------- */
+    // Ficha do membro: foto grande + nome (clicou na bolinha em MEMBROS do card)
+    openUserCard(usersId){
+      const uid = parseInt(usersId);
+      const list = this._cardMembersData || [];
+      const m = list.find(x=> String(x.id)===String(uid)) || list[0];
+      if(!m) return;
+      const nome = [m.firstname, m.realname].map(s=>String(s||'').trim()).filter(Boolean).join(' ') || String(m.name||'Usuário');
+      const url = String(m.picture_url||'');
+      const ini = (m.firstname?.[0]||m.name?.[0]||'?').toUpperCase();
+      this.showPicker({
+        title: nome,
+        html: `
+          <div style="text-align:center;display:grid;gap:12px;justify-items:center;padding:4px 0">
+            <div style="width:190px;height:190px;border-radius:50%;overflow:hidden;position:relative;background:#dfe1e6;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(9,30,66,.22)">
+              <span style="font-size:66px;font-weight:800;color:#5e6c84;line-height:1">${this.escape(ini)}</span>
+              ${url ? `<img src="${url}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.remove()">` : ''}
+            </div>
+            <div>
+              <div style="font-size:17px;font-weight:800;color:#172b4d;word-break:break-word">${this.escape(nome)}</div>
+              <div style="font-size:12px;color:#5e6c84">@${this.escape(String(m.name||''))}</div>
+            </div>
+            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:1px solid #dfe1e6;padding:7px 18px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;color:#172b4d">Fechar</button>
+          </div>`
+      });
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='260px'; p.style.maxWidth='92vw'; p.style.width='300px'; }
+    },
     avatarHtml(pictureUrl, initials, title, extraClass, extraStyle){
       // foto em camada absoluta sobre a inicial: carregou cobre tudo, falhou some e a letra fica
       const pic = pictureUrl
