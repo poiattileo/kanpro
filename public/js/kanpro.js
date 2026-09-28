@@ -1363,7 +1363,11 @@
       }
       // atualiza maps
       this.cardLabels[data.id] = data.labels||[];
-      this.cardMembers[data.id] = data.members?.map(m=>({users_id:m.id||m.users_id, name:m.realname||m.name, initials:(m.firstname?.[0]||"?").toUpperCase()})) || [];
+      this.cardMembers[data.id] = (data.members||[]).map(m=>{
+        let ini = ((m.firstname?.[0]||m.name?.[0]||'') + (m.realname?.[0]||'')).toUpperCase();
+        if(!ini.trim()) ini = String(m.realname||m.name||'?').slice(0,2).toUpperCase();
+        return {users_id:m.id||m.users_id, name:m.realname||m.name, initials:ini, picture_url:m.picture_url||''};
+      });
       // maintenance progress
       if(data.maintenance_progress) this.maintenanceProgress[data.id] = data.maintenance_progress;
       else if(data.is_maintenance && data.maintenance_machines){
@@ -3181,7 +3185,7 @@
           let arr = this.cardMembers[cardId]||[];
           if(res.added){
             const u = this.members.find(x=> x.users_id==users_id);
-            if(u) arr.push({users_id, name: u.name, initials: u.initials});
+            if(u) arr.push({users_id, name: u.name, initials: u.initials, picture_url: u.picture_url||''});
           } else {
             arr = arr.filter(x=> x.users_id!=users_id);
           }
