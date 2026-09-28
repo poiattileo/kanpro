@@ -591,7 +591,21 @@
 
       this.lists.forEach(list=>{
         if(list.is_archived==1) return;
-        const cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c));
+        let cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c));
+        // Retirada: não-notificados primeiro, depois A-Z (ignora rank manual)
+        try {
+          const lt = this.listTypeOf(list);
+          if(lt && lt.code === 'retirada'){
+            cardsInList = cardsInList.slice().sort((a,b)=>{
+              const na = Number(a.is_notified||0) ? 1 : 0;
+              const nb = Number(b.is_notified||0) ? 1 : 0;
+              if(na !== nb) return na - nb;
+              const ta = this.normText(a.name||''), tb = this.normText(b.name||'');
+              if(ta !== tb) return ta < tb ? -1 : 1;
+              return (a.id||0) - (b.id||0);
+            });
+          }
+        } catch(e){}
         seenLists.add(String(list.id));
         let el = this._listEls[list.id];
         if(!el || !el.isConnected || el._isGhost){
