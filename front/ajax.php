@@ -3891,6 +3891,9 @@ switch ($action) {
         if (!empty($row['is_locked'])) {
             jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado (#' . (int)($row['locked_chamado_card_id'] ?? 0) . ')','locked'=>true]);
         }
+        // card ainda na lista Pendente = ninguém pegou: nada de Feito/Status/Diário.
+        // O caminho é clicar em Pegar (admin), que move p/ Em Andamento e cria a Pendência Chamado.
+        kanpro_need_card_editable((int)$row['plugin_kanpro_cards_id']);
         $updates = [];
         if (array_key_exists('diary', $_POST)) $updates['diary'] = $_POST['diary'];
         if (array_key_exists('is_done', $_POST)) $updates['is_done'] = (int)$_POST['is_done'] ? 1:0;
@@ -4009,6 +4012,7 @@ switch ($action) {
         $ids = array_values(array_unique(array_map('intval', $ids)));
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        kanpro_need_card_editable($cid);
         // status opcional
         $applyStatus = false; $st = null;
         if (array_key_exists('status', $_POST) && trim($_POST['status'] ?? '') !== '') {
@@ -4059,6 +4063,7 @@ switch ($action) {
         if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        kanpro_need_card_editable($cid);
         $upd = ['needs_inventory'=>$val, 'date_mod'=>date('Y-m-d H:i:s'), 'users_id'=>kanpro_acting_user_id()];
         if (!$val) $upd['is_inventoried'] = 0;
         $DB->update('glpi_plugin_kanpro_maintenance_machines', $upd, ['plugin_kanpro_cards_id'=>$cid]);
@@ -4154,6 +4159,7 @@ switch ($action) {
         if (!$row) jexit(['success'=>false,'msg'=>'Não encontrado']);
         if (!empty($row['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado','locked'=>true]);
         $cid = $row['plugin_kanpro_cards_id'];
+        kanpro_need_card_editable((int)$cid);
         $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
         $tid = kanpro_card_ticket_id((int)$cid);
         if ($tid) {
@@ -4304,6 +4310,7 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Card não é de manutenção']);
+        kanpro_need_card_editable($cid);
         // cria novo card com mesmo nome/entidade
         $origName = trim($card->fields['name']);
         $newName = mb_substr($origName, 0, 255);
@@ -4405,6 +4412,8 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Não é manutenção']);
+        // reverter deixaria um card normal travado na lista Pendente (sem como editar) — não deixa
+        kanpro_need_card_editable($cid);
         if (!kanpro_verify_password($password)) jexit(['success'=>false,'msg'=>'Senha incorreta']);
         // captura dados p/ WhatsApp CANCELADO antes de limpar
         $zapData = null;
@@ -4451,6 +4460,8 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão não é de manutenção']);
+        // card na lista Pendente = atendimento nem começou; o caminho é Pegar
+        kanpro_need_card_editable($cid);
         $machines = [];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
