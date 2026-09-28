@@ -108,6 +108,7 @@ function plugin_kanpro_install(): bool {
                 `cover_color`                 VARCHAR(20)  DEFAULT NULL,
                 `cover_attachment_id`         INT {$sign} DEFAULT NULL,
                 `is_pinned`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=fixado no topo da lista',
+                `is_urgent`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=urgente (destaque vermelho)',
                 `approval_from`               INT {$sign} NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia',
                 `tickets_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'chamado GLPI vinculado',
                 `entities_id`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'escola/entidade da manutenção (p/ fone do WhatsApp)',
@@ -132,6 +133,9 @@ function plugin_kanpro_install(): bool {
         // antes ficavam em kanpro_ensure_board_extras() rodando a cada request — agora versionado aqui
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=fixado no topo da lista'");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_urgent')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=urgente (destaque vermelho)'");
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'approval_from')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `approval_from` INT NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia'");

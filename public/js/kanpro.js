@@ -499,7 +499,7 @@
       // ordena listas por rank
       this.lists.sort((a,b)=> parseFloat(a.rank)-parseFloat(b.rank));
       // ordem dos cartões: urgência primeiro (A-Z), depois fixados, depois rank
-      const urgentOf = (c)=> ((this.maintenanceProgress && this.maintenanceProgress[c.id] && this.maintenanceProgress[c.id].urgent>0) ? 1 : 0);
+      const urgentOf = (c)=> (c.is_urgent==1 || ((this.maintenanceProgress && this.maintenanceProgress[c.id] && this.maintenanceProgress[c.id].urgent>0)) ? 1 : 0);
       this.cards.sort((a,b)=>{
         const ua = urgentOf(a), ub = urgentOf(b);
         if(ua!==ub) return ub-ua;
@@ -676,6 +676,16 @@
         div.style.borderWidth = '2px';
         div.style.boxShadow = '0 0 0 2px rgba(235,90,70,.18), 0 1px 3px rgba(0,0,0,.12)';
         div.style.background = '#fff5f5';
+      }
+      // urgência marcada no cartão (criação guiada ou Datas)
+      if (card.is_urgent == 1) {
+        div.classList.add('kp-urgent');
+        div.dataset.urgent = "1";
+        div.style.borderColor = '#eb5a46';
+        div.style.borderWidth = '2px';
+        div.style.boxShadow = '0 0 0 2px rgba(235,90,70,.18), 0 1px 3px rgba(0,0,0,.12)';
+        div.style.background = '#fff5f5';
+        badges.push(`<span class="kp-badge" style="background:#eb5a46;color:#fff;font-weight:700"><i class="ti ti-alert-triangle"></i> URGENTE</span>`);
       }
       // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
       const tStat = this.transferStatus && this.transferStatus[card.id];
@@ -1153,6 +1163,10 @@
 
     // ---------- CARD OPERATIONS ----------
     showAddCard(listId){
+      // listas A Fazer / Pautas futuras: criação guiada (título + checklist + prazo + urgência)
+      const list = this.lists.find(l=> l.id==listId);
+      const lt = this.listTypeOf(list);
+      if(lt && (lt.code === 'todo' || lt.code === 'backlog')){ this.openTaskCardModal(listId); return; }
       const listEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
       listEl.querySelector('.kp-add-card').style.display='none';
       const comp = listEl.querySelector('.kp-card-composer');
@@ -1198,6 +1212,77 @@
             this.showAddCard(listId);
           }
         } else alert(res.msg||'Erro');
+      });
+    },
+    // criação guiada p/ listas A Fazer / Pautas futuras: título + checklist + prazo + urgência
+    openTaskCardModal(listId){
+      const list = this.lists.find(l=> l.id==listId);
+      const t = this.listTypeOf(list);
+      const chip = t ? `<span style="background:${t.color};color:${t.fg};padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700">${t.dot} ${this.escape(t.label)}</span>` : '';
+      this.showPicker({
+        title: 'Novo cartão ' + chip,
+        html: `
+        <div style="display:grid;gap:12px;min-width:min(440px,82vw)">
+          <div style="font-size:12px;color:#5e6c84">Lista: <strong>${this.escape(list ? list.name : '')}</strong></div>
+          <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:#5e6c84">TÍTULO
+            <input id="task-title" type="text" maxlength="255" placeholder="O que precisa ser feito?" style="width:100%;padding:8px 10px;border:1px solid #dfe1e6;border-radius:4px;box-sizing:border-box">
+          </label>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#5e6c84;margin-bottom:6px">☑️ O QUE FAZER <small style="font-weight:400">(vira checklist do cartão)</small></div>
+            <div id="task-items" style="display:grid;gap:6px"></div>
+            <button onclick="Kanpro.taskCardAddItem()" style="margin-top:6px;background:none;border:1px dashed #97a0af;color:#5e6c84;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px">+ Adicionar item</button>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:#5e6c84">📅 PRAZO <small style="font-weight:400">(opcional)</small>
+              <input id="task-due" type="datetime-local" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px">
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding-bottom:8px"><input id="task-urgent" type="checkbox"> 🔥 É urgência</label>
+          </div>
+          <button onclick="Kanpro.confirmTaskCard(${listId}, this)" style="background:#0079bf;color:#fff;border:none;padding:10px 16px;border-radius:4px;cursor:pointer;font-weight:700">Criar cartão</button>
+        </div>`
+      });
+      for(let i=0;i<3;i++) this.taskCardAddItem();
+      setTimeout(()=>{ const el=document.getElementById('task-title'); if(el) el.focus(); }, 30);
+    },
+    taskCardAddItem(){
+      const box = document.getElementById('task-items');
+      if(!box) return;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.maxLength = 255;
+      inp.placeholder = 'Item do checklist... (Enter adiciona outro)';
+      inp.className = 'task-item-input';
+      inp.style.cssText = 'width:100%;padding:8px 10px;border:1px solid #dfe1e6;border-radius:4px;box-sizing:border-box';
+      inp.onkeydown = (e)=>{
+        if(e.key === 'Enter'){ e.preventDefault(); Kanpro.taskCardAddItem(); }
+      };
+      box.appendChild(inp);
+      inp.focus();
+    },
+    confirmTaskCard(listId, btn){
+      const titleEl = document.getElementById('task-title');
+      const title = (titleEl.value || '').trim();
+      if(!title){ titleEl.focus(); return; }
+      const items = Array.from(document.querySelectorAll('#task-items .task-item-input')).map(i=> i.value.trim()).filter(Boolean);
+      const dueRaw = document.getElementById('task-due').value;
+      const due = dueRaw ? dueRaw.replace('T',' ') + ':00' : '';
+      const urgent = document.getElementById('task-urgent').checked ? 1 : 0;
+      btn.disabled = true;
+      this.ajax('add_task_card', {lists_id: listId, name: title, items: JSON.stringify(items), due_date: due, is_urgent: urgent}).then(res=>{
+        btn.disabled = false;
+        if(res.success){
+          this.closePicker();
+          const nc = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: title, rank: 999999, description: '', due_date: due || null, start_date: null, cover_color: null, is_completed: 0, is_archived: 0, is_urgent: urgent};
+          this.cards.push(nc);
+          this.cardLabels[nc.id] = [];
+          this.cardMembers[nc.id] = [];
+          this.commentCounts[nc.id] = 0;
+          this.attCounts[nc.id] = 0;
+          this.checkProgress[nc.id] = {total: res.items_added || items.length, done: 0};
+          this.renderBoard();
+          this.updateStats();
+          this.showToast(items.length ? `Cartão criado com checklist (${items.length} ${items.length===1?'item':'itens'})` : 'Cartão criado');
+        } else alert(res.msg || 'Erro');
       });
     },
     async quickEditCard(cardId, e){
@@ -1288,11 +1373,12 @@
       // dates
       const datesWrap = $('#card-modal-dates');
       const datesVal = $('#card-modal-dates-val');
-      if(data.due_date || data.start_date){
+      const urgChip = data.is_urgent == 1 ? ' <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">🔥 Urgente</span>' : '';
+      if(data.due_date || data.start_date || data.is_urgent == 1){
         datesWrap.style.display='block';
         const due = data.due_date ? this.formatDate(data.due_date) + (data.is_completed? ' ✅ Concluído':'') : '';
         const start = data.start_date ? this.formatDate(data.start_date) + ' → ' : '';
-        datesVal.innerHTML = start + due + ` <label style="margin-left:8px"><input type="checkbox" ${data.is_completed?'checked':''} onchange="Kanpro.toggleComplete(${data.id}, this.checked)"> Concluído</label>`;
+        datesVal.innerHTML = start + due + urgChip + ` <label style="margin-left:8px"><input type="checkbox" ${data.is_completed?'checked':''} onchange="Kanpro.toggleComplete(${data.id}, this.checked)"> Concluído</label>`;
         datesVal.style.cursor='pointer';
         datesVal.onclick = ()=> this.openDatesPicker();
       } else { datesWrap.style.display='none'; }
@@ -3633,6 +3719,7 @@
           <label>Data de início<br><input type="datetime-local" id="picker-start" value="${card.start_date ? this.toLocalDatetime(card.start_date) : ''}" style="width:100%;padding:6px;border:1px solid #dfe1e6;border-radius:4px"></label>
           <label>Data de entrega<br><input type="datetime-local" id="picker-due" value="${card.due_date ? this.toLocalDatetime(card.due_date) : ''}" style="width:100%;padding:6px;border:1px solid #dfe1e6;border-radius:4px"></label>
           <label><input type="checkbox" id="picker-complete" ${card.is_completed?'checked':''}> Marcar como concluído</label>
+          <label><input type="checkbox" id="picker-urgent" ${card.is_urgent?'checked':''}> 🔥 Marcar como urgência</label>
           <div style="display:flex;gap:8px">
             <button onclick="Kanpro.saveDates()" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;flex:1">Salvar</button>
             <button onclick="Kanpro.closePicker()" style="background:#dfe1e6;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">Cancelar</button>
@@ -3645,12 +3732,13 @@
       const start = $('#picker-start').value ? $('#picker-start').value.replace('T',' ') + ':00' : '';
       const due = $('#picker-due').value ? $('#picker-due').value.replace('T',' ') + ':00' : '';
       const complete = $('#picker-complete').checked ? 1 : 0;
+      const urgent = $('#picker-urgent').checked ? 1 : 0;
       Promise.all([
         this.ajax('set_dates', {cards_id: this.currentCardId, start_date: start, due_date: due}),
-        this.ajax('update_card', {id: this.currentCardId, is_completed: complete})
+        this.ajax('update_card', {id: this.currentCardId, is_completed: complete, is_urgent: urgent})
       ]).then(()=>{
         this.closePicker();
-        this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.updateCardLocalDates(start,due,complete); });
+        this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.updateCardLocalDates(start,due,complete,urgent); });
       });
     },
     clearDates(){
@@ -3659,9 +3747,9 @@
         this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); const c=this.cards.find(x=>x.id==this.currentCardId); if(c) c.due_date=null; this.renderBoard(); });
       });
     },
-    updateCardLocalDates(start,due,complete){
+    updateCardLocalDates(start,due,complete,urgent){
       const c=this.cards.find(x=>x.id==this.currentCardId);
-      if(c){ c.start_date=start||null; c.due_date=due||null; c.is_completed=complete; this.renderBoard(); }
+      if(c){ c.start_date=start||null; c.due_date=due||null; c.is_completed=complete; if(urgent!==undefined) c.is_urgent=urgent; this.renderBoard(); }
     },
     toggleComplete(cardId, checked){
       this.ajax('toggle_complete', {cards_id: cardId}).then(res=>{

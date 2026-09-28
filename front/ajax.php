@@ -416,6 +416,9 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_pinned` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_urgent')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=urgente (destaque vermelho)'"); } catch (Throwable $e) {}
+            }
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'approval_from')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `approval_from` INT NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
             }
@@ -1824,8 +1827,8 @@ switch ($action) {
             };
             // listas: nome/arquivada/ordem/categoria (rename, arquivar, reorder, mover e set_list_type não tocam date_mod)
             $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank, '|', IFNULL(list_type, '')))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
-            // cartões: lista+rank+arquivada+aprovação (mover/reordenar na mesma lista é rank-only sem date_mod)
-            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // cartões: lista+rank+arquivada+aprovação+urgência (mover/reordenar na mesma lista é rank-only sem date_mod)
+            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0)))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // etiquetas do quadro: criar/renomear/recolorir/prazo/excluir
             $labelsBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', color, '|', IFNULL(due_date, '')))), 0) AS s", "`glpi_plugin_kanpro_labels`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // etiquetas/membros no cartão: toggle é insert/delete sem data
@@ -2232,6 +2235,47 @@ switch ($action) {
         $id = $card->add(['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name]);
         jexit(['success'=>true,'id'=>$id, 'card'=>$card->fields]);
 
+    case 'add_task_card':
+        // criação guiada (listas A Fazer / Pautas futuras): título + checklist + prazo + urgência
+        needEdit();
+        $lists_id = (int)($_POST['lists_id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        if (!$name) jexit(['success'=>false,'msg'=>'Título obrigatório']);
+        $list = new PluginKanproList();
+        if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $due = trim($_POST['due_date'] ?? '');
+        $urgent = !empty($_POST['is_urgent']) ? 1 : 0;
+        $card = new PluginKanproCard();
+        $id = $card->add([
+            'plugin_kanpro_boards_id' => $list->fields['plugin_kanpro_boards_id'],
+            'plugin_kanpro_lists_id'  => $lists_id,
+            'name'                    => mb_substr($name, 0, 255),
+            'due_date'                => ($due !== '' ? $due : null),
+            'is_urgent'               => $urgent,
+        ]);
+        if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão']);
+        $items = json_decode($_POST['items'] ?? '[]', true);
+        if (!is_array($items)) $items = [];
+        $items = array_values(array_filter(array_map(function ($v) { return mb_substr(trim((string)$v), 0, 255); }, $items), function ($v) { return $v !== ''; }));
+        $items = array_slice($items, 0, 100);
+        $checklists_id = 0;
+        $added = 0;
+        if (!empty($items)) {
+            $cl = new PluginKanproChecklist();
+            $checklists_id = (int)$cl->add(['plugin_kanpro_cards_id'=>$id,'name'=>'O que fazer']);
+            if ($checklists_id) {
+                foreach ($items as $n) {
+                    $it = new PluginKanproChecklistItem();
+                    if ($it->add(['plugin_kanpro_checklists_id'=>$checklists_id,'name'=>$n])) $added++;
+                }
+            }
+        }
+        kanpro_touch_member($id);
+        kanpro_touch_card($id);
+        PluginKanproBoard::logActivity($list->fields['plugin_kanpro_boards_id'], $id, $lists_id, 'card_create', "Cartão '{$name}' criado");
+        $card->getFromDB($id);
+        jexit(['success'=>true,'id'=>$id,'card'=>$card->fields,'checklists_id'=>$checklists_id,'items_added'=>$added]);
+
     case 'get_card':
         $cid = (int)($_REQUEST['cards_id'] ?? 0);
         kanpro_ensure_board_extras();
@@ -2248,6 +2292,7 @@ switch ($action) {
         if (array_key_exists('due_date', $_POST)) $fields['due_date'] = empty($_POST['due_date']) ? null : $_POST['due_date'];
         if (array_key_exists('start_date', $_POST)) $fields['start_date'] = empty($_POST['start_date']) ? null : $_POST['start_date'];
         if (array_key_exists('cover_color', $_POST)) $fields['cover_color'] = $_POST['cover_color'] ?: null;
+        if (array_key_exists('is_urgent', $_POST)) $fields['is_urgent'] = (int)$_POST['is_urgent'] ? 1 : 0;
         if (array_key_exists('is_completed', $_POST)) $fields['is_completed'] = (int)$_POST['is_completed'];
         if (empty($fields)) jexit(['success'=>false]);
         $fields['id'] = $cid;
