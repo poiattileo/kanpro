@@ -432,6 +432,9 @@ function kanpro_migrate_schema_once() {
         if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
         }
+        if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done (vazio=normal)'"); } catch (Throwable $e) {}
+        }
         if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL"); } catch (Throwable $e) {}
         }
@@ -505,6 +508,13 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
             $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cards_id, 'users_id' => $uid]);
         }
     } catch (Throwable $e) {}
+}
+
+// Categorias de lista (listas de ajuste): backlog=Pautas futuras, todo=A Fazer,
+// doing=Em Progresso, done=Concluído. '' = lista normal.
+function kanpro_valid_list_type(string $t): string {
+    $t = trim(strtolower($t));
+    return in_array($t, ['backlog', 'todo', 'doing', 'done'], true) ? $t : '';
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
@@ -1692,7 +1702,7 @@ switch ($action) {
         $name = trim($_POST['name'] ?? 'Nova Lista');
         if (!$name) $name = 'Nova Lista';
         $list = new PluginKanproList();
-        $id = $list->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$name]);
+        $id = $list->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$name,'list_type'=>kanpro_valid_list_type((string)($_POST['list_type'] ?? ''))]);
         PluginKanproBoard::logActivity($bid, null, $id, 'list_create', "Lista '{$name}' criada");
         jexit(['success'=>true,'id'=>$id]);
 
@@ -1703,6 +1713,17 @@ switch ($action) {
         if (!$name) jexit(['success'=>false,'msg'=>'Nome obrigatório']);
         $DB->update('glpi_plugin_kanpro_lists', ['name'=>$name], ['id'=>$id]);
         jexit(['success'=>true]);
+
+    case 'set_list_type':
+        // troca a categoria da lista (listas de ajuste) — '' = normal
+        needEdit();
+        $id = (int)($_POST['id'] ?? 0);
+        if (!$id) jexit(['success'=>false,'msg'=>'Lista inválida']);
+        $type = kanpro_valid_list_type((string)($_POST['list_type'] ?? ''));
+        $lchk = new PluginKanproList();
+        if (!$lchk->getFromDB($id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $DB->update('glpi_plugin_kanpro_lists', ['list_type'=>$type], ['id'=>$id]);
+        jexit(['success'=>true,'list_type'=>$type]);
 
     case 'archive_list':
         needEdit();
@@ -1799,8 +1820,8 @@ switch ($action) {
                 } catch (Throwable $e) {}
                 return '';
             };
-            // listas: nome/arquivada/ordem (rename, arquivar, reorder e mover não tocam date_mod)
-            $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // listas: nome/arquivada/ordem/categoria (rename, arquivar, reorder, mover e set_list_type não tocam date_mod)
+            $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank, '|', IFNULL(list_type, '')))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // cartões: lista+rank+arquivada+aprovação (mover/reordenar na mesma lista é rank-only sem date_mod)
             $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // etiquetas do quadro: criar/renomear/recolorir/prazo/excluir
@@ -2179,7 +2200,7 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $l = new PluginKanproList();
         if (!$l->getFromDB($id)) jexit(['success'=>false]);
-        $new_id = $l->add(['plugin_kanpro_boards_id'=>$l->fields['plugin_kanpro_boards_id'],'name'=>$l->fields['name'].' (cópia)']);
+        $new_id = $l->add(['plugin_kanpro_boards_id'=>$l->fields['plugin_kanpro_boards_id'],'name'=>$l->fields['name'].' (cópia)','list_type'=>kanpro_valid_list_type((string)($l->fields['list_type'] ?? ''))]);
         // copia cartões
         $cards = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$id,'is_archived'=>0]]);
         foreach ($cards as $c) {

@@ -521,6 +521,15 @@
         <button class="kp-add-list-btn" onclick="Kanpro.showAddList()"><i class="ti ti-plus"></i> Adicionar outra lista</button>
         <div class="kp-list-composer" style="display:none">
           <input type="text" placeholder="Digite o título da lista..." maxlength="100">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5e6c84;margin-top:8px;cursor:pointer">
+            <input type="checkbox" class="kp-list-type-check" onchange="Kanpro.toggleListTypePicker(this)"> É lista de ajuste?
+          </label>
+          <select class="kp-list-type-select" style="display:none;width:100%;margin-top:6px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;background:#fff">
+            <option value="backlog">🟣 Pautas futuras</option>
+            <option value="todo" selected>🟡 A Fazer</option>
+            <option value="doing">🔵 Em Progresso</option>
+            <option value="done">🟢 Concluído</option>
+          </select>
           <div class="kp-composer-actions">
             <button class="kp-btn-primary" onclick="Kanpro.confirmAddList(this)">Adicionar lista</button>
             <button class="kp-btn-ghost" onclick="Kanpro.hideAddList()">✕</button>
@@ -554,6 +563,7 @@
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
+          ${this.listTypeChip(list)}
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
@@ -617,6 +627,15 @@
       let labelsHtml = '';
       if(labels.length){
         labelsHtml = `<div class="kp-card-labels">${labels.map(l=> `<span class="kp-label" style="background:${this.escape(l.color)}" title="${this.escape(l.name)}"></span>`).join('')}</div>`;
+      }
+
+      // categoria da lista: o cartão herda a identidade da lista (muda junto se trocar de lista)
+      const listOfCard = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
+      const typeOfCard = this.listTypeOf(listOfCard);
+      let typeHtml = '';
+      if(typeOfCard){
+        typeHtml = `<div style="margin-bottom:4px">${this.listTypeChip(listOfCard, true)}</div>`;
+        div.style.borderTop = `3px solid ${typeOfCard.color}`;
       }
 
       // badges
@@ -747,6 +766,7 @@
       div.innerHTML = `
         ${coverHtml}
         ${labelsHtml}
+        ${typeHtml}
         <div class="kp-card-title"><span style="color:#5e6c84;font-weight:700;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
         ${badges.length?`<div class="kp-card-badges">${badges.join('')}</div>`:''}
         ${checkBarHtml}
@@ -924,16 +944,29 @@
       wrap.querySelector('.kp-add-list-btn').style.display='flex';
       wrap.querySelector('.kp-list-composer').style.display='none';
       wrap.querySelector('input').value='';
+      const chk = wrap.querySelector('.kp-list-type-check');
+      if(chk) chk.checked = false;
+      const sel = wrap.querySelector('.kp-list-type-select');
+      if(sel){ sel.style.display='none'; sel.value='todo'; }
+    },
+    toggleListTypePicker(checkbox){
+      const comp = checkbox.closest('.kp-list-composer');
+      const sel = comp ? comp.querySelector('.kp-list-type-select') : null;
+      if(sel) sel.style.display = (checkbox.checked ? 'block' : 'none');
     },
     confirmAddList(btn){
-      const input = btn.closest('.kp-list-composer').querySelector('input');
+      const comp = btn.closest('.kp-list-composer');
+      const input = comp.querySelector('input[type="text"]');
       const name = input.value.trim() || 'Nova Lista';
+      const chk = comp.querySelector('.kp-list-type-check');
+      const sel = comp.querySelector('.kp-list-type-select');
+      const list_type = (chk && chk.checked && sel) ? sel.value : '';
       btn.disabled=true;
-      this.ajax('add_list', {boards_id: this.board.id, name}).then(res=>{
+      this.ajax('add_list', {boards_id: this.board.id, name, list_type}).then(res=>{
         btn.disabled=false;
         if(res.success){
           // adiciona local
-          this.lists.push({id: res.id, plugin_kanpro_boards_id: this.board.id, name, rank: (this.lists.length+1)*1024, is_archived:0});
+          this.lists.push({id: res.id, plugin_kanpro_boards_id: this.board.id, name, rank: (this.lists.length+1)*1024, is_archived:0, require_approval:0, list_type});
           this.renderBoard();
           this.ajax('get_board_activity', {boards_id: this.board.id});
         } else alert(res.msg||'Erro');
@@ -968,6 +1001,8 @@
       const rect = e.target.getBoundingClientRect();
       const apprBtn = this.isBoardAdmin()
         ? `<button class="kp-picker-item" onclick="Kanpro.setListApproval(${listId}, ${list.require_approval?0:1})"><i class="ti ti-shield-check"></i> ${list.require_approval?'Desativar aprovação do admin':'Exigir aprovação do admin'}</button>` : '';
+      const curType = this.listTypeOf(list);
+      const typeBtn = `<button class="kp-picker-item" onclick="Kanpro.openListTypePicker(${listId})"><i class="ti ti-tag"></i> Categoria da lista${curType ? ' (' + this.escape(curType.label) + ')' : ''}</button>`;
       this.showPicker({
         title: `Ações da lista: ${list.name}`,
         x: rect.left - 280,
@@ -977,6 +1012,7 @@
             <button class="kp-picker-item" onclick="Kanpro.editListTitle(${listId}); Kanpro.closePicker()"><i class="ti ti-pencil"></i> Renomear lista</button>
             <button class="kp-picker-item" onclick="Kanpro.copyList(${listId})"><i class="ti ti-copy"></i> Copiar lista</button>
             <button class="kp-picker-item" onclick="Kanpro.moveAllCardsPicker(${listId})"><i class="ti ti-arrow-right"></i> Mover todos os cartões (${activeCount})</button>
+            ${typeBtn}
             <button class="kp-picker-item" onclick="Kanpro.archiveList(${listId})"><i class="ti ti-archive"></i> Arquivar lista</button>
             ${apprBtn}
             <hr style="margin:4px 0;border:none;border-top:1px solid #dfe1e6">
@@ -1024,6 +1060,33 @@
           const l = this.lists.find(x=> x.id==listId);
           if(l) l.require_approval = val;
           this.showToast(val ? 'Aprovação ativada nesta lista' : 'Aprovação desativada');
+        } else alert(res.msg||'Erro');
+      });
+    },
+    openListTypePicker(listId){
+      const list = this.lists.find(l=> l.id==listId);
+      const cur = String(list?.list_type || '');
+      const opts = [{code:'', label:'Normal (sem categoria)', color:'#dfe1e6', fg:'#5e6c84', dot:'—'}]
+        .concat(Object.keys(this.LIST_TYPES).map(k=> Object.assign({code:k}, this.LIST_TYPES[k])));
+      this.showPicker({
+        title: `Categoria da lista: ${list ? list.name : ''}`,
+        html: `<div style="display:grid;gap:4px">` + opts.map(o=>
+          `<button class="kp-picker-item" onclick="Kanpro.setListType(${listId}, '${o.code}')">`
+          + `<span style="background:${o.color};color:${o.fg};min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${o.code===''?'–':o.dot}</span>`
+          + `<span style="flex:1;text-align:left">${this.escape(o.label)}</span>`
+          + `${cur===o.code?'<i class="ti ti-check" style="color:#61bd4f"></i>':''}</button>`
+        ).join('') + `</div>`
+      });
+    },
+    setListType(listId, type){
+      this.ajax('set_list_type', {id: listId, list_type: type}).then(res=>{
+        this.closePicker();
+        if(res.success){
+          const l = this.lists.find(x=> x.id==listId);
+          if(l) l.list_type = res.list_type || '';
+          const t = res.list_type ? this.LIST_TYPES[res.list_type] : null;
+          this.showToast(t ? `Lista marcada como "${t.label}"` : 'Categoria removida (lista normal)');
+          this.renderBoard();
         } else alert(res.msg||'Erro');
       });
     },
@@ -4126,6 +4189,31 @@
       s = String(s||'');
       if(s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       return s.toLowerCase();
+    },
+    /* ---------- categorias de lista (listas de ajuste) ---------- */
+    LIST_TYPES: {
+      backlog: {label: 'Pautas futuras', color: '#6554c0', fg: '#fff', dot: '🟣'},
+      todo:    {label: 'A Fazer',        color: '#ffab00', fg: '#172b4d', dot: '🟡'},
+      doing:   {label: 'Em Progresso',   color: '#0079bf', fg: '#fff', dot: '🔵'},
+      done:    {label: 'Concluído',      color: '#61bd4f', fg: '#fff', dot: '🟢'},
+    },
+    listTypeOf(list){
+      if(!list) return null;
+      const t = String(list.list_type || '').trim().toLowerCase();
+      if(t && this.LIST_TYPES[t]) return Object.assign({code: t}, this.LIST_TYPES[t]);
+      // legado (lista sem tipo): deduz pelo nome
+      const n = this.normText(list.name || '').trim();
+      if(n === 'a fazer') return Object.assign({code: 'todo'}, this.LIST_TYPES.todo);
+      if(n === 'em andamento' || n === 'em progresso') return Object.assign({code: 'doing'}, this.LIST_TYPES.doing);
+      if(n === 'pautas futuras') return Object.assign({code: 'backlog'}, this.LIST_TYPES.backlog);
+      if(n === 'concluido') return Object.assign({code: 'done'}, this.LIST_TYPES.done);
+      return null;
+    },
+    listTypeChip(list, small){
+      const t = this.listTypeOf(list);
+      if(!t) return '';
+      const fs = small ? '10px' : '11px';
+      return `<span title="Categoria: ${this.escape(t.label)}" style="background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap">${t.dot} ${this.escape(t.label)}</span>`;
     },
     filterCards(text){
       this.filterText = this.normText(text||'');

@@ -129,11 +129,23 @@ if (count($iterator) === 0) {
         $lists = $DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'is_archived' => 0], 'ORDER' => 'rank ASC', 'LIMIT' => 3]);
         foreach ($lists as $l) {
             $cnt = $list_counts[(int)$l['id']] ?? 0;
-            $lnorm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
-            if ($lnorm === 'a fazer') {
-                $badge = 'background:#ffab00;color:#172b4d';
-            } elseif ($lnorm === 'em andamento') {
-                $badge = 'background:#0079bf;color:#fff';
+            // cor pela categoria da lista; legado sem categoria deduz pelo nome
+            $ltype = trim(strtolower($l['list_type'] ?? ''));
+            if ($ltype === '') {
+                $lnorm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
+                if ($lnorm === 'a fazer') $ltype = 'todo';
+                elseif ($lnorm === 'em andamento' || $lnorm === 'em progresso') $ltype = 'doing';
+                elseif ($lnorm === 'pautas futuras') $ltype = 'backlog';
+                elseif ($lnorm === 'concluido' || $lnorm === 'concluído') $ltype = 'done';
+            }
+            if ($ltype === 'todo') {
+                $badge = 'background:#ffab00;color:#172b4d'; // A Fazer = amarela
+            } elseif ($ltype === 'doing') {
+                $badge = 'background:#0079bf;color:#fff'; // Em Progresso = azul
+            } elseif ($ltype === 'backlog') {
+                $badge = 'background:#6554c0;color:#fff'; // Pautas futuras = roxa
+            } elseif ($ltype === 'done') {
+                $badge = 'background:#61bd4f;color:#fff'; // Concluído = verde
             } else {
                 $badge = 'background:rgba(0,0,0,.28);color:#fff';
             }
