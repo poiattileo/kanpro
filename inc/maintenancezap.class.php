@@ -33,7 +33,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete'];
     }
 
     /** Login/e-mail do aprovador fixo da Pendência Chamado */
@@ -546,6 +546,113 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         } catch (Throwable $e) {}
     }
 
+    /**
+     * Lembrete 8h/13h: quantos cards há nas listas Pendente e Em Andamento (todos os
+     * quadros ativos). Só envia se total > 0. Anti-duplicado por dia+turno.
+     * Destinatário fixo = aprovador. Nunca joga exceção.
+     */
+    static function sendLembrete(?int $slot = null): array {
+        global $DB;
+        try {
+            $hour = (int)date('H');
+            if ($slot === null || !in_array($slot, [8, 13], true)) $slot = ($hour < 12) ? 8 : 13;
+            $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
+            if (self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate'];
+            // classifica listas (tipo ou nome legado, sem acento)
+            $norm = function ($s) {
+                $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
+                return strtr($s, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+            };
+            $pendLists = []; $andLists = [];
+            try {
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['is_archived' => 0]]) as $l) {
+                    $lt = trim(strtolower((string)($l['list_type'] ?? '')));
+                    if ($lt === '' || $lt === 'none') {
+                        $nm = $norm($l['name'] ?? '');
+                        if ($nm === 'pendente') $lt = 'pending';
+                        elseif ($nm === 'em andamento') $lt = 'andamento';
+                    }
+                    if ($lt === 'pending') $pendLists[(int)$l['id']] = $l;
+                    elseif ($lt === 'andamento') $andLists[(int)$l['id']] = $l;
+                }
+            } catch (Throwable $e) {}
+            if (empty($pendLists) && empty($andLists)) return ['ok' => false, 'error' => 'sem listas'];
+            $countByList = [];
+            try {
+                $allIds = array_merge(array_keys($pendLists), array_keys($andLists));
+                if (!empty($allIds)) {
+                    foreach ($DB->request(['SELECT' => ['plugin_kanpro_lists_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $allIds, 'is_archived' => 0], 'GROUPBY' => ['plugin_kanpro_lists_id']]) as $r) {
+                        $countByList[(int)$r['plugin_kanpro_lists_id']] = (int)$r['total'];
+                    }
+                }
+            } catch (Throwable $e) {}
+            $boards = [];
+            try {
+                foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['is_archived' => 0]]) as $b) {
+                    $boards[(int)$b['id']] = (string)($b['name'] ?? ('Quadro #' . (int)$b['id']));
+                }
+            } catch (Throwable $e) {}
+            $totP = 0; $totA = 0; $lines = [];
+            $perBoard = [];
+            foreach (array_merge($pendLists, $andLists) as $lid => $l) {
+                $n = $countByList[$lid] ?? 0;
+                if ($n <= 0) continue;
+                $bid = (int)($l['plugin_kanpro_boards_id'] ?? 0);
+                if (!isset($perBoard[$bid])) $perBoard[$bid] = ['p' => 0, 'a' => 0];
+                if (isset($pendLists[$lid])) { $perBoard[$bid]['p'] += $n; $totP += $n; }
+                else { $perBoard[$bid]['a'] += $n; $totA += $n; }
+            }
+            $total = $totP + $totA;
+            if ($total <= 0) return ['ok' => false, 'error' => 'nada pendente'];
+            foreach ($perBoard as $bid => $c) {
+                $bn = $boards[$bid] ?? ('Quadro #' . $bid);
+                $lines[] = '• ' . $bn . ' — Pendente: ' . $c['p'] . ' | Andamento: ' . $c['a'];
+            }
+            $phone = self::resolveApproverPhone();
+            $phone = self::normalizeBRPhone((string)$phone);
+            if ($phone === '') {
+                self::markSent(0, $milestone, '', false, 'sem telefone do aprovador');
+                return ['ok' => false, 'error' => 'sem telefone'];
+            }
+            $txt = self::renderTxt('lembrete', [
+                'total'     => (string)$total,
+                'pendentes' => (string)$totP,
+                'andamento' => (string)$totA,
+                'detalhes'  => implode("\n", $lines),
+                'data'      => date('d/m/Y H:i'),
+            ]);
+            if ($txt === null || $txt === '') {
+                self::markSent(0, $milestone, $phone, false, 'template vazio');
+                return ['ok' => false, 'error' => 'template vazio'];
+            }
+            $res = self::evoSend($phone, $txt, 20);
+            self::markSent(0, $milestone, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+            return $res + ['phone' => $phone, 'total' => $total];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    public static function cronZaplembrete8($task = null): int {
+        try {
+            $r = self::sendLembrete(8);
+            if (is_object($task) && method_exists($task, 'log')) {
+                $task->log('KanPro lembrete 8h: ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+            }
+        } catch (Throwable $e) { return 1; }
+        return 1;
+    }
+
+    public static function cronZaplembrete13($task = null): int {
+        try {
+            $r = self::sendLembrete(13);
+            if (is_object($task) && method_exists($task, 'log')) {
+                $task->log('KanPro lembrete 13h: ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+            }
+        } catch (Throwable $e) { return 1; }
+        return 1;
+    }
+
     // ---------- CRON diário: atraso a cada 5 dias em Retirada ----------
     public static function cronInfo(): array {
         return [
@@ -666,6 +773,29 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'comment'       => 'KanPro: WhatsApp de atraso (lembrete a cada 5 dias em Retirada)',
                 ]);
             }
+            // lembretes 8h e 13h: quantos cards em Pendente/Em Andamento (só envia se > 0)
+            foreach ([['zaplembrete8', 8, 'KanPro: WhatsApp lembrete 8h (Pendente + Em Andamento)'], ['zaplembrete13', 13, 'KanPro: WhatsApp lembrete 13h (Pendente + Em Andamento)']] as [$cname, $chour, $cmt]) {
+                $foundL = false;
+                foreach ($DB->request(['FROM' => 'glpi_crontasks', 'WHERE' => ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => $cname]]) as $r) {
+                    $foundL = true;
+                    break;
+                }
+                if (!$foundL) {
+                    $DB->insert('glpi_crontasks', [
+                        'itemtype'      => 'PluginKanproMaintenanceZap',
+                        'name'          => $cname,
+                        'frequency'     => 86400, // 1x ao dia, na janela da hora
+                        'param'         => $chour,
+                        'state'         => 1,
+                        'mode'          => 2, // MODE_EXTERNAL
+                        'allowmode'     => 3,
+                        'logs_lifetime' => 30,
+                        'hourmin'       => $chour,
+                        'hourmax'       => $chour,
+                        'comment'       => $cmt,
+                    ]);
+                }
+            }
         } catch (Throwable $e) {
             error_log('[KanPro] registerCron zap: ' . $e->getMessage());
         }
@@ -675,7 +805,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         global $DB;
         try {
             if ($DB->tableExists('glpi_crontasks')) {
-                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zapatraso']);
+                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete13']]);
             }
         } catch (Throwable $e) {}
     }

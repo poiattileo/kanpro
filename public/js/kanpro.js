@@ -65,7 +65,9 @@
       if(this.board && ids.includes(parseInt(this.board.users_id))) return true;
       const m = (this.members||[]).find(x=> ids.includes(parseInt(x.users_id)));
       if(m && m.role==='admin') return true;
-      if(this.canEdit) return true; // UPDATE global
+      // UPDATE global só vale em quadro legado aberto (sem membros) p/ bootstrap —
+      // senão todo membro com UPDATE (uso normal) veria botão de admin
+      if(this.canEdit && (this.members||[]).length===0) return true;
       return false;
     },
     csrf() {

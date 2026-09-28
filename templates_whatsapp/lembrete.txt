@@ -1,0 +1,15 @@
+# KanPro • WhatsApp de LEMBRETE (texto puro, sem HTML)
+# Gatilho: cron 8h e 13h (zaplembrete8/zaplembrete13) — só envia se houver pendentes
+# Destinatário fixo: cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
+# Placeholders: {total} {pendentes} {andamento} {detalhes} {data}
+
+⏰ *LEMBRETE — CARDS AGUARDANDO APROVAÇÃO*
+
+Olá! Você tem *{total} card(s)* aguardando aprovação em *{data}*:
+
+🔴 Pendente: *{pendentes}*
+🔷 Em Andamento: *{andamento}*
+
+{detalhes}
+
+_Manutenção de TI - URE Jales_

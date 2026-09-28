@@ -226,10 +226,11 @@ if (!function_exists('kanpro_list_is_restricted')) {
 }
 
 if (!function_exists('kanpro_can_manage_list')) {
-    // Quem pode escolher quem vê a lista: quem criou a lista, criador/admin do quadro ou UPDATE global.
+    // Quem pode escolher quem vê a lista: quem criou a lista, criador/admin do quadro.
+    // UPDATE global só vale em quadro legado aberto (sem membros E sem perfis) p/ bootstrap —
+    // senão todo membro com UPDATE (uso normal) viraria gestor.
     function kanpro_can_manage_list(int $boards_id, $list_row = null): bool {
         try {
-            if (Session::haveRight('plugin_kanpro', UPDATE)) return true;
             $viewerIds = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
             // criador da lista
             if (is_array($list_row) && isset($list_row['users_id']) && (int)$list_row['users_id'] > 0) {
@@ -251,6 +252,16 @@ if (!function_exists('kanpro_can_manage_list')) {
                     }
                 } catch (Throwable $e) {}
                 if (function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($boards_id) === 'admin') return true;
+                // fallback estrito: UPDATE só em quadro legado aberto
+                if (Session::haveRight('plugin_kanpro', UPDATE)) {
+                    try {
+                        $hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $boards_id]) > 0;
+                        $hasP = $DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => $boards_id]) > 0;
+                        if (!$hasM && !$hasP) return true;
+                    } catch (Throwable $e) {}
+                }
+            } else {
+                if (Session::haveRight('plugin_kanpro', UPDATE)) return true;
             }
         } catch (Throwable $e) {}
         return false;

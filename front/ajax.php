@@ -106,8 +106,17 @@ function kanpro_is_board_creator($bid) {
 function kanpro_can_manage_members($bid) {
     if (kanpro_is_board_creator($bid)) return true;
     if (kanpro_my_board_role($bid) === 'admin') return true;
-    // fallback: UPDATE global (administradores do GLPI + quadros legados sem membros)
-    if (Session::haveRight('plugin_kanpro', UPDATE)) return true;
+    // fallback ESTRITO: UPDATE global só vale em quadro legado aberto (sem membros E sem perfis),
+    // p/ bootstrap. Antes valia em qualquer quadro e todo membro com UPDATE (uso normal do kanban)
+    // virava gestor — membro comum conseguia se promover a admin.
+    if (Session::haveRight('plugin_kanpro', UPDATE)) {
+        try {
+            global $DB;
+            $hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
+            $hasP = $DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
+            if (!$hasM && !$hasP) return true;
+        } catch (Throwable $e) {}
+    }
     return false;
 }
 function kanpro_need_manage_members($bid) {
@@ -2902,23 +2911,8 @@ switch ($action) {
         if ((int)($pc->fields['chamado_source_id'] ?? 0) <= 0) jexit(['success'=>false,'msg'=>'Só Pendência Chamado se auto-exclui']);
         if (($pc->fields['chamado_status'] ?? '') !== 'liberado') jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado criado)']);
         $bidD = (int)$pc->fields['plugin_kanpro_boards_id'];
-        // admin do quadro? (criador/admin/UPDATE — mesma regra do Chamado criado)
-        $canD = false;
-        try {
-            if (Session::haveRight('plugin_kanpro', UPDATE)) $canD = true;
-            else {
-                $vids = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
-                $bD = new PluginKanproBoard();
-                if ($bD->getFromDB($bidD) && in_array((int)($bD->fields['users_id'] ?? 0), $vids, true) && (int)($bD->fields['users_id'] ?? 0) > 0) $canD = true;
-                else {
-                    foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bidD, 'users_id' => $vids]]) as $mr) {
-                        if (($mr['role'] ?? '') === 'admin') { $canD = true; break; }
-                    }
-                    if (!$canD && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($bidD) === 'admin') $canD = true;
-                }
-            }
-        } catch (Throwable $e) {}
-        if (!$canD) jexit(['success'=>false,'msg'=>'Somente admin do quadro']);
+        // admin do quadro (criador/admin; UPDATE só em legado aberto) — mesma regra central
+        if (!kanpro_can_manage_members($bidD)) jexit(['success'=>false,'msg'=>'Somente admin do quadro']);
         $full = PluginKanproCard::getFullData($pid);
         $ll = new PluginKanproList();
         $lname = $ll->getFromDB((int)$pc->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
@@ -4713,27 +4707,9 @@ switch ($action) {
         $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
         if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma Pendência Chamado']);
         if (($pc->fields['chamado_status'] ?? '') === 'liberado') jexit(['success'=>true,'already'=>true]);
-        // só admin do quadro libera
+        // só admin do quadro libera (criador/admin; UPDATE só em legado aberto)
         $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
-        if (function_exists('kanpro_can_manage_list')) {
-            // reaproveita regra de gestão do quadro (criador/admin/UPDATE)
-            $can = false;
-            try {
-                if (Session::haveRight('plugin_kanpro', UPDATE)) $can = true;
-                else {
-                    $vids = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
-                    $b = new PluginKanproBoard();
-                    if ($b->getFromDB($bidC) && in_array((int)($b->fields['users_id'] ?? 0), $vids, true) && (int)($b->fields['users_id'] ?? 0) > 0) $can = true;
-                    else {
-                        foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bidC, 'users_id' => $vids]]) as $mr) {
-                            if (($mr['role'] ?? '') === 'admin') { $can = true; break; }
-                        }
-                        if (!$can && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($bidC) === 'admin') $can = true;
-                    }
-                }
-            } catch (Throwable $e) {}
-            if (!$can) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode confirmar Chamado criado']);
-        }
+        if (!kanpro_can_manage_members($bidC)) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode confirmar Chamado criado']);
         $mids = [];
         try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
         $mids = array_values(array_unique(array_map('intval', (array)$mids)));
@@ -4775,23 +4751,8 @@ switch ($action) {
             }
         }
         if (!$isPending) jexit(['success'=>false,'msg'=>'Só card da lista Pendente pode ser pego']);
-        // só admin do quadro pega (botão só aparece p/ admin, mas valida no servidor)
-        $isAdmin = false;
-        try {
-            if (Session::haveRight('plugin_kanpro', UPDATE)) $isAdmin = true;
-            else {
-                $vids = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
-                $b = new PluginKanproBoard();
-                if ($b->getFromDB($bid) && in_array((int)($b->fields['users_id'] ?? 0), $vids, true) && (int)($b->fields['users_id'] ?? 0) > 0) $isAdmin = true;
-                else {
-                    foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $vids]]) as $mr) {
-                        if (($mr['role'] ?? '') === 'admin') { $isAdmin = true; break; }
-                    }
-                    if (!$isAdmin && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($bid) === 'admin') $isAdmin = true;
-                }
-            }
-        } catch (Throwable $e) {}
-        if (!$isAdmin) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode pegar']);
+        // só admin do quadro pega (criador/admin; UPDATE só em legado aberto — botão só aparece p/ admin, mas valida no servidor)
+        if (!kanpro_can_manage_members($bid)) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode pegar']);
         $dest = kanpro_find_list_by_type($bid, 'andamento');
         if (!$dest) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Em Andamento" neste quadro','need_list'=>true]);
         $destLid = (int)$dest['id'];
