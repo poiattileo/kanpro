@@ -450,6 +450,7 @@ echo <<<HTML
       <div id="card-modal-title" style="font-size:20px;font-weight:700;color:#172b4d;cursor:pointer" onclick="Kanpro.editCardTitle()"></div>
       <div style="font-size:14px;color:#6b778c;margin-top:4px">na lista <span id="card-modal-listname" style="text-decoration:underline"></span><span id="card-modal-created" style="font-size:12px;color:#97a0af"></span></div>
       <div id="card-modal-badges" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
+      <div id="card-modal-lock" style="display:none;margin-top:10px"></div>
     </div>
     <div style="display:flex;gap:16px;padding:0 16px 16px 16px">
       <div style="flex:1;min-width:0">
@@ -475,7 +476,7 @@ echo <<<HTML
 
         <!-- Descrição -->
         <div style="margin-bottom:20px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-align-left"></i><strong>Descrição</strong><button onclick="Kanpro.editDescription()" style="margin-left:8px;background:#eaecf0;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Editar</button></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-align-left"></i><strong>Descrição</strong><button id="card-modal-desc-edit-btn" onclick="Kanpro.editDescription()" style="margin-left:8px;background:#eaecf0;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Editar</button></div>
           <div id="card-modal-desc" onclick="Kanpro.editDescription()" title="Clique para editar" style="background:#fff;padding:12px;border-radius:4px;min-height:56px;color:#172b4d;word-break:break-word;box-shadow:0 1px 1px rgba(9,30,66,.13);cursor:pointer"></div>
           <textarea id="card-desc-edit" style="display:none;width:100%;min-height:80px;padding:10px;border:2px solid #0079bf;border-radius:4px;resize:vertical"></textarea>
           <div style="font-size:11px;color:#5e6c84;margin-top:4px">Suporta Markdown: <code>**negrito**</code> <code>*itálico*</code> <code>`código`</code> <code>[texto](link)</code></div>
@@ -490,7 +491,7 @@ echo <<<HTML
 
         <!-- Checklists -->
         <div id="card-modal-checklists"></div>
-        <button onclick="Kanpro.addChecklist()" style="background:#eaecf0;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;margin-bottom:16px"><i class="ti ti-plus"></i> Adicionar checklist</button>
+        <button id="card-modal-add-checklist" onclick="Kanpro.addChecklist()" style="background:#eaecf0;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;margin-bottom:16px"><i class="ti ti-plus"></i> Adicionar checklist</button>
 
         <!-- Anexos -->
         <div style="margin-bottom:20px">

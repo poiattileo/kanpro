@@ -238,6 +238,70 @@ function kanpro_normalize_confirm($t) {
     return $t;
 }
 
+// Palavras-desafio aceitas na confirmação de Manutenção (mesma lista do MAINT_CHALLENGE_WORDS do JS).
+function kanpro_maint_challenge_words(): array {
+    return ["PAIVA","MASSON","FERRARI","MORANGO","SAWATA","TECNICO","SUPORTE","MANUTENCAO","REPARO","DIAGNOSTICO","HARDWARE","SOFTWARE","NOTEBOOK","DESKTOP","MONITOR","TECLADO","MOUSE","IMPRESSORA","REDE","SERVIDOR","BACKUP","SEGURANCA","ATUALIZACAO","LIMPEZA","FORMATACAO","INSTALACAO","CONFIGURACAO","ATENDIMENTO","CHAMADO","TICKET","PROTOCOLO","SISTEMA","PROCESSADOR","MEMORIA","SSD","HD","PLACA","FONTE","COOLER","GABINETE","BATERIA","CARREGADOR","CABO","CONECTOR","DRIVER","FIRMWARE","BIOS","WINDOWS","LINUX","OFFICE","ANTIVIRUS","FIREWALL","VPN","WIFI","ETHERNET","SWITCH","ROTEADOR","PATCH","CABEAMENTO","ESTRUTURADO","VOIP","TELEFONIA","RAMAL","NOBREAK","ESTABILIZADOR","PROJETOR","WEBCAM","HEADSET","SCANNER","PLOTTER","TABLET","CELULAR","SMARTPHONE","CHIP","BROWSER","NAVEGADOR","EMAIL","SENHA","LOGIN","USUARIO","PERFIL","PERMISSAO","BANCO","DADOS","RELATORIO","INVENTARIO","PATRIMONIO","ATIVO","GARANTIA","CONTRATO","FORNECEDOR","CLIENTE","DEPARTAMENTO","SETOR","ALMOXARIFADO","ESTOQUE","COMPRA","LICENCA","ATIVACAO","VALIDACAO","AUTENTICACAO","CONFIRMACAO"];
+}
+function kanpro_maint_challenge_ok(string $confirm): bool {
+    static $norm_allowed = null;
+    if ($norm_allowed === null) {
+        $norm_allowed = array_map('kanpro_normalize_confirm', kanpro_maint_challenge_words());
+    }
+    return in_array(kanpro_normalize_confirm($confirm), $norm_allowed, true);
+}
+
+// Nome do cartão de Manutenção = nome da entidade (só o último nível do completename).
+// Usado tanto na conversão de um card existente quanto na criação direta na lista Pendente.
+function kanpro_maint_name_from_entity(int $entities_id, string $typed = ''): ?string {
+    global $DB;
+    if ($entities_id > 0) {
+        $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$entities_id]])->current();
+        if (!$entRow) return null;
+        $raw = trim($entRow['completename'] ?? $entRow['name'] ?? '');
+        if (strpos($raw, ' > ') !== false) {
+            $parts = explode(' > ', $raw);
+            $raw = trim(end($parts));
+        }
+        // fallback: se ainda contiver "Unidade Regional", usa name direto
+        if (stripos($raw, 'Unidade Regional de Ensino') !== false) {
+            $raw = trim($entRow['name'] ?? $raw);
+        }
+        if ($raw === '') return null;
+        return mb_substr($raw, 0, 255);
+    }
+    $raw = trim($typed);
+    if ($raw === '') return null;
+    if (strpos($raw, ' > ') !== false) {
+        $parts = explode(' > ', $raw);
+        $raw = trim(end($parts));
+    }
+    if ($raw === '') return null;
+    return mb_substr($raw, 0, 255);
+}
+
+// Efeitos comuns de "virou Manutenção": activity + chamado GLPI automático (falha não quebra).
+// $created=true quando o cartão acabou de nascer (não é conversão).
+function kanpro_finish_maintenance(int $cards_id, string $newName, int $entities_id, bool $created = false): array {
+    $c = new PluginKanproCard();
+    $bid = 0; $lid = 0;
+    if ($c->getFromDB($cards_id)) {
+        $bid = (int)($c->fields['plugin_kanpro_boards_id'] ?? 0);
+        $lid = (int)($c->fields['plugin_kanpro_lists_id'] ?? 0);
+    }
+    $msg = $created
+        ? "Cartão de Manutenção criado na lista Pendente por " . Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})"
+        : "Cartão convertido para manutenção por " . Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})";
+    PluginKanproBoard::logActivity($bid, $cards_id, $lid, 'card_maintenance_convert', $msg);
+    kanpro_touch_member($cards_id);
+    $ticketId = 0; $warn = '';
+    try {
+        $autoRes = kanpro_create_ticket_from_card($cards_id);
+        if (!empty($autoRes['ok'])) $ticketId = (int)($autoRes['id'] ?? 0);
+        else $warn = (string)($autoRes['error'] ?? 'falha desconhecida');
+    } catch (Throwable $e) { $warn = $e->getMessage(); }
+    return ['ticket_id' => $ticketId, 'ticket_warning' => $warn];
+}
+
 function kanpro_parse_maintenance_raw($raw) {
     $raw = trim($raw ?? '');
     if ($raw === '') return [];
@@ -592,6 +656,60 @@ function kanpro_find_list_by_type(int $boards_id, string $type): ?array {
         }
     } catch (Throwable $e) {}
     return null;
+}
+
+// Categorias de lista que NÃO aceitam cartão novo: são de ajuste (entram sozinhas
+// pelo Solicitar Chamado / Pegar / Notificado / Finalizar).
+function kanpro_list_blocked_for_create(string $cat): ?string {
+    $map = [
+        'andamento'    => 'Em Andamento',
+        'retirada'     => 'Retirada',
+        'done'         => 'Concluído',
+        'pend_chamado' => 'Pendência Chamado',
+    ];
+    return $map[$cat] ?? null;
+}
+
+// Categoria real da lista (list_type; p/ listas legadas sem tipo, deduz pelo nome).
+function kanpro_list_category(int $lists_id): string {
+    if ($lists_id <= 0) return '';
+    $l = new PluginKanproList();
+    if (!$l->getFromDB($lists_id)) return '';
+    $t = trim(strtolower((string)($l->fields['list_type'] ?? '')));
+    if ($t !== '' && $t !== 'none') return $t;
+    $nm = function_exists('mb_strtolower') ? mb_strtolower(trim((string)($l->fields['name'] ?? '')), 'UTF-8') : strtolower(trim((string)($l->fields['name'] ?? '')));
+    $nm = trim(strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']));
+    if ($nm === 'pendente') return 'pending';
+    if ($nm === 'em andamento') return 'andamento';
+    if ($nm === 'retirada') return 'retirada';
+    if ($nm === 'concluido' || $nm === 'concluida') return 'done';
+    if (strpos($nm, 'pendencia') !== false && strpos($nm, 'chamado') !== false) return 'pend_chamado';
+    return '';
+}
+
+// Trava de criação na lista. Devolve a categoria. 'Pendente' NÃO entra na lista de
+// bloqueio: lá o cartão nasce como Manutenção (add_pending_maintenance).
+function kanpro_need_list_allows_card(int $lists_id): string {
+    $cat = kanpro_list_category($lists_id);
+    $label = kanpro_list_blocked_for_create($cat);
+    if ($label !== null) {
+        jexit(['success'=>false,'msg'=>"A lista \"{$label}\" não aceita cartão novo."]);
+    }
+    return $cat;
+}
+
+// Cartão da lista "Pendente" já nasce como Manutenção: o nome é o da entidade e o
+// conteúdo é o checklist de máquinas — nada pode ser alterado dentro dele.
+function kanpro_card_is_locked(int $cards_id): bool {
+    if ($cards_id <= 0) return false;
+    $c = new PluginKanproCard();
+    if (!$c->getFromDB($cards_id)) return false;
+    return kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)) === 'pending';
+}
+function kanpro_need_card_editable(int $cards_id) {
+    if (kanpro_card_is_locked($cards_id)) {
+        jexit(['success'=>false,'msg'=>'Cartão da lista Pendente é travado: foi criado como Manutenção e o nome vem da entidade. Nada pode ser alterado dentro dele.']);
+    }
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
@@ -1836,6 +1954,7 @@ switch ($action) {
     case 'toggle_card_label':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $lid = (int)($_POST['labels_id'] ?? 0);
         $exists = countElementsInTable('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id'=>$cid,'plugin_kanpro_labels_id'=>$lid]);
         if ($exists) {
@@ -2489,10 +2608,67 @@ switch ($action) {
         if (!$name) jexit(['success'=>false,'msg'=>'Título obrigatório']);
         $list = new PluginKanproList();
         if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        // listas de ajuste não aceitam cartão novo (entram sozinhas pelo fluxo)
+        $cat = kanpro_need_list_allows_card($lists_id);
+        // Pendente: o cartão nasce como Manutenção (nome = entidade), nunca solto
+        if ($cat === 'pending') {
+            jexit(['success'=>false,'msg'=>'Na lista Pendente o cartão é criado direto como Manutenção.','need_maintenance'=>true]);
+        }
         $card = new PluginKanproCard();
         $id = $card->add(['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name]);
         if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão (tente de novo)']);
         jexit(['success'=>true,'id'=>$id, 'card'=>$card->fields]);
+
+    case 'add_pending_maintenance':
+        // Criação na lista "Pendente": o cartão JÁ nasce como Manutenção (checklist por
+        // máquina), com o nome vindo da entidade. Mesmo desafio de confirmação da conversão.
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $lists_id = (int)($_POST['lists_id'] ?? 0);
+        $list = new PluginKanproList();
+        if (!$lists_id || !$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        if (kanpro_need_list_allows_card($lists_id) !== 'pending') {
+            jexit(['success'=>false,'msg'=>'Só a lista com categoria "Pendente" cria cartão de Manutenção.']);
+        }
+        $confirm = $_POST['confirm_text'] ?? $_POST['confirm'] ?? '';
+        if (!kanpro_maint_challenge_ok((string)$confirm)) {
+            jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida (sem acento).','need_confirm'=>true]);
+        }
+        $entities_id = isset($_POST['entities_id']) ? (int)$_POST['entities_id'] : 0;
+        $newName = kanpro_maint_name_from_entity($entities_id, (string)($_POST['entity_name'] ?? $_POST['entities_name'] ?? ''));
+        if ($newName === null) {
+            jexit(['success'=>false,'msg'=>'Selecione a entidade. O nome do card virará o nome da entidade.','need_entity'=>true]);
+        }
+        $bid = (int)($list->fields['plugin_kanpro_boards_id'] ?? 0);
+        $now = date('Y-m-d H:i:s');
+        $actor = kanpro_acting_user_id();
+        $cardFields = [
+            'plugin_kanpro_boards_id' => $bid,
+            'plugin_kanpro_lists_id'  => $lists_id,
+            'name'                    => $newName,
+        ];
+        // add() só recebe o que existe no schema (install antigo pode não ter as colunas)
+        $after = [];
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance'))   { $cardFields['is_maintenance'] = 1; }
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_date')) { $cardFields['maintenance_date'] = $now; $after['maintenance_date'] = $now; }
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_by'))   { $cardFields['maintenance_by'] = $actor; $after['maintenance_by'] = $actor; }
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id'))      { $cardFields['entities_id'] = (int)$entities_id; }
+        $card = new PluginKanproCard();
+        $id = $card->add($cardFields);
+        if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão (tente de novo)']);
+        // is_maintenance/maintenance_* podem não ter entrado no add() (schema sem coluna) — garante
+        if ($after) {
+            $post = $after;
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) $post['is_maintenance'] = 1;
+            $DB->update('glpi_plugin_kanpro_cards', $post, ['id'=>$id]);
+        }
+        // 1 activity só: kanpro_finish_maintenance já registra a criação + gera o chamado
+        $extra = kanpro_finish_maintenance($id, $newName, $entities_id, true);
+        kanpro_touch_card($id);
+        $fresh = new PluginKanproCard();
+        $fresh->getFromDB($id);
+        jexit(['success'=>true,'id'=>(int)$id,'card'=>$fresh->fields,'is_maintenance'=>1,'new_name'=>$newName,
+            'entities_id'=>$entities_id] + $extra);
 
     case 'add_task_card':
         // criação guiada (listas A Fazer / Pautas futuras): título + checklist + prazo + urgência
@@ -2502,6 +2678,7 @@ switch ($action) {
         if (!$name) jexit(['success'=>false,'msg'=>'Título obrigatório']);
         $list = new PluginKanproList();
         if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        kanpro_need_list_allows_card($lists_id);
         $due = trim($_POST['due_date'] ?? '');
         $urgent = !empty($_POST['is_urgent']) ? 1 : 0;
         $card = new PluginKanproCard();
@@ -2554,6 +2731,7 @@ switch ($action) {
     case 'update_card':
         needEdit();
         $cid = (int)($_POST['id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $fields = [];
         if (isset($_POST['name'])) $fields['name'] = trim($_POST['name']);
         if (array_key_exists('description', $_POST)) $fields['description'] = $_POST['description'];
@@ -2576,6 +2754,13 @@ switch ($action) {
         kanpro_ensure_board_extras();
         $cid = (int)($_POST['cards_id'] ?? 0);
         $target_list = (int)($_POST['target_lists_id'] ?? 0);
+        // Pendente só recebe cartão de Manutenção (lá tudo é travado): card normal não entra
+        if (kanpro_list_category($target_list) === 'pending') {
+            $mchk = new PluginKanproCard();
+            if ($mchk->getFromDB($cid) && empty($mchk->fields['is_maintenance'])) {
+                jexit(['success'=>false,'msg'=>'A lista Pendente só recebe cartões de Manutenção. Crie o cartão por ela (ele já nasce como Manutenção).']);
+            }
+        }
         // origem p/ histórico de movimentação
         $c0 = new PluginKanproCard();
         $from_list = 0; $from_name = ''; $bid0 = 0;
@@ -2646,6 +2831,14 @@ switch ($action) {
         $fl = new PluginKanproList(); $tl = new PluginKanproList();
         if (!$fl->getFromDB($from) || !$tl->getFromDB($to)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         if ((int)$fl->fields['plugin_kanpro_boards_id'] !== (int)$tl->fields['plugin_kanpro_boards_id']) jexit(['success'=>false,'msg'=>'Listas de quadros diferentes']);
+        // Pendente só recebe cartão de Manutenção (lá tudo é travado)
+        if (kanpro_list_category($to) === 'pending') {
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$from,'is_archived'=>0]]) as $chk) {
+                if (empty($chk['is_maintenance'])) {
+                    jexit(['success'=>false,'msg'=>'A lista Pendente só recebe cartões de Manutenção — este lote tem card comum (#'.(int)$chk['id'].').']);
+                }
+            }
+        }
         $bid = (int)$fl->fields['plugin_kanpro_boards_id'];
         $cards = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$from,'is_archived'=>0],'ORDER'=>'rank ASC']);
         $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$to],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
@@ -2874,6 +3067,7 @@ switch ($action) {
     case 'archive_card':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $c = new PluginKanproCard();
         $c->getFromDB($cid);
         $new = $c->fields['is_archived'] ? 0 : 1;
@@ -2884,6 +3078,7 @@ switch ($action) {
         if (!Session::haveRight('plugin_kanpro', DELETE)) jexit(['success'=>false]);
         kanpro_ensure_board_extras();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $c = new PluginKanproCard();
         if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         // snapshot p/ lixeira antes do purge (anexos físicos não são restaurados)
@@ -3126,6 +3321,7 @@ switch ($action) {
     case 'toggle_card_member':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $uid = (int)($_POST['users_id'] ?? 0);
         $exists = countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$uid]);
         if ($exists) {
@@ -3140,6 +3336,7 @@ switch ($action) {
     case 'add_checklist':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $name = trim($_POST['name'] ?? 'Checklist');
         $cl = new PluginKanproChecklist();
         $id = $cl->add(['plugin_kanpro_cards_id'=>$cid,'name'=>$name]);
@@ -3149,6 +3346,7 @@ switch ($action) {
     case 'rename_checklist':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
+        kanpro_need_card_editable(kanpro_card_id_of_checklist($id));
         $name = trim($_POST['name'] ?? '');
         $DB->update('glpi_plugin_kanpro_checklists', ['name'=>$name], ['id'=>$id]);
         kanpro_touch_card(kanpro_card_id_of_checklist($id));
@@ -3158,6 +3356,7 @@ switch ($action) {
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
         $delCid = kanpro_card_id_of_checklist($id);
+        kanpro_need_card_editable($delCid);
         $DB->delete('glpi_plugin_kanpro_checklist_items', ['plugin_kanpro_checklists_id'=>$id]);
         $DB->delete('glpi_plugin_kanpro_checklists', ['id'=>$id]);
         kanpro_touch_card($delCid);
@@ -3166,6 +3365,7 @@ switch ($action) {
     case 'add_checkitem':
         needEdit();
         $clid = (int)($_POST['checklists_id'] ?? 0);
+        kanpro_need_card_editable(kanpro_card_id_of_checklist($clid));
         $name = trim($_POST['name'] ?? '');
         if (!$name) jexit(['success'=>false]);
         $it = new PluginKanproChecklistItem();
@@ -3180,9 +3380,10 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_checklist_items','WHERE'=>['id'=>$id]])->current();
         if (!$row) jexit(['success'=>false]);
+        $togCid = kanpro_card_id_of_checklist((int)$row['plugin_kanpro_checklists_id']);
+        kanpro_need_card_editable($togCid);
         $new = $row['is_checked'] ? 0 : 1;
         $DB->update('glpi_plugin_kanpro_checklist_items', ['is_checked'=>$new], ['id'=>$id]);
-        $togCid = kanpro_card_id_of_checklist((int)$row['plugin_kanpro_checklists_id']);
         kanpro_touch_member($togCid);
         kanpro_touch_card($togCid);
         jexit(['success'=>true,'is_checked'=>$new]);
@@ -3190,8 +3391,9 @@ switch ($action) {
     case 'rename_checkitem':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
         $rnRow = $DB->request(['SELECT' => ['plugin_kanpro_checklists_id'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['id' => $id]])->current();
+        if ($rnRow) kanpro_need_card_editable(kanpro_card_id_of_checklist((int)$rnRow['plugin_kanpro_checklists_id']));
+        $name = trim($_POST['name'] ?? '');
         $DB->update('glpi_plugin_kanpro_checklist_items', ['name'=>$name], ['id'=>$id]);
         if ($rnRow) kanpro_touch_card(kanpro_card_id_of_checklist((int)$rnRow['plugin_kanpro_checklists_id']));
         jexit(['success'=>true]);
@@ -3200,6 +3402,7 @@ switch ($action) {
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
         $delRow = $DB->request(['SELECT' => ['plugin_kanpro_checklists_id'], 'FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['id' => $id]])->current();
+        if ($delRow) kanpro_need_card_editable(kanpro_card_id_of_checklist((int)$delRow['plugin_kanpro_checklists_id']));
         $DB->delete('glpi_plugin_kanpro_checklist_items', ['id'=>$id]);
         if ($delRow) kanpro_touch_card(kanpro_card_id_of_checklist((int)$delRow['plugin_kanpro_checklists_id']));
         jexit(['success'=>true]);
@@ -3207,6 +3410,7 @@ switch ($action) {
     case 'reorder_checkitems':
         needEdit();
         $clid = (int)($_POST['checklists_id'] ?? 0);
+        kanpro_need_card_editable(kanpro_card_id_of_checklist($clid));
         $order = json_decode($_POST['order'] ?? '[]', true);
         $rank=1024;
         foreach ($order as $iid) {
@@ -3282,6 +3486,7 @@ switch ($action) {
     case 'set_cover':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $color = $_POST['cover_color'] ?? null;
         $att_id = $_POST['attachment_id'] ?? null;
         // se att_id vier, usa cor nula
@@ -3292,6 +3497,7 @@ switch ($action) {
     case 'set_dates':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $start = empty($_POST['start_date']) ? null : $_POST['start_date'];
         $due = empty($_POST['due_date']) ? null : $_POST['due_date'];
         $DB->update('glpi_plugin_kanpro_cards', ['start_date'=>$start,'due_date'=>$due], ['id'=>$cid]);
@@ -3300,6 +3506,7 @@ switch ($action) {
     case 'toggle_complete':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_card_editable($cid);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
         $new = $row['is_completed'] ? 0 : 1;
         $DB->update('glpi_plugin_kanpro_cards', ['is_completed'=>$new], ['id'=>$cid]);
@@ -3502,10 +3709,7 @@ switch ($action) {
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (!empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão já é de manutenção']);
         // 2 etapas: confirmação textual (palavra aleatória sem acento/ç) + senha
-        $norm = kanpro_normalize_confirm($confirm);
-        $challenge_words = ["PAIVA","MASSON","FERRARI","MORANGO","SAWATA","TECNICO","SUPORTE","MANUTENCAO","REPARO","DIAGNOSTICO","HARDWARE","SOFTWARE","NOTEBOOK","DESKTOP","MONITOR","TECLADO","MOUSE","IMPRESSORA","REDE","SERVIDOR","BACKUP","SEGURANCA","ATUALIZACAO","LIMPEZA","FORMATACAO","INSTALACAO","CONFIGURACAO","ATENDIMENTO","CHAMADO","TICKET","PROTOCOLO","SISTEMA","PROCESSADOR","MEMORIA","SSD","HD","PLACA","FONTE","COOLER","GABINETE","BATERIA","CARREGADOR","CABO","CONECTOR","DRIVER","FIRMWARE","BIOS","WINDOWS","LINUX","OFFICE","ANTIVIRUS","FIREWALL","VPN","WIFI","ETHERNET","SWITCH","ROTEADOR","PATCH","CABEAMENTO","ESTRUTURADO","VOIP","TELEFONIA","RAMAL","NOBREAK","ESTABILIZADOR","PROJETOR","WEBCAM","HEADSET","SCANNER","PLOTTER","TABLET","CELULAR","SMARTPHONE","CHIP","BROWSER","NAVEGADOR","EMAIL","SENHA","LOGIN","USUARIO","PERFIL","PERMISSAO","BANCO","DADOS","RELATORIO","INVENTARIO","PATRIMONIO","ATIVO","GARANTIA","CONTRATO","FORNECEDOR","CLIENTE","DEPARTAMENTO","SETOR","ALMOXARIFADO","ESTOQUE","COMPRA","LICENCA","ATIVACAO","VALIDACAO","AUTENTICACAO","CONFIRMACAO"];
-        $norm_allowed = array_map('kanpro_normalize_confirm', $challenge_words);
-        if (!in_array($norm, $norm_allowed, true)) {
+        if (!kanpro_maint_challenge_ok((string)$confirm)) {
             jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida (sem acento).','need_confirm'=>true]);
         }
         // senha opcional - fluxo atual só pede palavra (sem senha)
@@ -3515,31 +3719,9 @@ switch ($action) {
         // Entidade selecionada — nome do Card vira nome da Entidade
         $entities_id = isset($_POST['entities_id']) ? (int)$_POST['entities_id'] : 0;
         $entity_name_input = trim($_POST['entity_name'] ?? $_POST['entities_name'] ?? '');
-        $newName = null;
-        if ($entities_id > 0) {
-            $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$entities_id]])->current();
-            if (!$entRow) jexit(['success'=>false,'msg'=>'Entidade não encontrada']);
-            $rawName = trim($entRow['completename'] ?? $entRow['name'] ?? '');
-            // remove prefixo "Unidade Regional de Ensino de Jales > " — usa apenas último nível
-            if (strpos($rawName, ' > ') !== false) {
-                $parts = explode(' > ', $rawName);
-                $rawName = trim(end($parts));
-            }
-            // fallback: se ainda contiver "Unidade Regional", usa name direto
-            if (stripos($rawName, 'Unidade Regional de Ensino') !== false) {
-                $rawName = trim($entRow['name'] ?? $rawName);
-            }
-            $newName = $rawName;
-            if ($newName === '') jexit(['success'=>false,'msg'=>'Nome da entidade vazio']);
-            $newName = mb_substr($newName, 0, 255);
-        } elseif ($entity_name_input !== '') {
-            $rawInput = $entity_name_input;
-            if (strpos($rawInput, ' > ') !== false) {
-                $parts = explode(' > ', $rawInput);
-                $rawInput = trim(end($parts));
-            }
-            $newName = mb_substr($rawInput, 0, 255);
-        } else {
+        $newName = kanpro_maint_name_from_entity($entities_id, $entity_name_input);
+        if ($newName === null) {
+            if ($entities_id > 0) jexit(['success'=>false,'msg'=>'Entidade não encontrada']);
             jexit(['success'=>false,'msg'=>'Selecione a entidade. O nome do card virará o nome da entidade.','need_entity'=>true]);
         }
         $updateData = [
@@ -3554,20 +3736,8 @@ switch ($action) {
             $updateData['entities_id'] = (int)$entities_id;
         }
         $DB->update('glpi_plugin_kanpro_cards', $updateData, ['id' => $cid]);
-        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'card_maintenance_convert', "Cartão convertido para manutenção por ". Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})");
-        kanpro_touch_member($cid);
-        // gera chamado GLPI automaticamente (não bloqueia a conversão se falhar)
-        $autoTicketId = 0;
-        $autoTicketWarn = '';
-        try {
-            $autoRes = kanpro_create_ticket_from_card($cid);
-            if (!empty($autoRes['ok'])) {
-                $autoTicketId = (int)($autoRes['id'] ?? 0);
-            } else {
-                $autoTicketWarn = $autoRes['error'] ?? 'falha desconhecida';
-            }
-        } catch (Throwable $e) { $autoTicketWarn = $e->getMessage(); }
-        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1,'new_name'=>$newName,'entities_id'=>$entities_id,'ticket_id'=>$autoTicketId,'ticket_warning'=>$autoTicketWarn]);
+        $extra = kanpro_finish_maintenance($cid, $newName, $entities_id);
+        jexit(['success'=>true,'msg'=>'Card convertido para manutenção','is_maintenance'=>1,'new_name'=>$newName,'entities_id'=>$entities_id] + $extra);
 
     case 'verify_maintenance_password':
         // endpoint auxiliar só para validar senha antes de converter (usado em fluxo 2 etapas separado)

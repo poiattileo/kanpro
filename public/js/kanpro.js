@@ -806,6 +806,16 @@
       if(collapsed) div.classList.add('collapsed');
       const isRestricted = !!(list.is_restricted || (list.viewer_ids && list.viewer_ids.length));
       const lockHtml = isRestricted ? `<span class="kp-list-lock" title="Lista restrita — só algumas pessoas veem" style="display:inline-flex;align-items:center;gap:2px;background:#fffae6;border:1px solid #ffab00;color:#975500;font-size:11px;font-weight:700;padding:1px 6px;border-radius:10px;white-space:nowrap"><i class="ti ti-lock" style="font-size:11px"></i>🔒</span>` : '';
+      // "+ cartão" depende da categoria: travado nas de ajuste, vira criação de Manutenção na Pendente
+      const lt0 = this.listTypeOf(list);
+      const code0 = lt0 ? lt0.code : '';
+      const blocked0 = !!this.LIST_CREATE_BLOCKED[code0];
+      const isMaint0 = (code0 === 'pending');
+      const addCardHtml = blocked0
+        ? `<button class="kp-add-card" disabled style="opacity:.5;cursor:not-allowed" title="A lista &quot;${this.escape(lt0.label)}&quot; não aceita cartão novo — ele entra pelo fluxo"><i class="ti ti-lock" style="font-size:13px"></i> Não é possível criar cartão aqui</button>`
+        : (isMaint0
+          ? `<button class="kp-add-card" onclick="Kanpro.showAddCard(event, ${list.id})" title="O cartão nasce direto como Manutenção (o nome vem da entidade)"><i class="ti ti-tool" style="font-size:13px"></i> Novo cartão de Manutenção</button>`
+          : `<button class="kp-add-card" onclick="Kanpro.showAddCard(event, ${list.id})"><i class="ti ti-plus"></i> Adicionar um cartão</button>`);
       div.innerHTML = `
         <div class="kp-list-header">
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
@@ -818,7 +828,7 @@
         </div>
         <div class="kp-list-cards" data-list-id="${list.id}">
         </div>
-        <button class="kp-add-card" onclick="Kanpro.showAddCard(event, ${list.id})"><i class="ti ti-plus"></i> Adicionar um cartão</button>
+        ${addCardHtml}
         <div class="kp-card-composer" style="display:none">
           <textarea placeholder="Digite um título para este cartão..." rows="3"></textarea>
           <div class="kp-composer-actions">
@@ -1573,6 +1583,28 @@
         </button>${extra}`;
       box.style.display = 'flex';
     },
+    // ---------- TRAVA: cartão da lista "Pendente" ----------
+    // Nasce como Manutenção (nome vem da entidade, conteúdo é o checklist de máquinas):
+    // nada pode ser alterado dentro dele. Comentários/anexos continuam (são registro).
+    isCardLocked(cardOrData){
+      const ref = (cardOrData && typeof cardOrData === 'object')
+        ? cardOrData
+        : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
+      if(!ref) return false;
+      if(this.isCardInListType(ref, 'pending')) return true;
+      // fallback: lista pode não estar no cache filtrado — usa o nome que veio do modal
+      try {
+        const src = ref.list_name !== undefined ? ref : (this._lastModalData && this._lastModalData.id === ref.id ? this._lastModalData : null);
+        const nm = this.normText(String((src && src.list_name) || '')).trim();
+        return nm === 'pendente';
+      } catch(e){ return false; }
+    },
+    // Devolve true (e avisa) quando o cartão é travado — use no início das ações de edição.
+    cardLockedGuard(cardId){
+      if(!this.isCardLocked(cardId==null ? this.currentCardId : cardId)) return false;
+      this.showToast('🔒 Cartão da lista Pendente é travado — nada pode ser alterado dentro dele');
+      return true;
+    },
     // ---------- PENDÊNCIA CHAMADO ----------
     isCardInListType(cardOrId, code){
       try {
@@ -2096,6 +2128,13 @@
       // listas A Fazer / Pautas futuras: criação guiada (título + checklist + prazo + urgência)
       const list = this.lists.find(l=> l.id==listId);
       const lt = this.listTypeOf(list);
+      // listas de ajuste não aceitam cartão novo
+      if(lt && this.LIST_CREATE_BLOCKED[lt.code]){
+        this.showToast('🚫 A lista "' + lt.label + '" não aceita cartão novo');
+        return;
+      }
+      // Pendente: o cartão nasce direto como Manutenção (nome vem da entidade)
+      if(lt && lt.code === 'pending'){ this.showMaintenanceStep1(listId); return; }
       if(lt && (lt.code === 'todo' || lt.code === 'backlog')){ this.openTaskCardModal(listId); return; }
       const listEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
       listEl.querySelector('.kp-add-card').style.display='none';
@@ -2252,6 +2291,7 @@
     },
     async quickEditCard(cardId, e){
       e.stopPropagation();
+      if(this.cardLockedGuard(cardId)) return;
       const card = this.cards.find(c=> c.id==cardId);
       const newName = await this.kpPrompt('Editar título do cartão:', card.name);
       if(newName && newName!==card.name){
@@ -2305,6 +2345,22 @@
       const createdEl = $('#card-modal-created');
       if(createdEl) createdEl.textContent = data.date_creation ? ` • 🕐 Criado em ${this.formatDate(data.date_creation)}` : '';
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
+      // cartão da lista Pendente = Manutenção: mostra a trava e esconde os controles de edição
+      const locked = this.isCardLocked(data);
+      this._cardLocked = locked;
+      const lockBox = $('#card-modal-lock');
+      if(lockBox){
+        lockBox.style.display = locked ? 'block' : 'none';
+        lockBox.innerHTML = locked
+          ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Cartão da lista Pendente é travado — foi criado como Manutenção e o nome vem da entidade. Título, descrição, etiquetas, responsáveis, datas, capa e checklists não podem ser alterados.</div>'
+          : '';
+      }
+      $('#card-modal-title').style.cursor = locked ? 'default' : 'pointer';
+      $('#card-modal-desc').style.cursor = locked ? 'default' : 'pointer';
+      const descEditBtn = document.getElementById('card-modal-desc-edit-btn');
+      if(descEditBtn) descEditBtn.style.display = locked ? 'none' : '';
+      const addClBtn = document.getElementById('card-modal-add-checklist');
+      if(addClBtn) addClBtn.style.display = locked ? 'none' : '';
       // botão Notificado (aberto) — SÓ Retirada
       try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0, data); } catch(e){}
       // pendência chamado / pegar / solicitar (botões do fluxo)
@@ -2329,7 +2385,7 @@
         membersList.innerHTML = data.members.map(m=>{
           const initials = (m.firstname?.[0]||m.name?.[0]||'?').toUpperCase();
           return this.avatarHtml(m.picture_url, initials, m.realname||m.name);
-        }).join('') + `<button onclick="Kanpro.openMembersPicker()" style="width:28px;height:28px;border-radius:50%;border:none;background:#dfe1e6;cursor:pointer"><i class="ti ti-plus"></i></button>`;
+        }).join('') + (locked ? '' : `<button onclick="Kanpro.openMembersPicker()" style="width:28px;height:28px;border-radius:50%;border:none;background:#dfe1e6;cursor:pointer"><i class="ti ti-plus"></i></button>`);
       } else { membersWrap.style.display='none'; membersList.innerHTML=''; }
 
       // labels
@@ -2337,7 +2393,7 @@
       const labelsList = $('#card-modal-labels-list');
       if(data.labels && data.labels.length){
         labelsWrap.style.display='block';
-        labelsList.innerHTML = data.labels.map(l=>`<span style="background:${this.escape(l.color)};color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700">${this.escape(l.name||' ')}</span>`).join('') + `<button onclick="Kanpro.openLabelsPicker()" style="background:#dfe1e6;border:none;padding:4px 8px;border-radius:4px;cursor:pointer"><i class="ti ti-plus"></i></button>`;
+        labelsList.innerHTML = data.labels.map(l=>`<span style="background:${this.escape(l.color)};color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700">${this.escape(l.name||' ')}</span>`).join('') + (locked ? '' : `<button onclick="Kanpro.openLabelsPicker()" style="background:#dfe1e6;border:none;padding:4px 8px;border-radius:4px;cursor:pointer"><i class="ti ti-plus"></i></button>`);
       } else { labelsWrap.style.display='none'; }
 
       // dates
@@ -2348,9 +2404,9 @@
         datesWrap.style.display='block';
         const due = data.due_date ? this.formatDate(data.due_date) + (data.is_completed? ' ✅ Concluído':'') : '';
         const start = data.start_date ? this.formatDate(data.start_date) + ' → ' : '';
-        datesVal.innerHTML = start + due + urgChip + ` <label style="margin-left:8px"><input type="checkbox" ${data.is_completed?'checked':''} onchange="Kanpro.toggleComplete(${data.id}, this.checked)"> Concluído</label>`;
-        datesVal.style.cursor='pointer';
-        datesVal.onclick = ()=> this.openDatesPicker();
+        datesVal.innerHTML = start + due + urgChip + (locked ? '' : ` <label style="margin-left:8px"><input type="checkbox" ${data.is_completed?'checked':''} onchange="Kanpro.toggleComplete(${data.id}, this.checked)"> Concluído</label>`);
+        datesVal.style.cursor = locked ? 'default' : 'pointer';
+        datesVal.onclick = locked ? null : ()=> this.openDatesPicker();
       } else { datesWrap.style.display='none'; }
 
       // chamado GLPI vinculado
@@ -2393,21 +2449,21 @@
         div.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <strong><i class="ti ti-checkbox"></i> ${this.escape(cl.name)}</strong>
-            <button onclick="Kanpro.deleteChecklist(${cl.id})" style="background:none;border:none;cursor:pointer;color:#6b778c">Excluir</button>
+            ${locked ? '' : `<button onclick="Kanpro.deleteChecklist(${cl.id})" style="background:none;border:none;cursor:pointer;color:#6b778c">Excluir</button>`}
           </div>
           ${total?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:11px">${pct}%</span><div class="kp-progress"><div class="kp-progress-bar" style="width:${pct}%"></div></div></div>`:''}
           <div class="kp-checkitems" data-cl-id="${cl.id}">
             ${cl.items.map(it=>`
               <div class="kp-checkitem ${it.is_checked?'checked':''}" data-item-id="${it.id}">
-                <input type="checkbox" ${it.is_checked?'checked':''} onchange="Kanpro.toggleCheckItem(${it.id}, this.checked)">
-                <span style="flex:1;cursor:pointer" onclick="Kanpro.editCheckItem(${it.id})">${this.escape(it.name)}</span>
-                <button onclick="Kanpro.deleteCheckItem(${it.id})" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-trash"></i></button>
+                <input type="checkbox" ${it.is_checked?'checked':''} ${locked?'disabled':''} onchange="Kanpro.toggleCheckItem(${it.id}, this.checked)">
+                <span style="flex:1;cursor:${locked?'default':'pointer'}" onclick="${locked?'':`Kanpro.editCheckItem(${it.id})`}">${this.escape(it.name)}</span>
+                ${locked ? '' : `<button onclick="Kanpro.deleteCheckItem(${it.id})" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-trash"></i></button>`}
               </div>`).join('')}
           </div>
-          <div style="display:flex;gap:8px;margin-top:8px">
+          ${locked ? '' : `<div style="display:flex;gap:8px;margin-top:8px">
             <input type="text" placeholder="Adicionar um item" style="flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px" onkeydown="if(event.key==='Enter') Kanpro.addCheckItem(${cl.id}, this)">
             <button onclick="Kanpro.addCheckItem(${cl.id}, this.previousElementSibling)" style="background:#0079bf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer">Adicionar</button>
-          </div>
+          </div>`}
         `;
         clContainer.appendChild(div);
       });
@@ -2888,9 +2944,24 @@
         }
       }, 900);
     },
-    showMaintenanceStep1(){
+    showMaintenanceStep1(createListId){
+      // createListId preenchido = criação na lista Pendente (o card nasce como Manutenção);
+      // sem ele = conversão de um card que já existe.
+      const isCreate = !!createListId;
+      this._maintIsCreate = isCreate;
+      if(isCreate) this._maintCreateListId = createListId;
+      const P = {
+        title:   isCreate ? 'Novo Cartão — Manutenção' : 'Confirmação — Manutenção',
+        head:    isCreate ? 'Novo Cartão de Manutenção' : 'Gerenciar Manutenção',
+        sub:     isCreate ? 'O cartão nasce como Manutenção e o nome vem da entidade' : 'O nome do card vira o nome da entidade selecionada',
+        warn:    isCreate ? 'Este cartão será criado <strong>já como Manutenção</strong>, com checklist por máquina (1 em diante).' : 'Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).',
+        cta:     isCreate ? 'Criar Manutenção' : 'Confirmar e Converter',
+        loading: isCreate ? 'Carregando entidades...' : 'Carregando entidades...',
+        submit:  isCreate ? 'confirmPendingMaintenanceCreate()' : 'confirmMaintenanceStep1()',
+        regen:   isCreate ? 'Gerar outra palavra' : 'Gerar outra palavra',
+      };
       // Busca entidades GLPI antes de mostrar desafio — nome do Card virará nome da Entidade
-      this.showPicker({title:"Confirmação — Manutenção", html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>Carregando entidades...</div>'});
+      this.showPicker({title:P.title, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>'+P.loading+'</div>'});
       this.ajax("list_entities", {}).then(res=>{
         let entities = (res && res.success && Array.isArray(res.entities)) ? res.entities : [];
         // fallback se listagem vazia
@@ -2928,8 +2999,8 @@
         <div class="mh-grid">
           <div class="mh-banner">
             <span style="font-size:26px">🛠️</span>
-            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Gerenciar Manutenção</div>
-            <div style="font-size:12px;opacity:.85">O nome do card vira o nome da entidade selecionada</div></div>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">${P.head}</div>
+            <div style="font-size:12px;opacity:.85">${P.sub}</div></div>
           </div>
           <div class="mh-step"><span class="mh-num">1</span>
             <div style="flex:1;min-width:0"><div class="mh-label">ENTIDADE</div>
@@ -2946,7 +3017,7 @@
           <div class="mh-step"><span class="mh-num">2</span>
             <div style="flex:1;min-width:0"><div class="mh-label">CONFIRMAÇÃO</div>
             <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:8px;color:#172b4d;font-size:12px;line-height:1.4;margin-bottom:8px">
-              <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).
+              <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — ${P.warn}
             </div>
             <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
               <div style="font-size:10px;opacity:.7;letter-spacing:0.04em">DIGITE A PALAVRA ABAIXO</div>
@@ -2958,12 +3029,12 @@
           </div>
           <div style="display:flex;gap:8px">
             <button onclick="Kanpro.closePicker()" class="mh-cancel" style="flex:0 0 110px">Cancelar</button>
-            <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" class="mh-confirm" style="flex:1">Confirmar e Converter</button>
+            <button id="maint-step1-btn" onclick="Kanpro.${P.submit}" class="mh-confirm" style="flex:1">${P.cta}</button>
           </div>
-          <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+          <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1(${isCreate ? createListId : ''});return false" style="font-size:11px;color:#5e6c84">${P.regen}</a></div>
         </div>
         `;
-        this.showPicker({title:"Confirmação — Manutenção", html});
+        this.showPicker({title:P.title, html});
         setTimeout(()=>{
           const picker = document.getElementById("kanpro-picker");
           const body = document.getElementById("picker-body");
@@ -2983,7 +3054,7 @@
           if(search) search.focus();
           // renderiza dropdown inicial com todas (filtradas já)
           this.renderEntityDropdown("");
-          if(inp){ inp.addEventListener("keydown", e=>{ if(e.key==="Enter") Kanpro.confirmMaintenanceStep1(); }); }
+          if(inp){ inp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ this._maintIsCreate ? this.confirmPendingMaintenanceCreate() : this.confirmMaintenanceStep1(); } }); }
           if(search){
             search.addEventListener("keydown", e=>{
               if(e.key==="Enter"){
@@ -3033,11 +3104,11 @@
             <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
               <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
-              <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Confirmar e Converter</button>
+              <button id="maint-step1-btn" onclick="Kanpro.${P.submit}" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">${P.cta}</button>
             </div>
           </div>
         `;
-        this.showPicker({title:"Confirmação — Manutenção", html});
+        this.showPicker({title:P.title, html});
       });
     },
     confirmMaintenanceStep1(){
@@ -3084,6 +3155,73 @@
         const c = this.cards.find(x=> String(x.id)===String(this.currentCardId));
         if(c){ c.is_maintenance=1; if(res.new_name) c.name=res.new_name; this.renderBoard(); }
         this.refreshCardModal((r)=>{ if(r&&r.success) setTimeout(()=> this.openMaintenanceSetup(), 400); else location.reload(); });
+      });
+    },
+    // Criação na lista Pendente: mesmo desafio/entidade, mas o card nasce como Manutenção.
+    confirmPendingMaintenanceCreate(){
+      const sel = document.getElementById("maint-entity-select");
+      const search = document.getElementById("maint-entity-search");
+      const entErr = document.getElementById("maint-entity-error");
+      const entities_id = sel ? parseInt(sel.value||"0") : 0;
+      if(!entities_id){
+        if(entErr){ entErr.textContent="Selecione a entidade. O nome do cartão virá o nome dela."; entErr.style.display="block"; }
+        if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showEntityDropdown(); }
+        return;
+      }
+      if(entErr) entErr.style.display="none";
+      if(search) search.style.borderColor="#52c41a";
+      if(sel) sel.style.borderColor="#1890ff";
+      const inp = document.getElementById("maint-confirm-input");
+      const err = document.getElementById("maint-step1-error");
+      const btn = document.getElementById("maint-step1-btn");
+      const val = (inp?.value||"").trim().toUpperCase();
+      const challenge = (this._maintChallenge||"").toUpperCase();
+      const strip = (s)=> s.normalize ? s.normalize("NFD").replace(/[\u0300-\u036f]/g,"") : s;
+      if(!val || strip(val) !== strip(challenge)){
+        if(err){ err.textContent=`Digite exatamente "${challenge}" para continuar.`; err.style.display="block"; }
+        inp.style.borderColor="#eb5a46";
+        inp.focus();
+        inp.select();
+        return;
+      }
+      const listId = this._maintCreateListId;
+      if(!listId){ if(err){ err.textContent="Lista de destino inválida"; err.style.display="block"; } return; }
+      if(btn){ btn.disabled=true; btn.textContent="Criando..."; }
+      if(err){ err.style.display="none"; }
+      this.ajax("add_pending_maintenance", {lists_id: listId, confirm_text: challenge, entities_id: entities_id}).then(res=>{
+        if(btn){ btn.disabled=false; btn.textContent="Criar Manutenção"; }
+        if(!res.success){
+          if(err){ err.textContent=res.msg||"Falha ao criar"; err.style.display="block"; }
+          return;
+        }
+        this.closePicker();
+        this._maintCreateListId = null;
+        this._maintIsCreate = false;
+        const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: res.new_name, rank: 999999, is_maintenance:1, is_archived:0, is_notified:0};
+        newCard.is_maintenance = 1;
+        if(res.new_name) newCard.name = res.new_name;
+        this.cards.push(newCard);
+        this.cardLabels[newCard.id]=[];
+        this.cardMembers[newCard.id]=[];
+        this.commentCounts[newCard.id]=0;
+        this.attCounts[newCard.id]=0;
+        this.checkProgress[newCard.id]={total:0,done:0};
+        this.renderBoard();
+        this.updateStats();
+        this.showToast("Cartão de Manutenção criado — " + (res.new_name||""));
+        // handleConvertTicket() depende do modal aberto: aqui o card acabou de nascer
+        if(res.ticket_id){
+          this.ticketMap[newCard.id] = {id: res.ticket_id, name:'', restricted:true, status:1, status_label:'Novo'};
+          newCard.tickets_id = res.ticket_id;
+          this.showToast('Chamado #' + res.ticket_id + ' criado automaticamente!');
+        } else if(res.ticket_warning){
+          this.showToast('Chamado não criado: ' + res.ticket_warning);
+        }
+        setTimeout(()=>{
+          this.openCard(res.id);
+          // cartão já nasceu Manutenção: cai direto na configuração das máquinas
+          setTimeout(()=> this.openMaintenanceSetup(), 800);
+        }, 350);
       });
     },
     filterMaintEntities(q){ this.onEntitySearch(q); },
@@ -4116,6 +4254,8 @@
     },
 
     async editCardTitle(){
+      // cartão travado (lista Pendente): nem título nem entidade mudam
+      if(this.cardLockedGuard()) return;
       const cur = this.cards.find(c=> c.id==this.currentCardId);
       const data = this._lastModalData;
       const isMaint = data && data.is_maintenance==1;
@@ -4136,6 +4276,7 @@
       }
     },
     editMaintenanceCardTitle(customTitle){
+      if(this.cardLockedGuard()) return;
       const pickerTitle = customTitle || "Alterar entidade — Manutenção";
       const cur = this.cards.find(c=> c.id==this.currentCardId);
       if(!cur) return;
@@ -4381,6 +4522,7 @@
       });
     },
     editDescription(){
+      if(this.cardLockedGuard()) return;
       const ta = $('#card-desc-edit');
       if(!ta || ta.style.display !== 'none') return; // já editando
       this._descOrig = ta.value;
@@ -4433,6 +4575,7 @@
 
     // Members picker
     openMembersPicker(){
+      if(this.cardLockedGuard()) return;
       const cardId = this.currentCardId;
       const members = this.cardMembers[cardId]||[];
       const memberIds = new Set(members.map(m=> m.users_id));
@@ -4481,6 +4624,7 @@
 
     // Labels picker
     openLabelsPicker(){
+      if(this.cardLockedGuard()) return;
       const cardId = this.currentCardId;
       const cardLabelIds = new Set((this.cardLabels[cardId]||[]).map(l=> l.id));
       let html = `<div style="display:grid;gap:6px">`;
@@ -4564,6 +4708,7 @@
 
     // Checklist
     async addChecklist(){
+      if(this.cardLockedGuard()) return;
       const name = await this.kpPrompt('Nome do checklist:', 'Checklist');
       if(!name) return;
       this.ajax('add_checklist', {cards_id: this.currentCardId, name}).then(res=>{
@@ -4574,12 +4719,14 @@
       this.addChecklist();
     },
     async deleteChecklist(id){
+      if(this.cardLockedGuard()) return;
       if(!await this.kpConfirm('Excluir checklist?')) return;
       this.ajax('delete_checklist', {id}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
       });
     },
     addCheckItem(clId, input){
+      if(this.cardLockedGuard()) return;
       const name = input.value.trim();
       if(!name) return;
       this.ajax('add_checkitem', {checklists_id: clId, name}).then(res=>{
@@ -4587,6 +4734,7 @@
       });
     },
     toggleCheckItem(itemId, checked){
+      if(this.cardLockedGuard()) return;
       this.ajax('toggle_checkitem', {id: itemId}).then(res=>{
         if(res.success){
           this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
@@ -4594,6 +4742,7 @@
       });
     },
     async editCheckItem(itemId){
+      if(this.cardLockedGuard()) return;
       const novo = await this.kpPrompt('Editar item:');
       if(novo===null) return;
       this.ajax('rename_checkitem', {id: itemId, name: novo}).then(res=>{
@@ -4601,6 +4750,7 @@
       });
     },
     deleteCheckItem(itemId){
+      if(this.cardLockedGuard()) return;
       this.ajax('delete_checkitem', {id: itemId}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.updateCheckProgressLocal(r.data); } });
       });
@@ -4803,6 +4953,7 @@
 
     // Dates
     openDatesPicker(){
+      if(this.cardLockedGuard()) return;
       const card = this.cards.find(c=> c.id==this.currentCardId);
       const html = `
         <div style="display:grid;gap:12px">
@@ -4844,12 +4995,14 @@
       if(c){ c.start_date=start||null; c.due_date=due||null; c.is_completed=complete; if(urgent!==undefined) c.is_urgent=urgent; this.renderBoard(); }
     },
     toggleComplete(cardId, checked){
+      if(this.cardLockedGuard(cardId)) return;
       this.ajax('toggle_complete', {cards_id: cardId}).then(res=>{
         if(res.success){ const c=this.cards.find(x=>x.id==cardId); if(c) c.is_completed=res.is_completed; this.ajax('get_card', {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); }); }
         else { alert(res.msg || 'Não foi possível salvar'); this.forceSync(); }
       });
     },
     openCoverPicker(){
+      if(this.cardLockedGuard()) return;
       const card = this.cards.find(c=> c.id==this.currentCardId);
       const colors = ['#61bd4f','#f2d600','#ff9f1a','#eb5a46','#c377e0','#0079bf','#00b8d9','#ff78cb','#344563','#6b778c'];
       let html = `<div style="display:grid;gap:8px"><div style="font-weight:600">Cor da capa</div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">`;
@@ -4861,6 +5014,7 @@
       this.showPicker({title:'Capa', html});
     },
     setCover(color){
+      if(this.cardLockedGuard()) return;
       this.ajax('set_cover', {cards_id: this.currentCardId, cover_color: color}).then(res=>{
         if(res.success){ const c=this.cards.find(x=>x.id==this.currentCardId); if(c) c.cover_color=color||null; this.closePicker(); this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); }); }
       });
@@ -4895,12 +5049,14 @@
       });
     },
     async archiveCard(){
+      if(this.cardLockedGuard()) return;
       if(!await this.kpConfirm('Arquivar este cartão?')) return;
       this.ajax('archive_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }
       });
     },
     async deleteCard(){
+      if(this.cardLockedGuard()) return;
       if(!await this.kpConfirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
       this.ajax('delete_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }
@@ -5401,6 +5557,9 @@
     },
     // estas categorias só notificam no Seus Quadros — no kanban ficam invisíveis
     LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, pend_chamado: 1},
+    // categorias de ajuste: o cartão entra sozinho pelo fluxo (Solicitar Chamado / Pegar /
+    // Notificado / Finalizar) — nunca se cria cartão novo aqui
+    LIST_CREATE_BLOCKED: {andamento: 1, retirada: 1, done: 1, pend_chamado: 1},
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
