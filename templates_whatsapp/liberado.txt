@@ -1,13 +1,14 @@
 # KanPro • WhatsApp de LIBERADO (texto puro, sem HTML)
 # Gatilho: confirm_chamado_created + 25s (scheduleLiberadoZap no kanban)
 # Destinatário: técnico(s) membro(s) do card origem (fone do cadastro GLPI)
-# Placeholders: {tecnico} {card_id} {card_nome} {escola} {quadro}
+# Placeholders: {card_id} {card_nome} {escola} {quadro}
 #               {origem_id} {origem_nome} {chamado_id} {chamado_nome}
 #               {quantidade} {maquinas} {solicitado_por} {data}
+# {tecnico} continua sendo enviado, mas o texto fixa o nome do responsável.
 
 ✅ *CHAMADO CRIADO — MÁQUINAS LIBERADAS*
 
-Olá *{tecnico}*! Confirmação que o chamado foi criado e maquinas liberadas para os Técnicos realizarem a manutenção.
+Olá *Cristian Akio Sawata*! Confirmação que o chamado foi criado e maquinas liberadas para os Técnicos realizarem a manutenção.
 
 🎫 Chamado *#{chamado_id} "{chamado_nome}"*
 📋 Pendência *#{card_id} "{card_nome}"* | Origem *#{origem_id} "{origem_nome}"*
