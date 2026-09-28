@@ -511,10 +511,11 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
 }
 
 // Categorias de lista (listas de ajuste): backlog=Pautas futuras, todo=A Fazer,
-// doing=Em Progresso, done=Concluído. '' = lista normal.
+// doing=Em Progresso, done=Concluído. '' = lista normal (vale dedução pelo nome p/ legado),
+// 'none' = normal explícito (usuário tirou a categoria: nome NÃO reaplica).
 function kanpro_valid_list_type(string $t): string {
     $t = trim(strtolower($t));
-    return in_array($t, ['backlog', 'todo', 'doing', 'done'], true) ? $t : '';
+    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'none'], true) ? $t : '';
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.

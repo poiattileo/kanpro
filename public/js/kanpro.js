@@ -1069,8 +1069,9 @@
     },
     openListTypePicker(listId){
       const list = this.lists.find(l=> l.id==listId);
-      const cur = String(list?.list_type || '');
-      const opts = [{code:'', label:'Normal (sem categoria)', color:'#dfe1e6', fg:'#5e6c84', dot:'—'}]
+      const curRaw = String(list?.list_type || '');
+      const cur = (curRaw === '' ? 'none' : curRaw);
+      const opts = [{code:'none', label:'Normal (sem categoria)', color:'#dfe1e6', fg:'#5e6c84', dot:'—'}]
         .concat(Object.keys(this.LIST_TYPES).map(k=> Object.assign({code:k}, this.LIST_TYPES[k])));
       this.showPicker({
         title: `Categoria da lista: ${list ? list.name : ''}`,
@@ -1088,7 +1089,7 @@
         if(res.success){
           const l = this.lists.find(x=> x.id==listId);
           if(l) l.list_type = res.list_type || '';
-          const t = res.list_type ? this.LIST_TYPES[res.list_type] : null;
+          const t = (res.list_type && res.list_type !== 'none') ? this.LIST_TYPES[res.list_type] : null;
           this.showToast(t ? `Lista marcada como "${t.label}"` : 'Categoria removida (lista normal)');
           this.renderBoard();
         } else alert(res.msg||'Erro');
@@ -4211,6 +4212,7 @@
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
+      if(t === 'none') return null; // normal explícito: nome não reaplica categoria
       if(t && this.LIST_TYPES[t]) return Object.assign({code: t}, this.LIST_TYPES[t]);
       // legado (lista sem tipo): deduz pelo nome
       const n = this.normText(list.name || '').trim();

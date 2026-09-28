@@ -130,7 +130,8 @@ if (count($iterator) === 0) {
         foreach ($lists as $l) {
             $cnt = $list_counts[(int)$l['id']] ?? 0;
             if ($cnt <= 0) continue; // lista vazia: não aparece nada
-            // cor pela categoria da lista; legado sem categoria deduz pelo nome
+            // cor pela categoria da lista; legado sem categoria (vazio) deduz pelo nome;
+            // 'none' = normal explícito: nome NÃO reaplica categoria
             $ltype = trim(strtolower($l['list_type'] ?? ''));
             if ($ltype === '') {
                 $lnorm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
