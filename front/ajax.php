@@ -2814,6 +2814,50 @@ switch ($action) {
         $c->delete(['id'=>$cid], true);
         jexit(['success'=>true]);
 
+    case 'delete_liberado_pendencia':
+        // Auto-exclusão 30s após Chamado criado: só pendência liberada + só admin do quadro (vale sem DELETE global).
+        needEdit();
+        kanpro_ensure_board_extras();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>true,'already_deleted'=>true]);
+        if ((int)($pc->fields['chamado_source_id'] ?? 0) <= 0) jexit(['success'=>false,'msg'=>'Só Pendência Chamado se auto-exclui']);
+        if (($pc->fields['chamado_status'] ?? '') !== 'liberado') jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado criado)']);
+        $bidD = (int)$pc->fields['plugin_kanpro_boards_id'];
+        // admin do quadro? (criador/admin/UPDATE — mesma regra do Chamado criado)
+        $canD = false;
+        try {
+            if (Session::haveRight('plugin_kanpro', UPDATE)) $canD = true;
+            else {
+                $vids = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
+                $bD = new PluginKanproBoard();
+                if ($bD->getFromDB($bidD) && in_array((int)($bD->fields['users_id'] ?? 0), $vids, true) && (int)($bD->fields['users_id'] ?? 0) > 0) $canD = true;
+                else {
+                    foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bidD, 'users_id' => $vids]]) as $mr) {
+                        if (($mr['role'] ?? '') === 'admin') { $canD = true; break; }
+                    }
+                    if (!$canD && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($bidD) === 'admin') $canD = true;
+                }
+            }
+        } catch (Throwable $e) {}
+        if (!$canD) jexit(['success'=>false,'msg'=>'Somente admin do quadro']);
+        $full = PluginKanproCard::getFullData($pid);
+        $ll = new PluginKanproList();
+        $lname = $ll->getFromDB((int)$pc->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
+        try {
+            $DB->insert('glpi_plugin_kanpro_trash', [
+                'plugin_kanpro_boards_id'=>(int)$pc->fields['plugin_kanpro_boards_id'],
+                'plugin_kanpro_lists_id'=>(int)$pc->fields['plugin_kanpro_lists_id'],
+                'list_name'=>$lname, 'card_name'=>$pc->fields['name'],
+                'snapshot'=>json_encode($full, JSON_UNESCAPED_UNICODE),
+                'users_id'=>kanpro_acting_user_id(), 'date_creation'=>date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {}
+        PluginKanproBoard::logActivity($bidD, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', "Pendência #{$pid} auto-excluída 30s após Chamado criado");
+        $pc->delete(['id'=>$pid], true);
+        jexit(['success'=>true,'deleted'=>true]);
+
     case 'get_history':
         try {
         $bid = (int)($_REQUEST['boards_id'] ?? 0);

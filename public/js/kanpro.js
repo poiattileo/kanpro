@@ -311,6 +311,22 @@
         this.members = res.members || [];
         this.transferStatus = res.transferStatus || {};
 
+        // retoma auto-exclusão de pendências liberadas (mesmo sem abrir o modal — 30s desde date_mod)
+        try {
+          (this.cards||[]).forEach(c=>{
+            if(c && Number(c.chamado_source_id||0) > 0 && String(c.chamado_status||'') === 'liberado'){
+              if(this._autoDelTimers && this._autoDelTimers[c.id]) return;
+              let remain = 30;
+              if(c.date_mod){
+                const ts = new Date(String(c.date_mod).replace(' ', 'T')).getTime();
+                if(!isNaN(ts)) remain = 30 - Math.floor((Date.now() - ts) / 1000);
+              }
+              if(remain <= 0) remain = 2;
+              if(remain <= 30) this.schedulePendenciaAutoDelete(c.id, Math.min(30, remain));
+            }
+          });
+        } catch(e){}
+
         this.renderBoard();
         this.updateShowHiddenBtn();
         this.renderMemberAvatars();
@@ -1602,9 +1618,20 @@
         const srcName = data.chamado_source_name || ('#' + (data.chamado_source_id||''));
         const isLib = (st === 'liberado');
         if(act){
-          act.innerHTML += isLib
-            ? `<span title="Origem ${this.escape(srcName)} liberada" style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">📞 Chamado criado ✓</span>`
-            : `<button onclick="Kanpro.confirmChamadoCriado()" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcName)} (só admin)" style="background:${amAdmin ? '#61bd4f' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-phone-check"></i> 📞 Chamado criado${amAdmin ? '' : ' (só admin)'}</button>`;
+          if(isLib){
+            act.innerHTML += `<span title="Origem ${this.escape(srcName)} liberada — auto-exclui em 30s" style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">📞 Chamado criado ✓ <span style="background:#006644;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">⏳ <span id="kp-autodel-count-${data.id}">30s</span></span></span>`;
+            // retoma contagem após reload (30s desde date_mod da liberação)
+            try {
+              let remain = 30;
+              if(data.date_mod){
+                const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
+                if(!isNaN(ts)) remain = Math.max(2, 30 - Math.floor((Date.now() - ts) / 1000));
+              }
+              this.schedulePendenciaAutoDelete(data.id, remain);
+            } catch(e){ this.schedulePendenciaAutoDelete(data.id, 30); }
+          } else {
+            act.innerHTML += `<button onclick="Kanpro.confirmChamadoCriado()" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcName)} (só admin)" style="background:${amAdmin ? '#61bd4f' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-phone-check"></i> 📞 Chamado criado${amAdmin ? '' : ' (só admin)'}</button>`;
+          }
         }
         // aviso de origem no modal
         const descEl = document.getElementById('card-modal-desc');
@@ -1612,7 +1639,7 @@
           const div = document.createElement('div');
           div.id = 'kp-chamado-origem';
           div.style.cssText = 'margin-top:8px;background:#fff0f4;border:1px solid #e1316f;border-radius:8px;padding:8px 12px;font-size:12px;color:#5e6c84';
-          div.innerHTML = `📞 Pendência do card <strong style="color:#172b4d">#${data.chamado_source_id} ${this.escape(srcName)}</strong> ${isLib ? '— <strong style="color:#006644">liberado ✓</strong>' : '— aguardando <strong>Chamado criado</strong>'}`;
+          div.innerHTML = `📞 Pendência do card <strong style="color:#172b4d">#${data.chamado_source_id} ${this.escape(srcName)}</strong> ${isLib ? '— <strong style="color:#006644">liberado ✓</strong> <span style="color:#975500">• auto-exclui em <strong id="kp-autodel-count">30s</strong></span><div style="height:5px;background:#dfe1e6;border-radius:3px;margin-top:6px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div>' : '— aguardando <strong>Chamado criado</strong>'}`;
           descEl.after(div);
         } else {
           const old = document.getElementById('kp-chamado-origem');
@@ -1684,13 +1711,54 @@
       const cid = this.currentCardId;
       if(!cid) return;
       if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode confirmar.'); return; }
-      if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem?')) return;
+      if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem? O card se auto-exclui em 30s.')) return;
       this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro'); return; }
-        this.showToast('Origem liberada ✓');
+        this.showToast('Origem liberada ✓ — excluindo em 30s ⏳');
         this.refreshCardModal();
         this.forceSync();
+        this.schedulePendenciaAutoDelete(cid, 30);
       });
+    },
+    schedulePendenciaAutoDelete(pid, seconds){
+      try {
+        this._autoDelTimers = this._autoDelTimers || {};
+        this._autoDelCountdowns = this._autoDelCountdowns || {};
+        if(this._autoDelTimers[pid]) clearTimeout(this._autoDelTimers[pid]);
+        if(this._autoDelCountdowns[pid]) clearInterval(this._autoDelCountdowns[pid]);
+        let left = Math.max(1, Math.round(seconds || 30));
+        const tick = ()=>{
+          const el = document.getElementById('kp-autodel-count-' + pid) || document.getElementById('kp-autodel-count');
+          if(el) el.textContent = left + 's';
+          const bar = document.getElementById('kp-autodel-bar-' + pid) || document.getElementById('kp-autodel-bar');
+          if(bar) bar.style.width = Math.max(0, Math.round(left / 30 * 100)) + '%';
+        };
+        tick();
+        this._autoDelCountdowns[pid] = setInterval(()=>{
+          left--;
+          if(left <= 0){ clearInterval(this._autoDelCountdowns[pid]); delete this._autoDelCountdowns[pid]; return; }
+          tick();
+        }, 1000);
+        this._autoDelTimers[pid] = setTimeout(()=>{
+          delete this._autoDelTimers[pid];
+          if(this._autoDelCountdowns[pid]){ clearInterval(this._autoDelCountdowns[pid]); delete this._autoDelCountdowns[pid]; }
+          this.ajax('delete_liberado_pendencia', {pendencia_cards_id: pid}).then(res=>{
+            if(res && res.success){
+              this.showToast('Pendência #' + pid + ' excluída 🗑️');
+              this.cards = (this.cards||[]).filter(c=> c.id != pid);
+              if(this.currentCardId == pid) this.closeCardModal();
+              this.renderBoard();
+              this.forceSync();
+            } else if(res && res.already_deleted){
+              if(this.currentCardId == pid) this.closeCardModal();
+              this.forceSync();
+            } else {
+              // fundo (sem modal aberto): silencioso — outro admin exclui; com modal: avisa
+              if(this.currentCardId == pid) alert((res&&res.msg)||'Falha ao auto-excluir');
+            }
+          });
+        }, left * 1000);
+      } catch(e){}
     },
     pegarPendingCard(cardId, ev){
       if(ev && ev.stopPropagation) ev.stopPropagation();
