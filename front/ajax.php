@@ -4606,6 +4606,8 @@ switch ($action) {
         kanpro_touch_card($newId);
         PluginKanproBoard::logActivity($bid, $srcId, (int)$src->fields['plugin_kanpro_lists_id'], 'chamado_request', "Solicitado chamado p/ " . count($mids) . " máquina(s) → card #{$newId}");
         PluginKanproBoard::logActivity($bid, $newId, $targetLid, 'chamado_created', "Pendência Chamado criada a partir de #{$srcId} (" . count($mids) . " máquina(s))");
+        // WhatsApp p/ o aprovador: 1 msg por card novo (nunca quebra o fluxo)
+        try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::sendPendencia((int)$newId); } catch (Throwable $e) {}
         jexit(['success'=>true,'pendencia_id'=>$newId,'target_lists_id'=>$targetLid,'locked'=>count($mids)]);
 
     case 'confirm_chamado_created':
@@ -4746,6 +4748,8 @@ switch ($action) {
                 $lockedN = count($midsAll);
                 kanpro_touch_card($pendId);
                 PluginKanproBoard::logActivity($bid, $pendId, $pendLid, 'chamado_created', "Pendência Chamado criada via Pegar de #{$cid} ({$lockedN} máquina(s))");
+                // WhatsApp p/ o aprovador: 1 msg por card novo (nunca quebra o fluxo)
+                try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::sendPendencia((int)$pendId); } catch (Throwable $e) {}
             }
         }
         kanpro_touch_card($cid);

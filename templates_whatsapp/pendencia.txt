@@ -1,0 +1,21 @@
+# KanPro • WhatsApp de PENDÊNCIA CHAMADO (texto puro, sem HTML)
+# Gatilho: request_chamado / pegar_pending_card (1 card novo na lista Pendência Chamado)
+# Destinatário fixo: cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
+# Placeholders: {card_id} {card_nome} {escola} {quadro} {lista}
+#               {origem_id} {origem_nome} {quantidade} {maquinas} {data}
+
+🔔 *PENDÊNCIA CHAMADO — APROVAÇÃO NECESSÁRIA*
+
+Olá! Apareceu *1 novo card pendente* em *Pendência Chamado* para ser aprovado.
+
+📋 Card *#{card_id} "{card_nome}"*
+🏫 Escola: *{escola}*
+🖥️ Quadro: *{quadro}* | Lista: *{lista}*
+🔗 Origem: *#{origem_id} "{origem_nome}"* em *{data}*
+
+📦 *{quantidade} máquina(s):*
+{maquinas}
+
+⏳ Aguardando *Chamado criado* para liberar a origem.
+
+_Manutenção de TI - URE Jales_

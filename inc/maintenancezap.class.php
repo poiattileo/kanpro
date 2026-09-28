@@ -17,6 +17,8 @@ if (!defined('GLPI_ROOT')) {
  *   retirada  retirada_machine / finalize_maintenance — uma vez por card
  *   atraso    cron diário: card em Retirada recebe lembrete a cada 5 dias
  *   cancelado revert_maintenance
+ *   pendencia request_chamado / pegar_pending_card — 1 msg por card novo em Pendência Chamado
+ *             (destinatário fixo: fone do usuário cristian.sawata@educacao.sp.gov.br)
  *
  * Anti-duplicado: tabela glpi_plugin_kanpro_maintenance_zaplog (milestone por card).
  * Falha de envio NUNCA quebra o fluxo principal (tudo em try/catch + log).
@@ -29,7 +31,12 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia'];
+    }
+
+    /** Login/e-mail do aprovador fixo da Pendência Chamado */
+    static function pendenciaApprover(): string {
+        return 'cristian.sawata@educacao.sp.gov.br';
     }
 
     static function templateDir(): ?string {
@@ -142,6 +149,49 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             if ($p === '') $p = trim((string)($row['mobile'] ?? ''));
             return self::normalizeBRPhone($p);
         } catch (Throwable $e) { return ''; }
+    }
+
+    /** Telefone do aprovador fixo (aceita login OU e-mail cadastrado). '' = ausente/inválido */
+    static function resolveApproverPhone(?string $login = null): string {
+        global $DB;
+        $login = trim((string)($login ?? self::pendenciaApprover()));
+        if ($login === '') return '';
+        try {
+            // 1) login exato (glpi_users.name)
+            $row = $DB->request(['SELECT' => ['phone', 'mobile'], 'FROM' => 'glpi_users', 'WHERE' => ['name' => $login, 'is_deleted' => 0], 'LIMIT' => 1])->current();
+            if ($row) {
+                $p = trim((string)($row['phone'] ?? ''));
+                if ($p === '') $p = trim((string)($row['mobile'] ?? ''));
+                $n = self::normalizeBRPhone($p);
+                if ($n !== '') return $n;
+            }
+            // 2) e-mail na tabela de e-mails (glpi_useremails.email)
+            if ($DB->tableExists('glpi_useremails')) {
+                $em = $DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_useremails', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current();
+                if ($em && (int)($em['users_id'] ?? 0) > 0) {
+                    $u = $DB->request(['SELECT' => ['phone', 'mobile'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => (int)$em['users_id'], 'is_deleted' => 0], 'LIMIT' => 1])->current();
+                    if ($u) {
+                        $p = trim((string)($u['phone'] ?? ''));
+                        if ($p === '') $p = trim((string)($u['mobile'] ?? ''));
+                        $n = self::normalizeBRPhone($p);
+                        if ($n !== '') return $n;
+                    }
+                }
+            }
+            // 3) coluna direta glpi_users.email (quando existir)
+            try {
+                if ($DB->fieldExists('glpi_users', 'email')) {
+                    $row2 = $DB->request(['SELECT' => ['phone', 'mobile'], 'FROM' => 'glpi_users', 'WHERE' => ['email' => $login, 'is_deleted' => 0], 'LIMIT' => 1])->current();
+                    if ($row2) {
+                        $p = trim((string)($row2['phone'] ?? ''));
+                        if ($p === '') $p = trim((string)($row2['mobile'] ?? ''));
+                        $n = self::normalizeBRPhone($p);
+                        if ($n !== '') return $n;
+                    }
+                }
+            } catch (Throwable $e) {}
+        } catch (Throwable $e) { return ''; }
+        return '';
     }
 
     /** Telefone da escola = phonenumber da entidade vinculada ao card (só BR válido) */
@@ -272,6 +322,76 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /** Atalho com trava de duplicado (entrada/retirada/cancelado) */
     static function sendOnce(string $type, int $cards_id, array $extra = [], ?string $phone = null, int $timeout = 8): array {
         return self::send($type, $cards_id, $extra, $type, $phone, $timeout);
+    }
+
+    /**
+     * Aviso de Pendência Chamado: 1 msg por card novo na lista Pendência Chamado.
+     * Destinatário fixo = fone do aprovador (nunca quebra o fluxo).
+     */
+    static function sendPendencia(int $pendenciaId): array {
+        global $DB;
+        try {
+            if ($pendenciaId <= 0) return ['ok' => false, 'error' => 'Card inválido'];
+            if (self::alreadySent($pendenciaId, 'pendencia')) return ['ok' => false, 'error' => 'duplicate'];
+            $pc = new PluginKanproCard();
+            if (!$pc->getFromDB($pendenciaId)) return ['ok' => false, 'error' => 'Card não encontrado'];
+            $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+            if ($srcId <= 0) return ['ok' => false, 'error' => 'Sem origem'];
+            $src = new PluginKanproCard();
+            $srcName = '';
+            if ($src->getFromDB($srcId)) $srcName = (string)($src->fields['name'] ?? '');
+            $boardName = '';
+            $b = new PluginKanproBoard();
+            if ($b->getFromDB((int)($pc->fields['plugin_kanpro_boards_id'] ?? 0))) $boardName = (string)($b->fields['name'] ?? '');
+            $listName = '';
+            $l = new PluginKanproList();
+            if ($l->getFromDB((int)($pc->fields['plugin_kanpro_lists_id'] ?? 0))) $listName = (string)($l->fields['name'] ?? '');
+            // máquinas da solicitação (ids guardados no card da pendência)
+            $mids = [];
+            try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
+            $mids = array_values(array_filter(array_map('intval', (array)$mids)));
+            $lines = [];
+            if (!empty($mids) && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+                try {
+                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['id' => $mids], 'ORDER' => 'seq ASC']) as $m) {
+                        $lines[] = '#' . (int)($m['seq'] ?? 0) . ' — ' . trim((string)($m['model'] ?? '')) . ' (' . self::statusLabel($m['status'] ?? '') . ')';
+                    }
+                } catch (Throwable $e) {}
+            }
+            $cardNome = (string)($pc->fields['name'] ?? '');
+            $data = [
+                'card_id'     => (string)$pendenciaId,
+                'card_nome'   => $cardNome,
+                'escola'      => $cardNome !== '' ? $cardNome : $srcName,
+                'quadro'      => $boardName,
+                'lista'       => $listName !== '' ? $listName : 'Pendência Chamado',
+                'origem_id'   => (string)$srcId,
+                'origem_nome' => $srcName,
+                'quantidade'  => (string)count($mids),
+                'maquinas'    => $lines ? implode("\n", $lines) : '(sem máquinas vinculadas)',
+                'data'        => date('d/m/Y H:i'),
+            ];
+            $phone = self::resolveApproverPhone();
+            $phone = self::normalizeBRPhone((string)$phone);
+            if ($phone === '') {
+                self::markSent($pendenciaId, 'pendencia', '', false, 'sem telefone do aprovador');
+                self::logCard($pendenciaId, 'WhatsApp pendencia NÃO enviado: aprovador sem telefone cadastrado (' . self::pendenciaApprover() . ')');
+                return ['ok' => false, 'error' => 'sem telefone'];
+            }
+            $txt = self::renderTxt('pendencia', $data);
+            if ($txt === null || $txt === '') {
+                self::markSent($pendenciaId, 'pendencia', $phone, false, 'template vazio');
+                return ['ok' => false, 'error' => 'template vazio'];
+            }
+            $res = self::evoSend($phone, $txt, 20);
+            self::markSent($pendenciaId, 'pendencia', $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+            self::logCard($pendenciaId, $res['ok']
+                ? "WhatsApp pendencia enviado para {$phone} (aprovador)"
+                : "WhatsApp pendencia FALHOU para {$phone}: " . ($res['error'] ?? ''));
+            return $res + ['phone' => $phone];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
     }
 
     static function logCard(int $cards_id, string $details): void {
