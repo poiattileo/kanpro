@@ -300,11 +300,15 @@
       }).catch(()=>{});
     },
     renderViewerAvatars(viewers){
+      // sem duplicar: quem já é membro do quadro aparece só na faixa de membros (com foto + dot verde);
+      // aqui ficam só visitantes (legado aberto) + o próprio usuário é excluído
       const wrap = document.getElementById('board-viewers-avatars');
-      if(!wrap) return;
-      const myId = K.currentUserId;
-      const others = viewers.filter(v=> v.users_id != myId);
-      wrap.innerHTML = others.slice(0,5).map(v=> `<span class="kp-avatar kp-avatar-online" style="margin-left:-6px" title="${this.escape(v.name)} — vendo agora">${this.escape(v.initials)}</span>`).join('');
+      const myId = String(K.currentUserId);
+      this._onlineIds = new Set((viewers||[]).map(v=> String(v.users_id)));
+      const memberIds = new Set((this.members||[]).map(m=> String(m.users_id)));
+      const others = (viewers||[]).filter(v=> String(v.users_id) !== myId && !memberIds.has(String(v.users_id)));
+      if(wrap) wrap.innerHTML = others.slice(0,5).map(v=> `<span class="kp-avatar kp-avatar-online" style="margin-left:-6px" title="${this.escape(v.name)} — vendo agora">${this.escape(v.initials)}</span>`).join('');
+      this.renderMemberAvatars();
     },
     showToast(message){
       let box = document.getElementById('kp-toast-box');
@@ -4170,7 +4174,14 @@
     renderMemberAvatars(){
       const wrap = $('#board-members-avatars');
       if(!wrap) return;
-      wrap.innerHTML = this.members.slice(0,5).map(m=> this.avatarHtml(m.picture_url, m.initials, m.name, '', 'margin-left:-6px;border:2px solid #fff')).join('') + (this.members.length>5? `<span class="kp-avatar" style="background:#091e42;color:#fff;margin-left:-6px">+${this.members.length-5}</span>`:'');
+      const online = this._onlineIds || new Set();
+      const myId = String(K.currentUserId);
+      wrap.innerHTML = this.members.slice(0,5).map(m=>{
+        const isOnline = online.has(String(m.users_id)) && String(m.users_id) !== myId;
+        const av = this.avatarHtml(m.picture_url, m.initials, m.name + (isOnline ? ' — vendo agora' : ''), '', 'border:2px solid #fff');
+        const dot = isOnline ? '<span title="Vendo agora" style="position:absolute;right:0;bottom:0;width:10px;height:10px;border-radius:50%;background:#61bd4f;border:2px solid #fff"></span>' : '';
+        return `<span style="position:relative;display:inline-flex;margin-left:-6px;flex-shrink:0">${av}${dot}</span>`;
+      }).join('') + (this.members.length>5? `<span class="kp-avatar" style="background:#091e42;color:#fff;margin-left:-6px">+${this.members.length-5}</span>`:'');
     },
     renderBoardMenuDetails(){
       const labWrap = $('#board-menu-labels');
