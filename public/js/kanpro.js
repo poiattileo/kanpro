@@ -1572,7 +1572,7 @@
         box.appendChild(act);
       }
       if(act) act.innerHTML = '';
-      // sidebar: garante botões Solicitar Chamado / Pegar (cria 1x)
+      // sidebar: garante botões Solicitar Chamado / Pegar (cria 1x) — ordem: Manutenção, Solicitar, Pegar
       const sideBtns = document.querySelector('#kanpro-card-modal .kp-sidebar-btn')?.parentElement;
       let btnSol = document.getElementById('kp-solicitar-chamado-btn');
       if(sideBtns && !btnSol){
@@ -1582,10 +1582,7 @@
         btnSol.style.cssText = 'background:#e1316f;color:#fff;border:1px solid #e1316f;font-weight:800';
         btnSol.innerHTML = '<i class="ti ti-phone-call"></i> Solicitar Chamado';
         btnSol.onclick = ()=> Kanpro.openSolicitarChamado();
-        // insere após Manutenção
-        const maint = document.getElementById('kp-maintenance-btn');
-        if(maint && maint.parentElement === sideBtns) maint.after(btnSol);
-        else sideBtns.prepend(btnSol);
+        sideBtns.appendChild(btnSol);
       }
       let btnPegar = document.getElementById('kp-pegar-btn');
       if(sideBtns && !btnPegar){
@@ -1595,10 +1592,18 @@
         btnPegar.style.cssText = 'background:#0052cc;color:#fff;border:1px solid #0052cc;font-weight:800';
         btnPegar.innerHTML = '<i class="ti ti-hand-grab"></i> ✋ Pegar';
         btnPegar.onclick = ()=> Kanpro.pegarPendingCard();
-        const m0 = document.getElementById('kp-maintenance-btn');
-        if(m0 && m0.parentElement === sideBtns) m0.after(btnPegar);
-        else sideBtns.appendChild(btnPegar);
+        sideBtns.appendChild(btnPegar);
       }
+      // ordena: Gerenciar Manutenção > Solicitar Chamado > Pegar > demais
+      try {
+        const maint = document.getElementById('kp-maintenance-btn');
+        if(sideBtns && maint && btnSol && btnPegar && maint.parentElement === sideBtns && btnSol.parentElement === sideBtns && btnPegar.parentElement === sideBtns){
+          maint.after(btnSol);
+          btnSol.after(btnPegar);
+        } else if(sideBtns && maint && btnSol && maint.parentElement === sideBtns && btnSol.parentElement === sideBtns){
+          maint.after(btnSol);
+        }
+      } catch(e){}
       if(btnSol) btnSol.style.display = 'none';
       if(btnPegar) btnPegar.style.display = 'none';
       const isMaint = !!(data.is_maintenance && data.is_maintenance == 1);
@@ -1671,29 +1676,94 @@
       const machines = (data && data.maintenance_machines) || [];
       if(!machines.length){ alert('Este card não tem máquinas para solicitar.'); return; }
       const livres = machines.filter(m=> !m.is_locked);
+      const travadas = machines.filter(m=> m.is_locked);
       if(!livres.length){ alert('Todas as máquinas já estão travadas aguardando chamado.'); return; }
-      const rows = livres.map(m=>`
-        <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #dfe1e6;border-radius:8px;cursor:pointer;background:#fff">
-          <input type="checkbox" data-chamado-mid="${m.id}" checked style="width:16px;height:16px;accent-color:#e1316f">
-          <span style="flex:1;min-width:0"><strong>#${m.seq}</strong> ${this.escape(m.model||'')} <span style="color:#5e6c84;font-size:11px">${this.escape(m.label||'')}</span></span>
-          ${m.status ? `<span style="font-size:11px;background:#f4f5f7;padding:2px 8px;border-radius:10px">${this.escape(m.status)}</span>` : ''}
+      const cardName = (data && data.name) || ('#' + cid);
+      const stPill = (st)=>{
+        const s = String(st||'').toLowerCase();
+        if(s==='ok') return '<span style="font-size:10px;font-weight:800;background:#e3fcef;color:#006644;padding:2px 8px;border-radius:10px;white-space:nowrap">✅ OK</span>';
+        if(s==='garantia') return '<span style="font-size:10px;font-weight:800;background:#e6f4ff;color:#0052cc;padding:2px 8px;border-radius:10px;white-space:nowrap">🛡️ Garantia</span>';
+        if(s==='inservivel') return '<span style="font-size:10px;font-weight:800;background:#ffebe6;color:#bf2600;padding:2px 8px;border-radius:10px;white-space:nowrap">❌ Inservível</span>';
+        if(s==='pendente') return '<span style="font-size:10px;font-weight:800;background:#fffae6;color:#975500;padding:2px 8px;border-radius:10px;white-space:nowrap">⏳ Pendente</span>';
+        return '<span style="font-size:10px;font-weight:700;background:#f4f5f7;color:#5e6c84;padding:2px 8px;border-radius:10px;white-space:nowrap">sem status</span>';
+      };
+      const rowsLivres = livres.map(m=>`
+        <label data-chamado-row="${this.escape(m.model||'')}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #dfe1e6;border-radius:10px;cursor:pointer;background:#fff;transition:border-color .15s,box-shadow .15s" onmouseover="this.style.borderColor='#e1316f'" onmouseout="this.style.borderColor='#dfe1e6'">
+          <input type="checkbox" data-chamado-mid="${m.id}" checked onchange="Kanpro.chamadoUpdateCount()" style="width:18px;height:18px;accent-color:#e1316f;flex-shrink:0;cursor:pointer">
+          <span style="background:#091e42;color:#fff;min-width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">#${m.seq}</span>
+          <span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:700;color:#172b4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model||'')}</span>
+          <span style="display:block;font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label||'')}</span></span>
+          ${stPill(m.status)}
         </label>`).join('');
+      const rowsTrav = travadas.map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed #dfe1e6;border-radius:10px;background:#f4f5f7;opacity:.7">
+          <input type="checkbox" disabled style="width:18px;height:18px;flex-shrink:0">
+          <span style="background:#97a0af;color:#fff;min-width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">#${m.seq}</span>
+          <span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:700;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model||'')}</span></span>
+          <span style="font-size:10px;font-weight:800;background:#ffebe6;color:#bf2600;padding:2px 8px;border-radius:10px;white-space:nowrap">🔒 travada</span>
+        </div>`).join('');
       this.showPicker({
-        title: 'Solicitar Chamado — quais máquinas?',
+        title: 'Solicitar Chamado',
         html: `
-        <div style="display:grid;gap:8px">
-          <div style="font-size:12px;color:#5e6c84">Selecionadas vão para a lista <strong>Pendência Chamado</strong> (mesmo nome do card, máquinas em checklist) e ficam <strong>🔒 travadas aqui</strong> até <strong>Chamado criado</strong>.</div>
-          <div style="display:flex;gap:8px">
-            <button class="kp-picker-item" onclick="Kanpro.chamadoCheckAll(true)" style="flex:1;text-align:center">Marcar todas</button>
-            <button class="kp-picker-item" onclick="Kanpro.chamadoCheckAll(false)" style="flex:1;text-align:center">Desmarcar</button>
+        <style>
+          .ch-grid{display:grid;gap:14px;min-width:min(480px,84vw)}
+          .ch-banner{background:linear-gradient(135deg,#e1316f 0%,#ff78cb 100%);border-radius:10px;padding:14px 16px;color:#fff;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .ch-step{display:flex;gap:10px;align-items:flex-start}
+          .ch-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#e1316f;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:2px}
+          .ch-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .ch-field{width:100%;padding:9px 12px;border:1px solid #dfe1e6;border-radius:8px;box-sizing:border-box;font-size:13px;outline:none;background:#fff}
+          .ch-field:focus{border-color:#e1316f;box-shadow:0 0 0 3px #e1316f33}
+          .ch-mini-btn{background:#fff;border:1px solid #dfe1e6;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;color:#172b4d;flex:1}
+          .ch-mini-btn:hover{border-color:#e1316f;color:#e1316f}
+          .ch-confirm{background:#e1316f;color:#fff;border:none;padding:12px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2);width:100%}
+          .ch-confirm:hover{filter:brightness(.94)}
+          .ch-confirm:disabled{opacity:.6;cursor:wait}
+        </style>
+        <div class="ch-grid">
+          <div class="ch-banner">
+            <span style="font-size:26px">📞</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Solicitar Chamado</div>
+            <div style="font-size:12px;opacity:.92;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:320px">${this.escape(cardName)}</div>
+            <div style="font-size:11px;opacity:.9;margin-top:2px">${livres.length} livre(s)${travadas.length ? ` • ${travadas.length} travada(s)` : ''} • vão para <strong>Pendência Chamado</strong> e travam aqui até <strong>Chamado criado</strong></div></div>
           </div>
-          <div id="kp-chamado-pick" style="display:grid;gap:6px;max-height:280px;overflow-y:auto">${rows}</div>
-          <button onclick="Kanpro.confirmSolicitarChamado()" style="background:#e1316f;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:800">OK — Solicitar Chamado</button>
+          <div class="ch-step"><span class="ch-num">1</span>
+            <div style="flex:1;min-width:0"><div class="ch-label">MÁQUINAS <span id="kp-chamado-count" style="background:#e1316f;color:#fff;padding:1px 8px;border-radius:10px">${livres.length} selecionada(s)</span></div>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <button class="ch-mini-btn" onclick="Kanpro.chamadoCheckAll(true)">Marcar todas</button>
+              <button class="ch-mini-btn" onclick="Kanpro.chamadoCheckAll(false)">Desmarcar</button>
+            </div>
+            <input class="ch-field" style="margin-bottom:8px" placeholder="🔍 Buscar máquina..." oninput="Kanpro.chamadoFilter(this.value)">
+            <div id="kp-chamado-pick" style="display:grid;gap:8px;max-height:300px;overflow-y:auto">${rowsLivres}${rowsTrav}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" class="ch-mini-btn" style="flex:0 0 110px">Cancelar</button>
+            <button id="kp-chamado-ok" onclick="Kanpro.confirmSolicitarChamado()" class="ch-confirm" style="flex:1">OK — Solicitar (${livres.length})</button>
+          </div>
         </div>`
       });
+      const pk = document.getElementById('kanpro-picker');
+      if(pk){ pk.style.maxWidth = '540px'; pk.style.width = 'min(540px, 94vw)'; }
+      const pb = document.getElementById('picker-body');
+      if(pb){ pb.style.maxHeight = 'calc(100vh - 100px)'; pb.style.overflowY = 'auto'; }
+    },
+    chamadoFilter(q){
+      q = (q||'').toLowerCase();
+      document.querySelectorAll('#kp-chamado-pick [data-chamado-row]').forEach(lb=>{
+        const t = (lb.getAttribute('data-chamado-row')||'').toLowerCase() + ' ' + lb.textContent.toLowerCase();
+        lb.style.display = (!q || t.includes(q)) ? '' : 'none';
+      });
+    },
+    chamadoUpdateCount(){
+      const n = document.querySelectorAll('#kp-chamado-pick input[data-chamado-mid]:checked').length;
+      const c = document.getElementById('kp-chamado-count');
+      if(c) c.textContent = n + ' selecionada(s)';
+      const ok = document.getElementById('kp-chamado-ok');
+      if(ok) ok.textContent = `OK — Solicitar (${n})`;
     },
     chamadoCheckAll(v){
       document.querySelectorAll('#kp-chamado-pick input[data-chamado-mid]').forEach(cb=>{ cb.checked = !!v; });
+      try { this.chamadoUpdateCount(); } catch(e){}
     },
     confirmSolicitarChamado(){
       const cid = this.currentCardId;
