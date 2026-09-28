@@ -9,6 +9,7 @@
   const Kanpro = {
     board: K.board,
     lists: K.lists || [],
+    hiddenLists: K.hiddenLists || [],
     cards: K.cards || [],
     labels: K.labels || [],
     cardLabels: K.cardLabels || {},
@@ -33,6 +34,27 @@
     _diaryTimers: {},
     _diarySaving: {},
     _lastDiarySaved: {},
+    showHiddenKey(){ return 'kanpro_show_hidden_' + (this.board && this.board.id); },
+    isShowHidden(){
+      try { return localStorage.getItem(this.showHiddenKey()) === '1'; } catch(e){ return !!this._showHidden; }
+    },
+    updateShowHiddenBtn(){
+      const b = document.getElementById('kanpro-show-hidden-btn');
+      if(!b) return;
+      const on = this.isShowHidden();
+      const n = (this.hiddenLists||[]).length;
+      b.innerHTML = on ? '<i class="ti ti-eye-off"></i> Ocultar invisíveis' : `<i class="ti ti-eye"></i> Exibir invisíveis${n ? ` (${n})` : ''}`;
+      b.style.background = on ? '#0052cc' : 'rgba(255,255,255,.9)';
+      b.style.color = on ? '#fff' : '#172b4d';
+    },
+    toggleShowHidden(){
+      const v = !this.isShowHidden();
+      try { localStorage.setItem(this.showHiddenKey(), v ? '1' : '0'); } catch(e){ this._showHidden = v; }
+      this._showHidden = v;
+      this.updateShowHiddenBtn();
+      this.renderBoard();
+      this.showToast(v ? 'Invisíveis à mostra (sem os cards) 👁️' : 'Invisíveis ocultas');
+    },
 
     /* ---------- helpers ---------- */
     isBoardAdmin(){
@@ -95,7 +117,9 @@
 
     init(){
       this.applyBoardBackground();
+      try { this._showHidden = localStorage.getItem(this.showHiddenKey()) === '1'; } catch(e){}
       this.renderBoard();
+      this.updateShowHiddenBtn();
       this.renderMemberAvatars();
       this.renderBoardMenuDetails();
       this.updateStats();
@@ -180,7 +204,7 @@
     // Selo leve a cada 3s; snapshot pesado só se o selo mudou. Sem selo (backend antigo) faz fallback p/ snapshot.
     startPolling(){
       this._lastSnapshotJson = JSON.stringify({
-        lists: this.lists, cards: this.cards, labels: this.labels,
+        lists: this.lists, hiddenLists: this.hiddenLists, cards: this.cards, labels: this.labels,
         cardLabels: this.cardLabels, cardMembers: this.cardMembers,
         checkProgress: this.checkProgress, maintenanceProgress: this.maintenanceProgress, commentCounts: this.commentCounts,
         attCounts: this.attCounts, members: this.members, transferStatus: this.transferStatus
@@ -241,7 +265,7 @@
         this.renderViewerAvatars(res.viewers || []);
 
         const snapshot = {
-          lists: res.lists, cards: res.cards, labels: res.labels,
+          lists: res.lists, hiddenLists: res.hiddenLists || [], cards: res.cards, labels: res.labels,
           cardLabels: res.cardLabels, cardMembers: res.cardMembers,
           checkProgress: res.checkProgress, maintenanceProgress: res.maintenanceProgress, commentCounts: res.commentCounts,
           attCounts: res.attCounts, members: res.members, transferStatus: res.transferStatus || {}
@@ -275,6 +299,7 @@
         this._lastSnapshotJson = snapshotJson;
         if(stamp) this._lastStamp = stamp; // aplicado: sela como visto
         this.lists = res.lists || [];
+        this.hiddenLists = res.hiddenLists || [];
         this.cards = res.cards || [];
         this.labels = res.labels || [];
         this.cardLabels = res.cardLabels || {};
@@ -287,6 +312,7 @@
         this.transferStatus = res.transferStatus || {};
 
         this.renderBoard();
+        this.updateShowHiddenBtn();
         this.renderMemberAvatars();
 
         if(!isFirstLoad && changedCardIds.length){
@@ -534,6 +560,7 @@
               <option value="andamento">🔷 Em Andamento</option>
               <option value="doing">🔵 Em Progresso</option>
               <option value="retirada">📦 Retirada</option>
+              <option value="pend_chamado">📞 Pendência Chamado</option>
               <option value="done">🟢 Concluído</option>
             </select>
             <div class="kp-composer-actions">
@@ -551,12 +578,39 @@
         const cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c));
         seenLists.add(String(list.id));
         let el = this._listEls[list.id];
-        if(!el || !el.isConnected){
+        if(!el || !el.isConnected || el._isGhost){
+          if(el && el.remove) el.remove();
           el = this.createListEl(list, cardsInList);
           this._listEls[list.id] = el;
         } else {
           this.updateListHead(el, list, cardsInList.length);
           this.reconcileListCards(el, cardsInList);
+        }
+      });
+      // fantasmas: listas invisíveis (sem cards) — só se "Exibir invisíveis" ligado, estilo Windows Explorer
+      this._hiddenEls = this._hiddenEls || {};
+      const showH = this.isShowHidden();
+      const hidden = showH ? (this.hiddenLists||[]).slice().sort((a,b)=> parseFloat(a.rank||0)-parseFloat(b.rank||0)) : [];
+      const seenHidden = new Set();
+      hidden.forEach(h=>{
+        seenHidden.add('h'+h.id);
+        seenLists.add(String(h.id));
+        let el = this._hiddenEls[h.id];
+        const fp = JSON.stringify([h.name, h.list_type, h.viewer_ids, h.can_manage_viewers]);
+        if(!el || !el.isConnected || el._fp !== fp){
+          if(el && el.remove) el.remove();
+          el = this.createHiddenListEl(h);
+          el._fp = fp;
+          this._hiddenEls[h.id] = el;
+          this._listEls[h.id] = el;
+        }
+      });
+      Object.keys(this._hiddenEls).forEach(id=>{
+        if(!seenHidden.has('h'+id)){
+          const el = this._hiddenEls[id];
+          if(el && el.remove) el.remove();
+          delete this._hiddenEls[id];
+          if(this._listEls[id] && this._listEls[id]._isGhost) delete this._listEls[id];
         }
       });
       // remove listas sumidas/arquivadas
@@ -571,8 +625,10 @@
       // insertBefore também INSERE nós novos (desconectados) — por isso lista nova aparece
       let anchor = addWrap;
       const ordered = this.lists.filter(l=> l.is_archived!=1);
-      for(let i=ordered.length-1;i>=0;i--){
-        const el = this._listEls[ordered[i].id];
+      const orderedHidden = hidden;
+      const allOrdered = ordered.concat(orderedHidden);
+      for(let i=allOrdered.length-1;i>=0;i--){
+        const el = this._listEls[allOrdered[i].id];
         if(!el) continue;
         if(el.nextElementSibling !== anchor) board.insertBefore(el, anchor);
         anchor = el;
@@ -581,6 +637,33 @@
       this.enableDragAndDrop();
       this.updateAssinaturaButton();
       this.updateStats();
+      this.updateShowHiddenBtn();
+    },
+    createHiddenListEl(h){
+      // fantasma: aparece mas sem cards — igual arquivo oculto no Explorer
+      const div = document.createElement('div');
+      div.className = 'kp-list kp-hidden-list';
+      div.dataset.listId = h.id;
+      div._isGhost = true;
+      div.draggable = false;
+      div.style.cssText = 'opacity:.75;filter:grayscale(.4)';
+      const nView = (h.viewer_ids||[]).length;
+      const canManage = !!h.can_manage_viewers;
+      div.innerHTML = `
+        <div class="kp-list-header" style="background:#f4f5f7">
+          <div class="kp-list-title" style="color:#5e6c84;font-style:italic" title="Lista invisível — você não tem acesso aos cards">👁️‍🗨️ ${this.escape(h.name||('Lista #'+h.id))}</div>
+          <span class="kp-list-count" title="${nView} pessoa(s) com acesso">🔒</span>
+          <span style="display:inline-flex;min-width:0">${this.listTypeChip(h, false, false)}</span>
+          ${canManage ? `<button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${h.id})" title="Gerenciar (você pode editar quem vê)"><i class="ti ti-dots"></i></button>` : `<span title="Sem acesso" style="font-size:12px;color:#97a0af">🔒</span>`}
+        </div>
+        <div style="padding:12px;display:grid;gap:8px;background:repeating-linear-gradient(45deg,#f4f5f7,#f4f5f7 10px,#eef0f3 10px,#eef0f3 20px);border-radius:0 0 8px 8px">
+          <div style="background:#fff;border:1px dashed #97a0af;border-radius:8px;padding:14px 10px;text-align:center;color:#5e6c84;font-size:12px;line-height:1.5">
+            🔒 <strong>Invisível</strong><br>você não tem acesso aos cards desta lista<br><span style="font-size:11px;color:#97a0af">${nView} pessoa(s) com acesso</span>
+          </div>
+          ${canManage ? `<button onclick="Kanpro.openListVisibility(${h.id})" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700"><i class="ti ti-eye"></i> Quem pode ver</button>` : ''}
+        </div>
+      `;
+      return div;
     },
     // impressão digital do cartão p/ detectar mudança (só re-renderiza o que mudou)
     cardFP(card){
@@ -1186,9 +1269,35 @@
       if(list) list.name=newName;
       this.ajax('rename_list', {id: listId, name: newName});
     },
+    findListAny(listId){
+      try {
+        const a = (this.lists||[]).find(l=> l.id==listId);
+        if(a) return {list: a, hidden: false};
+        const h = (this.hiddenLists||[]).find(l=> l.id==listId);
+        if(h) return {list: h, hidden: true};
+      } catch(e){}
+      return {list: null, hidden: false};
+    },
     openListMenu(e, listId){
       e.stopPropagation();
-      const list = this.lists.find(l=> l.id==listId);
+      const found = this.findListAny(listId);
+      const list = found.list;
+      if(!list){ alert('Lista não encontrada'); return; }
+      if(found.hidden){
+        const rect = (e.target.getBoundingClientRect ? e.target.getBoundingClientRect() : {left: 200, top: 200});
+        const canM = !!list.can_manage_viewers;
+        this.showPicker({
+          title: `Lista invisível: ${list.name}`,
+          x: rect.left - 280,
+          y: rect.top + 28,
+          html: `
+            <div style="display:grid;gap:6px">
+              <div style="font-size:12px;color:#5e6c84">🔒 Você não vê os cards. ${canM ? 'Como você gerencia, pode ajustar quem vê.' : 'Peça a um admin para te incluir.'}</div>
+              <button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> Quem pode ver</button>
+            </div>`
+        });
+        return;
+      }
       const activeCount = this.cards.filter(c=> c.plugin_kanpro_lists_id==listId && c.is_archived==0).length;
       const rect = e.target.getBoundingClientRect();
       const apprBtn = this.isBoardAdmin()
@@ -1218,7 +1327,8 @@
       });
     },
     openListVisibility(listId){
-      const list = this.lists.find(l=> l.id==listId);
+      const found = this.findListAny(listId);
+      const list = found.list;
       const listName = list ? list.name : ('#' + listId);
       this.showPicker({
         title: `Quem vê: ${listName}`,
@@ -1282,10 +1392,12 @@
       const ids = Array.from(document.querySelectorAll('#kp-lvis-list input[data-lvis]:checked')).map(cb=> parseInt(cb.getAttribute('data-lvis'), 10)).filter(v=> v>0);
       this.ajax('set_list_viewers', {lists_id: listId, users_id: JSON.stringify(ids)}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro'); return; }
-        const l = this.lists.find(x=> x.id==listId);
+        const l = (this.lists||[]).find(x=> x.id==listId);
         if(l){ l.viewer_ids = res.viewer_ids||[]; l.is_restricted = res.is_restricted ? 1 : 0; }
+        const h = (this.hiddenLists||[]).find(x=> x.id==listId);
+        if(h){ h.viewer_ids = res.viewer_ids||[]; h.is_restricted = res.is_restricted ? 1 : 0; }
         this.closePicker();
-        this.showToast(res.is_restricted ? `Lista restrita (${(res.viewer_ids||[]).length} pessoa(s))` : 'Lista liberada para todos');
+        this.showToast(res.is_restricted ? `Lista restrita (${(res.viewer_ids||[]).length} pessoa(s)) — some p/ quem não vê` : 'Lista liberada para todos');
         this.renderBoard();
         this.forceSync();
       });

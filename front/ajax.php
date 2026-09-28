@@ -2040,15 +2040,21 @@ switch ($action) {
         if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
 
         $lists = PluginKanproList::getListsForBoard($boards_id);
-        // visibilidade por lista: só filtra se há restrição (anti-sumir-tudo + fail-open)
+        $hiddenLists = [];
+        // visibilidade por lista: some de verdade p/ quem não vê; fantasma via "Exibir invisíveis" (sem cards)
         try {
             $hasRestrSnap = function_exists('kanpro_board_has_list_restrictions') ? kanpro_board_has_list_restrictions($boards_id) : true;
             if ($hasRestrSnap) {
                 if (function_exists('kanpro_enrich_lists_with_viewers')) $lists = kanpro_enrich_lists_with_viewers($lists);
-                if (function_exists('kanpro_filter_visible_lists')) $lists = kanpro_filter_visible_lists($lists);
+                if (function_exists('kanpro_split_visible_hidden_lists')) {
+                    list($lists, $hiddenLists) = kanpro_split_visible_hidden_lists($lists);
+                } elseif (function_exists('kanpro_filter_visible_lists')) {
+                    $lists = kanpro_filter_visible_lists($lists);
+                }
             }
         } catch (Throwable $e) {
             $lists = PluginKanproList::getListsForBoard($boards_id);
+            $hiddenLists = [];
         }
         $visibleListIds = array_map(function ($l) { return (int)($l['id'] ?? 0); }, $lists);
         $labels = PluginKanproLabel::getForBoard($boards_id);
@@ -2259,6 +2265,7 @@ switch ($action) {
         jexit([
             'success' => true,
             'lists' => $lists,
+            'hiddenLists' => $hiddenLists ?? [],
             'labels' => $labels,
             'cards' => $all_cards,
             'cardLabels' => $card_labels_map,

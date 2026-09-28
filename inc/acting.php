@@ -258,7 +258,8 @@ if (!function_exists('kanpro_can_manage_list')) {
 }
 
 if (!function_exists('kanpro_can_view_list')) {
-    // Pode ver a lista? Sem restrição = todos. Restrita = viewers + quem gerencia (criador lista/quadro, admin).
+    // Pode ver a lista e os cards? Sem restrição = todos. Restrita = SÓ viewers (sem bypass).
+    // Gestão (trocar quem vê) é separada em kanpro_can_manage_list — fantasma permite recuperar.
     // Fail-open: qualquer erro mostra a lista (evita sumir tudo do nada).
     function kanpro_can_view_list($list_row, ?int $boards_id = null): bool {
         try {
@@ -272,20 +273,6 @@ if (!function_exists('kanpro_can_view_list')) {
             foreach ($viewerIds as $uid) {
                 if (in_array((int)$uid, $viewers, true)) return true;
             }
-            $bid = $boards_id;
-            if ($bid === null && is_array($list_row) && isset($list_row['plugin_kanpro_boards_id'])) $bid = (int)$list_row['plugin_kanpro_boards_id'];
-            if ($bid === null) {
-                try {
-                    $lr = $DB->request(['SELECT' => ['plugin_kanpro_boards_id', 'users_id'], 'FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['id' => $lid]])->current();
-                    if ($lr) {
-                        $bid = (int)($lr['plugin_kanpro_boards_id'] ?? 0);
-                        $list_row = $lr + (is_array($list_row) ? $list_row : []);
-                    }
-                } catch (Throwable $e) {}
-            }
-            // criador da lista sempre vê
-            if (is_array($list_row) && (int)($list_row['users_id'] ?? 0) > 0 && in_array((int)$list_row['users_id'], $viewerIds, true)) return true;
-            if ($bid && function_exists('kanpro_can_manage_list') && kanpro_can_manage_list((int)$bid, $list_row)) return true;
             return false;
         } catch (Throwable $e) {
             return true;
@@ -373,5 +360,37 @@ if (!function_exists('kanpro_board_has_list_restrictions')) {
             }
         } catch (Throwable $e) { return false; }
         return false;
+    }
+}
+
+if (!function_exists('kanpro_split_visible_hidden_lists')) {
+    // Separa [visíveis, fantasmas]. Fantasma = metadados sem cards (id, nome, tipo, qtd viewers, can_manage).
+    function kanpro_split_visible_hidden_lists(array $lists): array {
+        $vis = [];
+        $hid = [];
+        try {
+            if (empty($lists)) return [[], []];
+            foreach ($lists as $l) {
+                try {
+                    $bid = (int)($l['plugin_kanpro_boards_id'] ?? 0);
+                    $can = function_exists('kanpro_can_view_list') ? kanpro_can_view_list($l, $bid ?: null) : true;
+                } catch (Throwable $e) { $can = true; }
+                if ($can) $vis[] = $l;
+                else {
+                    $hid[] = [
+                        'id' => (int)($l['id'] ?? 0),
+                        'plugin_kanpro_boards_id' => (int)($l['plugin_kanpro_boards_id'] ?? 0),
+                        'name' => (string)($l['name'] ?? ''),
+                        'rank' => (float)($l['rank'] ?? 0),
+                        'list_type' => (string)($l['list_type'] ?? ''),
+                        'viewer_ids' => array_values(array_unique((array)($l['viewer_ids'] ?? []))),
+                        'is_restricted' => 1,
+                        'can_manage_viewers' => (int)($l['can_manage_viewers'] ?? 0),
+                        'hidden' => 1,
+                    ];
+                }
+            }
+        } catch (Throwable $e) { return [$lists, []]; }
+        return [$vis, $hid];
     }
 }

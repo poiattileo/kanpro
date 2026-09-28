@@ -57,15 +57,21 @@ Html::header($board->fields['name'] . ' — KanPro', $_SERVER['PHP_SELF'], 'tool
 
 // Dados do quadro
 $lists = PluginKanproList::getListsForBoard($boards_id);
-// visibilidade por lista: só filtra se há restrição no quadro (senão mostra tudo — anti-sumir-tudo)
+$hiddenLists = [];
+// visibilidade por lista: some de verdade p/ quem não vê; fantasma aparece via "Exibir invisíveis" (sem cards)
 try {
     $hasRestr = function_exists('kanpro_board_has_list_restrictions') ? kanpro_board_has_list_restrictions($boards_id) : true;
     if ($hasRestr) {
         if (function_exists('kanpro_enrich_lists_with_viewers')) $lists = kanpro_enrich_lists_with_viewers($lists);
-        if (function_exists('kanpro_filter_visible_lists')) $lists = kanpro_filter_visible_lists($lists);
+        if (function_exists('kanpro_split_visible_hidden_lists')) {
+            list($lists, $hiddenLists) = kanpro_split_visible_hidden_lists($lists);
+        } elseif (function_exists('kanpro_filter_visible_lists')) {
+            $lists = kanpro_filter_visible_lists($lists);
+        }
     }
 } catch (Throwable $e) {
     $lists = PluginKanproList::getListsForBoard($boards_id);
+    $hiddenLists = [];
 }
 $visibleListIds = array_map(function ($l) { return (int)($l['id'] ?? 0); }, $lists);
 $labels = PluginKanproLabel::getForBoard($boards_id);
@@ -128,6 +134,7 @@ $all_users_json = json_encode($all_users_for_picker, JSON_HEX_TAG|JSON_HEX_APOS|
 // Prepara JSON
 $board_json  = json_encode($board->fields, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $lists_json  = json_encode($lists, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
+$hidden_lists_json = json_encode($hiddenLists, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $labels_json = json_encode($labels, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 // Endpoint AJAX do plugin
@@ -419,6 +426,7 @@ echo <<<HTML
     <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
     <button id="kanpro-report-btn" onclick="Kanpro.openBoardReport()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-chart-bar"></i> Relatório</button>
     <button id="kanpro-retirada-btn" onclick="Kanpro.openRetiradaNotify()" title="Escolas com cards na coluna Retirada (avisar retirada)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-bell"></i> Avisar retiradas</button>
+    <button id="kanpro-show-hidden-btn" onclick="Kanpro.toggleShowHidden()" title="Exibir listas invisíveis (sem os cards)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-eye"></i> Exibir invisíveis</button>
     {$history_btn}
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:8px;opacity:.9"></span>
   </div>
@@ -659,6 +667,7 @@ window.glpi_csrf_token = "{$csrf_token}";
 window.KANPRO = {
   board: {$board_json},
   lists: {$lists_json},
+  hiddenLists: {$hidden_lists_json},
   labels: {$labels_json},
   cards: {$cards_json},
   cardLabels: {$card_labels_json},
