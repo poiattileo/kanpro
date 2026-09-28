@@ -1804,7 +1804,8 @@
         const st = lb.getAttribute('data-chamado-status') || '';
         const okQ = (!q || t.includes(q));
         const okF = (!f || (f === 'sem' ? st === '' : st === f));
-        lb.style.display = (okQ && okF) ? '' : 'none';
+        // mantém a estética inicial: os retângulos são display:flex no inline — '' quebraria o layout
+        lb.style.display = (okQ && okF) ? 'flex' : 'none';
       });
     },
     chamadoSort(){
