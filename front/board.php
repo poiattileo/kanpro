@@ -90,7 +90,7 @@ try {
         }
     }
 } catch (Throwable $e) {}
-echo "<div style='font-size:12px;color:#5e6c84;margin-bottom:12px'>📁 Cada lista é um <strong>grupo seu</strong> — arraste os quadros entre as listas para organizar. Cada pessoa organiza do seu jeito.</div>";
+echo "<div style='font-size:12px;color:#5e6c84;margin-bottom:12px'>📁 Cada lista é um <strong>grupo seu</strong> — arraste os quadros entre as listas para organizar. Arraste a lista pelo <strong>cabeçalho</strong> para reordenar as listas. Cada pessoa organiza do seu jeito.</div>";
 
 if (count($iterator) === 0) {
     echo "<div style='text-align:center;padding:60px 20px;background:#f4f5f7;border-radius:8px'>";
@@ -196,7 +196,7 @@ if (count($iterator) === 0) {
     foreach ($__myGroups as $__g) {
         $__cards = $__sortCol($__colCards[$__g['id']] ?? []);
         echo "<div class='kpg-col' data-gid='" . $__g['id'] . "' style='flex:0 0 300px;min-width:300px;max-width:300px;background:#ebecf0;border-radius:10px;display:flex;flex-direction:column'>";
-        echo "<div style='padding:10px 12px;display:flex;align-items:center;gap:6px'>"
+        echo "<div class='kpg-col-head' style='padding:10px 12px;display:flex;align-items:center;gap:6px;user-select:none'>"
             . "<strong style='flex:1;font-size:14px;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" . htmlspecialchars($__g['name']) . "</strong>"
             . "<span id='kpg-count-" . $__g['id'] . "' style='background:rgba(0,0,0,.08);padding:2px 8px;border-radius:10px;font-size:11px;color:#5e6c84'>" . count($__cards) . "</span>"
             . "<button onclick='KanproGroups.rename(" . $__g['id'] . ")' title='Renomear lista' style='background:none;border:none;cursor:pointer;color:#5e6c84;font-size:13px'>✏️</button>"
@@ -513,6 +513,24 @@ window.KanproGroups = (function(){
         if (!res.success) { alert(res.msg || 'Erro'); location.reload(); }
       });
     },
+    groupColumnOrder: function(){
+      var order = [];
+      var board = document.getElementById('kpg-board');
+      if (!board) return order;
+      var kids = board.children;
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i].classList && kids[i].classList.contains('kpg-col')) {
+          var g = parseInt(kids[i].getAttribute('data-gid'), 10);
+          if (g > 0) order.push(g);
+        }
+      }
+      return order;
+    },
+    saveColumnOrder: function(){
+      post('reorder_board_groups', {order: JSON.stringify(KanproGroups.groupColumnOrder())}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); location.reload(); }
+      });
+    },
     findCard: function(boardId){
       var bodies = document.querySelectorAll('.kpg-col-body');
       for (var i = 0; i < bodies.length; i++) {
@@ -628,6 +646,7 @@ window.KanproGroups = (function(){
         })(kids[i]);
       }
       body.addEventListener('dragover', function(e){
+        if (window.__kpgColDrag) return; // arrasto de lista: ignora (a lista é tratada no #kpg-board)
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         body.style.outline = '2px dashed #6554c0';
@@ -641,6 +660,7 @@ window.KanproGroups = (function(){
       });
       body.addEventListener('dragleave', function(){ body.style.outline = ''; });
       body.addEventListener('drop', function(e){
+        if (window.__kpgColDrag) return; // arrasto de lista: ignora (a lista é tratada no #kpg-board)
         e.preventDefault();
         body.style.outline = '';
         var bid = parseInt(e.dataTransfer.getData('text/plain'), 10);
@@ -660,6 +680,88 @@ window.KanproGroups = (function(){
       });
     })(bodies[b]);
   }
+})();
+(function kpgInitColDnD(){
+  // arrastar a LISTA (coluna de grupo) pelo cabeçalho para reordenar — "Sem grupo" fica fixa
+  var board = document.getElementById('kpg-board');
+  if (!board) return;
+  var dragCol = null;
+  var dragNext = null;
+  var dropped = false;
+  function isGroupCol(el){ return el && el.classList && el.classList.contains('kpg-col') && el.getAttribute('data-gid') !== '0'; }
+  function groupCols(){
+    var out = [];
+    var kids = board.children;
+    for (var i = 0; i < kids.length; i++) { if (isGroupCol(kids[i])) out.push(kids[i]); }
+    return out;
+  }
+  function afterCol(x){
+    var list = groupCols();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] === dragCol) continue;
+      var r = list[i].getBoundingClientRect();
+      if (x < r.left + r.width / 2) return list[i];
+    }
+    // âncora: mantém os grupos antes do "Sem grupo" (que é fixo)
+    return board.querySelector(".kpg-col[data-gid='0']");
+  }
+  document.addEventListener('mouseup', function(){
+    if (dragCol) return; // em arrasto: o dragend limpa
+    var list = groupCols();
+    for (var i = 0; i < list.length; i++) list[i].draggable = false;
+  }, true);
+  var list = groupCols();
+  for (var c = 0; c < list.length; c++) {
+    (function(col){
+      var head = col.querySelector('.kpg-col-head');
+      if (!head) return;
+      head.style.cursor = 'grab';
+      head.title = 'Arraste pelo cabeçalho para reordenar a lista';
+      // a coluna só vira arrastável a partir do cabeçalho (não sequestra o arrasto dos cartões nem os botões)
+      head.addEventListener('mousedown', function(e){
+        if (e.target.closest && e.target.closest('button,select,input,a')) return;
+        col.draggable = true;
+      });
+      col.addEventListener('dragstart', function(e){
+        if (e.target !== col || !col.draggable) return; // veio de um cartão: ignora
+        dragCol = col;
+        dragNext = col.nextSibling;
+        dropped = false;
+        window.__kpgColDrag = true;
+        var gid = col.getAttribute('data-gid');
+        try {
+          e.dataTransfer.setData('text/plain', 'col-' + gid);
+          e.dataTransfer.setData('text/x-kpg-col', String(gid));
+        } catch (err) {}
+        e.dataTransfer.effectAllowed = 'move';
+        setTimeout(function(){ col.style.opacity = '.6'; }, 0);
+      });
+      col.addEventListener('dragend', function(){
+        if (dragCol !== col) return;
+        col.style.opacity = '';
+        col.draggable = false;
+        window.__kpgColDrag = false;
+        if (!dropped && dragNext && dragNext.parentNode === board) board.insertBefore(col, dragNext);
+        dragCol = null; dragNext = null;
+      });
+    })(list[c]);
+  }
+  board.addEventListener('dragover', function(e){
+    if (!dragCol || !window.__kpgColDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var after = afterCol(e.clientX);
+    if (after && after !== dragCol) board.insertBefore(dragCol, after);
+  });
+  board.addEventListener('drop', function(e){
+    if (!dragCol || !window.__kpgColDrag) return;
+    e.preventDefault();
+    dropped = true;
+    var after = afterCol(e.clientX);
+    if (after && after !== dragCol) board.insertBefore(dragCol, after);
+    dragCol.style.opacity = '';
+    KanproGroups.saveColumnOrder();
+  });
 })();
 </script>
 <?php

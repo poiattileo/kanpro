@@ -1497,6 +1497,28 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Erro ao salvar ordem']);
         }
 
+    case 'reorder_board_groups':
+        // ordem manual das listas de grupos (arrastar a lista pelo cabeçalho) — salva rank
+        try {
+            $owner = kanpro_groups_owner_id();
+            if ($owner <= 0) jexit(['success'=>false,'msg'=>'Não autenticado']);
+            $order = json_decode($_POST['order'] ?? '[]', true);
+            if (!is_array($order)) jexit(['success'=>false,'msg'=>'Ordem inválida']);
+            $rank = 1024;
+            foreach ($order as $gid) {
+                $gid = (int)$gid;
+                if ($gid <= 0) continue;
+                $grow = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups', 'WHERE' => ['id' => $gid, 'users_id' => $owner]])->current();
+                if (!$grow) continue;
+                $DB->update('glpi_plugin_kanpro_board_groups', ['rank' => $rank, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $gid]);
+                $rank += 1024;
+            }
+            jexit(['success'=>true]);
+        } catch (Throwable $e) {
+            error_log('[KanPro] reorder_board_groups: ' . $e->getMessage());
+            jexit(['success'=>false,'msg'=>'Erro ao salvar ordem das listas']);
+        }
+
     case 'send_test_zap':
         // TESTE: envia os 4 modelos de WhatsApp p/ um fone (padrão: fone do usuário 'glpi').
         // Não grava zaplog (pode repetir). Exige UPDATE no KanPro.
