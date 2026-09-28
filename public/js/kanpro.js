@@ -567,7 +567,7 @@
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
-          ${this.listTypeChip(list)}
+          ${this.listTypeChip(list, false, true)}
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
@@ -638,7 +638,7 @@
       const typeOfCard = this.listTypeOf(listOfCard);
       let typeHtml = '';
       if(typeOfCard){
-        typeHtml = `<div style="margin-bottom:4px">${this.listTypeChip(listOfCard, true)}</div>`;
+        typeHtml = `<div style="margin-bottom:4px">${this.listTypeChip(listOfCard, true, false)}</div>`;
         div.style.borderTop = `3px solid ${typeOfCard.color}`;
       }
 
@@ -4220,11 +4220,16 @@
       if(n === 'concluido') return Object.assign({code: 'done'}, this.LIST_TYPES.done);
       return null;
     },
-    listTypeChip(list, small){
+    listTypeChip(list, small, clickable){
       const t = this.listTypeOf(list);
-      if(!t) return '';
       const fs = small ? '10px' : '11px';
-      return `<span title="Categoria: ${this.escape(t.label)}" style="background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap">${t.dot} ${this.escape(t.label)}</span>`;
+      if(!t){
+        // lista normal: selo discreto clicável para categorizar (só quem edita vê)
+        if(!clickable || !this.canEdit) return '';
+        return `<span onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Definir categoria da lista" style="padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap;border:1px dashed #97a0af;color:#5e6c84;cursor:pointer;opacity:.8">＋ categoria</span>`;
+      }
+      const click = clickable ? ` onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Categoria: ${this.escape(t.label)} — clique para trocar" style="background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap;cursor:pointer"` : ` title="Categoria: ${this.escape(t.label)}" style="background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap"`;
+      return `<span${click}>${t.dot} ${this.escape(t.label)}</span>`;
     },
     filterCards(text){
       this.filterText = this.normText(text||'');
