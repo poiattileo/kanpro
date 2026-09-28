@@ -4515,7 +4515,7 @@
       retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
     },
     // estas categorias só notificam no Seus Quadros — no kanban ficam invisíveis
-    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, done: 1},
+    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1},
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
