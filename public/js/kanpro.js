@@ -167,7 +167,7 @@
     },
 
     // ---------- ATUALIZAÇÃO EM TEMPO REAL (polling inteligente) ----------
-    // Selo leve a cada 8s; snapshot pesado só se o selo mudou. Sem selo (backend antigo) faz fallback p/ snapshot.
+    // Selo leve a cada 5s; snapshot pesado só se o selo mudou. Sem selo (backend antigo) faz fallback p/ snapshot.
     startPolling(){
       this._lastSnapshotJson = JSON.stringify({
         lists: this.lists, cards: this.cards, labels: this.labels,
@@ -177,15 +177,15 @@
       });
       this._lastStamp = null;
       this._unchangedRounds = 0;
-      this._pollIntervalMs = 8000;
+      this._pollIntervalMs = 5000;
       this.ajax('presence_heartbeat', {boards_id: this.board.id});
       if(this._pollTimer) clearTimeout(this._pollTimer);
       this._pollingStartedAt = Date.now();
       const loop = ()=>{
         this.pollBoardUpdates().finally(()=>{
-          // backoff adaptativo: quadro parado poll a cada 15s, com mudança volta p/ 8s
+          // backoff adaptativo: quadro parado poll a cada 10s, com mudança volta p/ 5s
           const idle = (this._unchangedRounds||0) >= 5;
-          this._pollIntervalMs = idle ? 15000 : 8000;
+          this._pollIntervalMs = idle ? 10000 : 5000;
           this._pollTimer = setTimeout(loop, this._pollIntervalMs);
         });
       };

@@ -1784,6 +1784,44 @@ switch ($action) {
             foreach ($DB->request(['SELECT' => ['MAX' => 'date_creation AS m'], 'FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => ['plugin_kanpro_cards_id' => $cardIds]]) as $r) {
                 $atmax = (string)($r['m'] ?? '');
             }
+            // Cobertura total do selo: várias ações fazem UPDATE/INSERT direto sem tocar date_mod
+            // (renomear/arquivar/reordenar listas, mover na mesma lista, etiquetas, membros,
+            //  checklist, manutenção, acesso ao quadro) — sem estes bits o outro PC nunca
+            // percebia a mudança e só atualizava ao focar a aba ou recarregar.
+            $bidInt = (int)$boards_id;
+            $cardIdsIn = implode(',', array_map('intval', $cardIds));
+            $ag = function (string $select, string $from, string $where) use ($DB): string {
+                try {
+                    $res = $DB->doQuery("SELECT {$select} FROM {$from} WHERE {$where}");
+                    if ($res && ($r = $res->fetch_assoc())) {
+                        return implode(':', array_map(function ($v) { return (string)($v ?? ''); }, array_values($r)));
+                    }
+                } catch (Throwable $e) {}
+                return '';
+            };
+            // listas: nome/arquivada/ordem (rename, arquivar, reorder e mover não tocam date_mod)
+            $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // cartões: lista+rank+arquivada+aprovação (mover/reordenar na mesma lista é rank-only sem date_mod)
+            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // etiquetas do quadro: criar/renomear/recolorir/prazo/excluir
+            $labelsBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', color, '|', IFNULL(due_date, '')))), 0) AS s", "`glpi_plugin_kanpro_labels`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // etiquetas/membros no cartão: toggle é insert/delete sem data
+            $clBit = $ag("COUNT(*) AS c, COALESCE(MAX(cl.id), 0) AS m", "`glpi_plugin_kanpro_cards_labels` AS cl INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = cl.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            $cmBit = $ag("COUNT(*) AS c, COALESCE(MAX(cm.id), 0) AS m", "`glpi_plugin_kanpro_cards_members` AS cm INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = cm.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            // checklists: marcar/desmarcar item (is_checked) não tem data — a soma cobre
+            $chkBit = $ag("COUNT(*) AS c, COALESCE(MAX(cl.id), 0) AS m", "`glpi_plugin_kanpro_checklists` AS cl INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = cl.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            $chitBit = $ag("COUNT(*) AS c, COALESCE(MAX(ci.id), 0) AS m, COALESCE(SUM(ci.is_checked), 0) AS k", "`glpi_plugin_kanpro_checklist_items` AS ci INNER JOIN `glpi_plugin_kanpro_checklists` AS cl ON cl.id = ci.plugin_kanpro_checklists_id INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = cl.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            // manutenção: edições tocam machines.date_mod (fora do selo até agora)
+            $machBit = $ag("COUNT(*) AS c, COALESCE(MAX(mm.id), 0) AS m, COALESCE(MAX(mm.date_mod), '') AS d, COALESCE(SUM(mm.is_done), 0) AS k", "`glpi_plugin_kanpro_maintenance_machines` AS mm INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = mm.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            // acesso ao quadro: adicionar/remover/trocar papel (sem data)
+            $bmBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(users_id, '|', role))), 0) AS s", "`glpi_plugin_kanpro_boards_members`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            $bpBit = '';
+            if ($DB->tableExists('glpi_plugin_kanpro_boards_profiles')) {
+                $bpBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(profiles_id, '|', role))), 0) AS s", "`glpi_plugin_kanpro_boards_profiles`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            }
+            // comentários editados (date_mod) e anexos removidos (count/max)
+            $coBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(MAX(date_mod), '') AS d", "`glpi_plugin_kanpro_comments`", "`plugin_kanpro_cards_id` IN ({$cardIdsIn})");
+            $attBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m", "`glpi_plugin_kanpro_attachments`", "`plugin_kanpro_cards_id` IN ({$cardIdsIn})");
             // assinatura acontece noutra tabela/plugin (assetmgrstatus) sem tocar nas datas do kanpro —
             // sem isso o selo nunca muda ao assinar e o badge não vira "Concluído" sozinho
             $tstat = '';
@@ -1797,7 +1835,7 @@ switch ($action) {
                 }
                 $tstat = implode(',', $tbits);
             }
-            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax, $tstat]));
+            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax, $tstat, $listsBit, $cardsBit, $labelsBit, $clBit, $cmBit, $chkBit, $chitBit, $machBit, $bmBit, $bpBit, $coBit, $attBit]));
             // viewers junto (barato) p/ avatares continuarem vivos sem snapshot pesado
             $viewers = [];
             $cutoff = date('Y-m-d H:i:s', time() - 15);
