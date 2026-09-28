@@ -637,11 +637,13 @@
         labelsHtml = `<div class="kp-card-labels">${labels.map(l=> `<span class="kp-label" style="background:${this.escape(l.color)}" title="${this.escape(l.name)}"></span>`).join('')}</div>`;
       }
 
-      // categoria da lista: o cartão herda a identidade da lista (muda junto se trocar de lista)
+      // categoria da lista: o cartão herda a identidade da lista (muda junto se trocar de lista).
+      // categorias "só Seus Quadros" não marcam o cartão.
       const listOfCard = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
       const typeOfCard = this.listTypeOf(listOfCard);
+      const showType = typeOfCard && !this.LIST_TYPE_QUIET[typeOfCard.code];
       let typeHtml = '';
-      if(typeOfCard){
+      if(showType){
         typeHtml = `<div style="margin-bottom:4px">${this.listTypeChip(listOfCard, true, false)}</div>`;
         div.style.borderTop = `3px solid ${typeOfCard.color}`;
       }
@@ -4305,6 +4307,8 @@
       andamento: {label: 'Em Andamento',       color: '#0052cc', fg: '#fff',    dot: '🔷'},
       retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
     },
+    // estas categorias só notificam no Seus Quadros — no kanban ficam invisíveis
+    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, done: 1},
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
@@ -4325,12 +4329,16 @@
     listTypeChip(list, small, clickable){
       const t = this.listTypeOf(list);
       const fs = small ? '10px' : '11px';
+      // ellipsis: nome grande não sai pra fora (card estreito / cabeçalho apertado)
+      const base = `display:inline-block;vertical-align:top;box-sizing:border-box;${small ? 'max-width:100%;' : 'max-width:38%;min-width:0;flex-shrink:1;'}overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
       if(!t){
         // lista normal: selo discreto clicável para categorizar (só quem edita vê)
         if(!clickable || !this.canEdit) return '';
-        return `<span onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Definir categoria da lista" style="padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap;border:1px dashed #97a0af;color:#5e6c84;cursor:pointer;opacity:.8">＋ categoria</span>`;
+        return `<span onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Definir categoria da lista" style="${base}padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;border:1px dashed #97a0af;color:#5e6c84;cursor:pointer;opacity:.8">＋ categoria</span>`;
       }
-      const click = clickable ? ` onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Categoria: ${this.escape(t.label)} — clique para trocar" style="background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap;cursor:pointer"` : ` title="Categoria: ${this.escape(t.label)}" style="background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;white-space:nowrap"`;
+      // estas categorias só notificam no Seus Quadros: no kanban não mostram nada
+      if(this.LIST_TYPE_QUIET[t.code]) return '';
+      const click = clickable ? ` onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Categoria: ${this.escape(t.label)} — clique para trocar" style="${base}background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;cursor:pointer"` : ` title="Categoria: ${this.escape(t.label)}" style="${base}background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700"`;
       return `<span${click}>${t.dot} ${this.escape(t.label)}</span>`;
     },
     filterCards(text){
