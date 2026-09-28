@@ -5890,7 +5890,8 @@
         this.renderBoardReport(30);
       });
     },
-    // TEMPORÁRIO (até a notificação automática): escolas com cards na coluna Retirada, deduplicadas
+    // Avisar retiradas: só o que ainda NÃO foi notificado. Cada card tem o botão
+    // "Notificar" — marca e some da lista na hora, sem precisar abrir o card.
     openRetiradaNotify(){
       this.showPicker({title:'🔔 Avisar retiradas', html:'<div style="padding:20px;text-align:center;color:#5e6c84">Carregando...</div>'});
       const p = document.getElementById('kanpro-picker');
@@ -5900,26 +5901,69 @@
       this.ajax('get_retirada_schools', {boards_id: this.board.id}).then(res=>{
         if(!res.success){ alert(res.msg||'Erro'); this.closePicker(); return; }
         this._lastRetirada = res;
-        const schools = res.schools || [];
-        let html = `<div style="font-size:12px;color:#5e6c84;margin-bottom:10px">Coluna <strong>Retirada</strong>: <strong>${res.total_schools||0}</strong> ${res.total_schools===1?'escola':'escolas'} • <strong>${res.total_cards||0}</strong> ${res.total_cards===1?'cartão':'cartões'}. Clique no cartão para abrir.</div>`;
-        if(!schools.length){
-          html += `<div style="text-align:center;padding:24px;color:#61bd4f;font-weight:700">🎉 Nenhuma escola pendente de aviso</div>`;
-        } else {
-          html += `<div style="display:grid;gap:8px">` + schools.map(s=>`
-            <div style="background:#f4f5f7;border-radius:8px;padding:10px 12px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <span style="font-weight:800;color:#172b4d;font-size:13px">${this.escape(s.name)}</span>
-                <span style="background:#00b8d9;color:#fff;min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;padding:0 6px">${s.count}</span>
-              </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap">` + s.cards.map(c=>
-                `<button onclick="Kanpro.closePicker();Kanpro.openCard(${c.id})" title="${this.escape(c.name)}" style="background:#fff;border:1px solid #dfe1e6;border-radius:12px;padding:3px 10px;font-size:11px;cursor:pointer;color:#0747a6">#${c.id} ${this.escape((c.name||'').length>28 ? c.name.slice(0,28)+'…' : c.name)}</button>`
-              ).join('') + `</div>
-            </div>`).join('') + `</div>`;
-          html += `<button onclick="Kanpro.copyRetiradaList()" style="margin-top:12px;background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-weight:700;width:100%"><i class="ti ti-copy"></i> Copiar lista p/ avisar</button>`;
+        this.showRetiradaPicker();
+      });
+    },
+    showRetiradaPicker(){
+      // estilos do painel reaplicados a cada render (o closePicker reseta o minWidth)
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='480px'; p.style.maxWidth='94vw'; p.style.width='560px'; p.style.maxHeight='90vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      const res = this._lastRetirada || {schools:[]};
+      const schools = res.schools || [];
+      const notif = res.notified_cards || 0;
+      let html = `<div style="font-size:12px;color:#5e6c84;margin-bottom:10px">Coluna <strong>Retirada</strong>, só o que ainda <strong>não foi notificado</strong>: <strong>${res.total_schools||0}</strong> ${res.total_schools===1?'escola':'escolas'} • <strong>${res.total_cards||0}</strong> ${res.total_cards===1?'cartão pendente':'cartões pendentes'}.${notif?` <span style="color:#61bd4f;font-weight:700">(${notif} já notificado${notif===1?'':'s'})</span>`:''}</div>`;
+      if(!schools.length){
+        html += `<div style="text-align:center;padding:24px;color:#61bd4f;font-weight:700">🎉 Nenhuma escola pendente de aviso</div>`;
+      } else {
+        html += `<div style="display:grid;gap:8px">` + schools.map(s=>`
+          <div style="background:#f4f5f7;border-radius:8px;padding:10px 12px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-weight:800;color:#172b4d;font-size:13px">${this.escape(s.name)}</span>
+              <span style="background:#00b8d9;color:#fff;min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;padding:0 6px">${s.count}</span>
+            </div>
+            <div style="display:grid;gap:6px">` + s.cards.map(c=>
+              `<div style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #dfe1e6;border-radius:12px;padding:4px 6px 4px 10px">
+                <button onclick="Kanpro.closePicker();Kanpro.openCard(${c.id})" title="${this.escape(c.name)}" style="background:none;border:none;cursor:pointer;font-size:12px;color:#0747a6;text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0">#${c.id} ${this.escape((c.name||'').length>28 ? c.name.slice(0,28)+'…' : c.name)}</button>
+                <button onclick="Kanpro.notifyFromRetirada(${c.id}, this)" title="Marcar como notificado e tirar da lista" style="background:#0079bf;color:#fff;border:none;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:800;flex-shrink:0;white-space:nowrap"><i class="ti ti-bell"></i> Notificar</button>
+              </div>`
+            ).join('') + `</div>
+          </div>`).join('') + `</div>`;
+        html += `<button onclick="Kanpro.copyRetiradaList()" style="margin-top:12px;background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-weight:700;width:100%"><i class="ti ti-copy"></i> Copiar lista p/ avisar</button>`;
+      }
+      this.showPicker({title:'🔔 Avisar retiradas', html});
+      const b2 = document.getElementById('picker-body');
+      if(b2){ b2.style.maxHeight='72vh'; b2.style.overflowY='auto'; }
+    },
+    // marca como notificado e remove o card da lista sem sair do picker
+    notifyFromRetirada(cardId, btn){
+      const cid = parseInt(cardId);
+      if(!(cid > 0)) return;
+      if(btn){ btn.disabled = true; btn.innerHTML = '...'; }
+      const c = this.cards.find(x=> String(x.id)===String(cid));
+      const prev = c ? (c.is_notified == 1 ? 1 : 0) : 0;
+      if(c) c.is_notified = 1;
+      this.ajax('toggle_notified', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){
+          if(c) c.is_notified = prev;
+          this.renderBoard();
+          alert((res&&res.msg)||'Não foi possível marcar como notificado');
+          this.showRetiradaPicker();
+          return;
         }
-        this.showPicker({title:'🔔 Avisar retiradas', html});
-        const b2 = document.getElementById('picker-body');
-        if(b2){ b2.style.maxHeight='72vh'; b2.style.overflowY='auto'; }
+        this.renderBoard();
+        // tira da lista e refaz as contagens sem precisar reabrir o picker
+        const res2 = this._lastRetirada || {schools:[]};
+        if(res2.schools){
+          res2.schools = res2.schools.map(s=>{
+            if(!s.cards.some(x=> x.id===cid)) return s;
+            return Object.assign({}, s, {cards: s.cards.filter(x=> x.id!==cid), count: s.count-1});
+          }).filter(s=> s.cards.length > 0);
+          res2.total_schools = res2.schools.length;
+          res2.total_cards = Math.max(0, (res2.total_cards||0) - 1);
+          res2.notified_cards = (res2.notified_cards||0) + 1;
+        }
+        this.showRetiradaPicker();
+        this.showToast(`#${cid} marcado como notificado`);
       });
     },
     copyRetiradaList(){

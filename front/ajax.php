@@ -3597,9 +3597,10 @@ switch ($action) {
         jexit(['success'=>true,'lists'=>$lists,'cards'=>$cards,'moves'=>$moves]);
 
     case 'get_retirada_schools':
-        // TEMPORÁRIO (até a notificação automática): escolas com cards na coluna Retirada,
-        // deduplicadas (a mesma escola pode se repetir na coluna).
+        // Escolas com cards NAO notificados na coluna Retirada (o botão "Notificado" do card
+        // tira de cima). Deduplicadas por escola (a mesma escola pode se repetir na coluna).
         // Coluna Retirada = lista com categoria 'retirada' ou nome "Retirada" (legado).
+        kanpro_ensure_board_extras();
         $bid = (int)($_REQUEST['boards_id'] ?? 0);
         if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
         $bchk = new PluginKanproBoard();
@@ -3618,12 +3619,22 @@ switch ($action) {
             if ($lt === 'retirada' || $nm === 'retirada') $retLists[(int)$l['id']] = (string)$l['name'];
         }
         $schools = [];
+        $notifiedCards = 0;
         if (!empty($retLists)) {
+            $hasNotifCol = $DB->fieldExists('glpi_plugin_kanpro_cards', 'is_notified');
+            $cardWhere = ['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>array_keys($retLists),'is_archived'=>0];
+            if ($hasNotifCol) $cardWhere['is_notified'] = 0;
             $rcards = [];
             $eids = [];
-            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>array_keys($retLists),'is_archived'=>0],'ORDER'=>'id ASC']) as $c) {
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>$cardWhere,'ORDER'=>'id ASC']) as $c) {
                 $rcards[] = $c;
                 if ((int)($c['entities_id'] ?? 0) > 0) $eids[] = (int)$c['entities_id'];
+            }
+            // contador dos já notificados (só p/ mostrar no cabeçalho, não entram na lista)
+            if ($hasNotifCol) {
+                foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>$cardWhere]) as $_n) {
+                    if (!empty($_n['is_notified'])) $notifiedCards++;
+                }
             }
             $enames = [];
             if (!empty($eids)) {
@@ -3660,7 +3671,7 @@ switch ($action) {
         }
         $totalCards = 0;
         foreach ($schools as $s) $totalCards += $s['count'];
-        jexit(['success'=>true,'schools'=>$schools,'total_schools'=>count($schools),'total_cards'=>$totalCards]);
+        jexit(['success'=>true,'schools'=>$schools,'total_schools'=>count($schools),'total_cards'=>$totalCards,'notified_cards'=>$notifiedCards]);
 
     // --- SEARCH FILTER ---
     case 'search_cards':
