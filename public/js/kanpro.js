@@ -226,6 +226,13 @@
         return this.fetchBoardSnapshot();
       }).catch(()=>{});
     },
+    forceSync(){
+      // força convergência com o banco (rusga de escrita falha ou estado incerto):
+      // zera as marcas para o próximo ciclo baixar e aplicar o snapshot de verdade
+      this._lastStamp = null;
+      this._lastSnapshotJson = null;
+      this.pollBoardUpdates();
+    },
     fetchBoardSnapshot(stamp){
       return this.ajax('get_board_snapshot', {boards_id: this.board.id}).then(res=>{
         if(!res || !res.success) return;
@@ -921,16 +928,25 @@
         if(c) c.rank = (i+1)*1024;
       });
       this.ajax('move_card', {cards_id: cardId, target_lists_id: targetListId, position: position}).then(res=>{
-        if(!res.success) { // revert
+        if(!res.success) { // revert COM aviso (antes era silencioso e parecia "voltou sozinho")
           card.plugin_kanpro_lists_id = oldList;
           this.renderBoard();
+          alert(res.msg || 'Não foi possível mover o cartão — tente de novo');
+          this.forceSync();
         } else {
+          // reconcilia com o banco (lista+rank reais — nunca confia só no otimista)
+          if(res.card){
+            card.plugin_kanpro_lists_id = res.card.plugin_kanpro_lists_id;
+            card.plugin_kanpro_boards_id = res.card.plugin_kanpro_boards_id;
+            card.rank = res.card.rank;
+            if(res.card.approval_from !== undefined) card.approval_from = res.card.approval_from;
+          }
           if(res.pending_approval){
             card.approval_from = oldList;
             this.renderBoard();
             this.showToast('Movido — invisível até aprovação do admin');
           }
-          else this.updateStats();
+          else { this.renderBoard(); this.updateStats(); }
         }
       });
     },
@@ -1331,6 +1347,7 @@
       if(newName && newName!==card.name){
         this.ajax('update_card', {id: cardId, name: newName}).then(res=>{
           if(res.success){ card.name=newName; this.renderBoard();}
+          else { alert(res.msg || 'Não foi possível renomear'); this.forceSync(); }
         });
       }
     },
@@ -3376,6 +3393,10 @@
           if(card) card.description=val;
           this.cancelDescription();
           this.renderBoard();
+        } else {
+          alert(res.msg || 'Não foi possível salvar a descrição');
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
+          this.forceSync();
         }
       });
     },
@@ -3775,9 +3796,11 @@
       Promise.all([
         this.ajax('set_dates', {cards_id: this.currentCardId, start_date: start, due_date: due}),
         this.ajax('update_card', {id: this.currentCardId, is_completed: complete, is_urgent: urgent})
-      ]).then(()=>{
+      ]).then(([r1, r2])=>{
+        if(r2 && r2.success === false) alert(r2.msg || 'Não foi possível salvar');
         this.closePicker();
         this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.updateCardLocalDates(start,due,complete,urgent); });
+        this.forceSync(); // garante convergência do quadro com o banco
       });
     },
     clearDates(){
@@ -3793,6 +3816,7 @@
     toggleComplete(cardId, checked){
       this.ajax('toggle_complete', {cards_id: cardId}).then(res=>{
         if(res.success){ const c=this.cards.find(x=>x.id==cardId); if(c) c.is_completed=res.is_completed; this.ajax('get_card', {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); }); }
+        else { alert(res.msg || 'Não foi possível salvar'); this.forceSync(); }
       });
     },
     openCoverPicker(){

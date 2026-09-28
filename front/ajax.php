@@ -2233,6 +2233,7 @@ switch ($action) {
         if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         $card = new PluginKanproCard();
         $id = $card->add(['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name]);
+        if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão (tente de novo)']);
         jexit(['success'=>true,'id'=>$id, 'card'=>$card->fields]);
 
     case 'add_task_card':
@@ -2297,7 +2298,9 @@ switch ($action) {
         if (empty($fields)) jexit(['success'=>false]);
         $fields['id'] = $cid;
         $c = new PluginKanproCard();
-        $c->update($fields);
+        // update() retorna false em falha (ex: coluna nova sem migração, deadlock) — antes fingia sucesso
+        // e a edição "voltava" sozinha no próximo polling
+        if (!$c->update($fields)) jexit(['success'=>false,'msg'=>'Não foi possível salvar (tente de novo)']);
         kanpro_touch_member($cid);
         jexit(['success'=>true]);
 
@@ -2315,20 +2318,21 @@ switch ($action) {
             $fl0 = new PluginKanproList();
             if ($fl0->getFromDB($from_list)) $from_name = $fl0->fields['name'];
         }
-        $pos = isset($_POST['position']) ? (int)$_POST['position'] : null;
+        $pos = (isset($_POST['position']) && $_POST['position'] !== '') ? (int)$_POST['position'] : null;
         // Se position dado, calcula rank; senão joga pro fim
+        $moveOk = true;
         if ($pos !== null) {
             // pega cartões da lista destino ordenados
             $cards = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$target_list,'is_archived'=>0],'ORDER'=>'rank ASC']);
             $ids = array_column(iterator_to_array($cards), 'id');
             // remove se já está
             $ids = array_values(array_filter($ids, fn($x)=>$x!=$cid));
-            array_splice($ids, $pos, 0, [$cid]);
+            array_splice($ids, max(0, $pos), 0, [$cid]);
             // reordena
             $rank = 1024;
             foreach ($ids as $id) {
                 if ($id == $cid) {
-                    $DB->update('glpi_plugin_kanpro_cards', ['rank'=>$rank,'plugin_kanpro_lists_id'=>$target_list], ['id'=>$cid]);
+                    $moveOk = $DB->update('glpi_plugin_kanpro_cards', ['rank'=>$rank,'plugin_kanpro_lists_id'=>$target_list], ['id'=>$cid]) && $moveOk;
                 } else {
                     $DB->update('glpi_plugin_kanpro_cards', ['rank'=>$rank], ['id'=>$id]);
                 }
@@ -2340,8 +2344,9 @@ switch ($action) {
                 $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id']], ['id'=>$cid]);
             }
         } else {
-            PluginKanproCard::moveCard($cid, $target_list);
+            $moveOk = PluginKanproCard::moveCard($cid, $target_list);
         }
+        if (!$moveOk) jexit(['success'=>false,'msg'=>'Não foi possível mover (tente de novo)']);
         // histórico de movimentação do cartão
         $pending = false;
         if ($from_list && $target_list && $from_list !== $target_list) {
@@ -2358,7 +2363,10 @@ switch ($action) {
                 $DB->update('glpi_plugin_kanpro_cards', ['approval_from'=>0], ['id'=>$cid]);
             }
         }
-        jexit(['success'=>true,'pending_approval'=>$pending]);
+        // devolve a linha fresca p/ o JS reconciliar (lista+rank reais do banco)
+        $fresh = new PluginKanproCard();
+        $fresh->getFromDB($cid);
+        jexit(['success'=>true,'pending_approval'=>$pending,'card'=>$fresh->fields]);
 
     case 'move_all_cards':
 
