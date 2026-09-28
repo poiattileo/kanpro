@@ -1753,6 +1753,19 @@
       const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
       return ms.find(m=> String(m.id)===String(mid)) || null;
     },
+    // html dos botões/selo de inventário (fonte única: render e patch instantâneo usam o mesmo)
+    maintInvBtnsHTML(m){
+      const needsInv = String(m.needs_inventory)==="1" || m.needs_inventory===1;
+      const isInventoried = String(m.is_inventoried)==="1" || m.is_inventoried===1;
+      const needs = `<button onclick="Kanpro.toggleMaintenanceNeeds(${m.id})" title="Marcar se esta máquina precisa ser inventariada ou não" style="display:flex;align-items:center;gap:4px;background:${needsInv ? "#ede9fe" : "#fff"};color:${needsInv ? "#5e35b1" : "#5e6c84"};border:${needsInv ? "1px solid #6554c0" : "1px solid #dfe1e6"};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:95px;justify-content:center;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list" style="font-size:12px"></i> ${needsInv ? "📋 Precisa inventariar" : "○ Inventariar?"}</button>`;
+      const inv = needsInv ? `<button onclick="Kanpro.toggleMaintenanceInventoried(${m.id})" title="${isInventoried ? "Clique para desmarcar inventário" : "Clique para confirmar que foi inventariado"}" style="display:flex;align-items:center;gap:4px;background:${isInventoried ? "#61bd4f" : "#fff"};color:${isInventoried ? "#fff" : "#5e6c84"};border:${isInventoried ? "1px solid #61bd4f" : "1px solid #dfe1e6"};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:95px;justify-content:center;white-space:nowrap;flex-shrink:0"><i class="${isInventoried ? "ti ti-check" : "ti ti-clipboard"}" style="font-size:12px"></i> ${isInventoried ? "✓ Inventariado" : "Inventariado?"}</button>` : '';
+      return {needs, inv};
+    },
+    maintInvPillHTML(m){
+      const needsInv = String(m.needs_inventory)==="1" || m.needs_inventory===1;
+      const isInventoried = String(m.is_inventoried)==="1" || m.is_inventoried===1;
+      return `<span id="maint-row-invpll-${m.id}" style="background:${!needsInv ? "#dfe1e6" : (isInventoried ? "#61bd4f" : "#ffab00")};color:${!needsInv ? "#5e6c84" : (isInventoried ? "#fff" : "#172b4d")};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${!needsInv ? "—" : (isInventoried ? "✓ Inventariado" : "◷ Falta inventariar")}</span>`;
+    },
     patchMaintUI(mid){
       // atualiza visuals a partir do cache local SEM rebuildar innerHTML:
       // não pisca, não fecha <select> aberto, não tira o foco do relatório
@@ -1783,6 +1796,40 @@
       if(pill){ pill.textContent = meta.label; pill.style.background = meta.color; pill.style.color = meta.text; }
       const foot = document.getElementById('maint-row-foot-'+mid);
       if(foot) foot.innerHTML = isDone ? '<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>' : '<span style="color:#ff991f">Em andamento</span>';
+      // botões + selo de inventário a partir do cache (clique responde na hora, sem esperar refresh)
+      const invBtns = this.maintInvBtnsHTML(m);
+      const needsInv = String(m.needs_inventory)==="1" || m.needs_inventory===1;
+      const needsBtn = row.querySelector('button[onclick*="toggleMaintenanceNeeds"]');
+      let invBtn = row.querySelector('button[onclick*="toggleMaintenanceInventoried"]');
+      if(needsInv && !invBtn && invBtns.inv){
+        // não existia (máquina passou a precisar): cria antes do botão de urgência
+        const tmp = document.createElement('span');
+        tmp.innerHTML = invBtns.inv;
+        const urgBtn = row.querySelector('button[onclick*="toggleUrgent"]');
+        if(urgBtn) urgBtn.before(tmp.firstChild);
+        else if(needsBtn) needsBtn.after(tmp.firstChild);
+        invBtn = row.querySelector('button[onclick*="toggleMaintenanceInventoried"]');
+      } else if(!needsInv && invBtn){ invBtn.remove(); invBtn = null; }
+      if(needsBtn){
+        const hadFocus = (document.activeElement === needsBtn);
+        needsBtn.outerHTML = invBtns.needs;
+        if(hadFocus){
+          const fresh = row.querySelector('button[onclick*="toggleMaintenanceNeeds"]');
+          if(fresh) fresh.focus();
+        }
+      }
+      if(invBtn){
+        const hadFocus = (document.activeElement === invBtn);
+        const wasDisabled = invBtn.disabled;
+        invBtn.outerHTML = invBtns.inv;
+        const fresh = row.querySelector('button[onclick*="toggleMaintenanceInventoried"]');
+        if(fresh){
+          if(wasDisabled){ fresh.disabled = true; fresh.style.opacity = '.6'; }
+          if(hadFocus) fresh.focus();
+        }
+      }
+      const invPill = document.getElementById('maint-row-invpll-'+mid);
+      if(invPill) invPill.outerHTML = this.maintInvPillHTML(m);
     },
     renderMaintenanceInModal(data){
       this._lastModalData = data;
@@ -1911,17 +1958,7 @@
         const selectBorder = !status ? "2px solid #eb5a46" : `1px solid ${statusColor}`;
         const statusSelectBg = !status ? "#fff" : statusColor;
         const statusSelectColor = !status ? "#bf2600" : statusTextColor;
-        const isInventoried = String(m.is_inventoried)==="1" || m.is_inventoried===1;
-        const needsInv = String(m.needs_inventory)==="1" || m.needs_inventory===1;
-        const needBg = needsInv ? "#ede9fe" : "#fff";
-        const needColor = needsInv ? "#5e35b1" : "#5e6c84";
-        const needBorder = needsInv ? "1px solid #6554c0" : "1px solid #dfe1e6";
-        const needLabel = needsInv ? "📋 Precisa inventariar" : "○ Inventariar?";
-        const invBg = isInventoried ? "#61bd4f" : "#fff";
-        const invColor = isInventoried ? "#fff" : "#5e6c84";
-        const invBorder = isInventoried ? "1px solid #61bd4f" : "1px solid #dfe1e6";
-        const invLabel = isInventoried ? "✓ Inventariado" : "Inventariado?";
-        const invIcon = isInventoried ? "ti ti-check" : "ti ti-clipboard";
+        const invBtns = this.maintInvBtnsHTML(m);
         html += `
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isUrgent?"#fff1f0":"#fff"};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
             <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;background:${isUrgent?"#ffecec":isDone?"#e3fcef":"#f4f5f7"};flex-wrap:wrap">
@@ -1944,12 +1981,8 @@
                   <option value="inservivel" ${status==="inservivel"?"selected":""}>❌ Inservível</option>
                   <option value="pendente" ${status==="pendente"?"selected":""}>⏳ Pendente</option>
                 </select>
-                <button onclick="Kanpro.toggleMaintenanceNeeds(${m.id})" title="Marcar se esta máquina precisa ser inventariada ou não" style="display:flex;align-items:center;gap:4px;background:${needBg};color:${needColor};border:${needBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:95px;justify-content:center;white-space:nowrap;flex-shrink:0">
-                  <i class="ti ti-clipboard-list" style="font-size:12px"></i> ${needLabel}
-                </button>
-                ${needsInv ? `<button onclick="Kanpro.toggleMaintenanceInventoried(${m.id})" title="${isInventoried?"Clique para desmarcar inventário":"Clique para confirmar que foi inventariado"}" style="display:flex;align-items:center;gap:4px;background:${invBg};color:${invColor};border:${invBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:95px;justify-content:center;white-space:nowrap;flex-shrink:0">
-                  <i class="${invIcon}" style="font-size:12px"></i> ${invLabel}
-                </button>` : ""}
+                ${invBtns.needs}
+                ${invBtns.inv}
                 <button onclick="Kanpro.toggleUrgent(${m.id})" title="${isUrgent?"Remover urgência":"Marcar como urgência"}" style="display:flex;align-items:center;gap:4px;background:${urgBg};color:${urgColor};border:${urgBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:80px;justify-content:center;white-space:nowrap;flex-shrink:0">
                   <i class="${urgIcon}" style="font-size:12px"></i> ${urgLabel}
                 </button>
@@ -1966,7 +1999,7 @@
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
                 <span style="font-size:10px;color:#97a0af;font-style:italic">💾 salvamento automático a cada digitação</span>
-                <span style="margin-left:auto;font-size:11px;color:#97a0af;display:flex;align-items:center;gap:6px;flex-wrap:wrap">Status Final: <span id="maint-row-stpill-${m.id}" style="background:${statusColor};color:${statusTextColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${statusLabel}</span> • <span id="maint-row-foot-${m.id}">${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span> • <span style="background:${!needsInv?"#dfe1e6":(isInventoried?"#61bd4f":"#ffab00")};color:${!needsInv?"#5e6c84":(isInventoried?"#fff":"#172b4d")};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${!needsInv?"—":(isInventoried?"✓ Inventariado":"◷ Falta inventariar")}</span></span>
+                <span style="margin-left:auto;font-size:11px;color:#97a0af;display:flex;align-items:center;gap:6px;flex-wrap:wrap">Status Final: <span id="maint-row-stpill-${m.id}" style="background:${statusColor};color:${statusTextColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${statusLabel}</span> • <span id="maint-row-foot-${m.id}">${isDone?'<span style="color:#61bd4f;font-weight:600">✔ Concluída</span>':'<span style="color:#ff991f">Em andamento</span>'}</span> • ${this.maintInvPillHTML(m)}</span>
               </div>
             </div>
           </div>
@@ -2725,6 +2758,13 @@
     setAllNeedsInventory(val){
       this.ajax('set_all_needs_inventory', {cards_id: this.currentCardId, needs_inventory: val}).then(res=>{
         if(res.success){
+          // reflete na hora (cache + botões), sem depender só do refresh
+          const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+          ms.forEach(m=>{
+            if(val){ m.needs_inventory = 1; }
+            else { m.needs_inventory = 0; m.is_inventoried = 0; }
+            this.patchMaintUI(m.id);
+          });
           this.showToast(val ? `📋 ${res.updated||0} máquinas: precisa inventariar` : 'Marcas de inventário removidas');
           this.refreshCardModal();
         } else alert(res.msg||'Erro');
