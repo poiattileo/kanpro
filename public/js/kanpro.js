@@ -2338,7 +2338,6 @@
         const statusSelectColor = !status ? "#bf2600" : statusTextColor;
         const invBtns = this.maintInvBtnsHTML(m);
         const lockBanner = isLocked ? `<div style="background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> 🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado</div>` : '';
-        const dis = isLocked ? 'disabled' : '';
         html += `
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isLocked ? '#fafafa' : (isUrgent?"#fff1f0":"#fff")};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${isLocked ? '#eb5a46' : borderColor};overflow:hidden;${isLocked ? 'opacity:.95' : ''}">
             ${lockBanner}
