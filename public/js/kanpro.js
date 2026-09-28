@@ -1225,27 +1225,54 @@
     openTaskCardModal(listId){
       const list = this.lists.find(l=> l.id==listId);
       const t = this.listTypeOf(list);
-      const chip = t ? `<span style="background:${t.color};color:${t.fg};padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700">${t.dot} ${this.escape(t.label)}</span>` : '';
+      const accent = t ? t.color : '#0079bf';
+      const accentFg = t ? t.fg : '#fff';
+      const chip = t ? `<span style="background:rgba(255,255,255,.25);padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${t.dot} ${this.escape(t.label)}</span>` : '';
       this.showPicker({
         title: 'Novo cartão',
         html: `
-        <div style="display:grid;gap:12px;min-width:min(440px,82vw)">
-          <div style="font-size:12px;color:#5e6c84;display:flex;align-items:center;gap:8px">Lista: <strong>${this.escape(list ? list.name : '')}</strong> ${chip}</div>
-          <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:#5e6c84">TÍTULO
-            <input id="task-title" type="text" maxlength="255" placeholder="O que precisa ser feito?" style="width:100%;padding:8px 10px;border:1px solid #dfe1e6;border-radius:4px;box-sizing:border-box">
-          </label>
-          <div>
-            <div style="font-size:12px;font-weight:700;color:#5e6c84;margin-bottom:6px">☑️ O QUE FAZER <small style="font-weight:400">(vira checklist do cartão)</small></div>
-            <div id="task-items" style="display:grid;gap:6px"></div>
-            <button onclick="Kanpro.taskCardAddItem()" style="margin-top:6px;background:none;border:1px dashed #97a0af;color:#5e6c84;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px">+ Adicionar item</button>
+        <style>
+          .task-grid{display:grid;gap:14px;min-width:min(440px,82vw)}
+          .task-banner{background:linear-gradient(135deg,${accent} 0%,${accent}bb 100%);border-radius:10px;padding:14px 16px;color:${accentFg};display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .task-step{display:flex;gap:10px;align-items:flex-start}
+          .task-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:${accent};color:${accentFg};font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:22px}
+          .task-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .task-field{width:100%;padding:10px 12px;border:1px solid #dfe1e6;border-radius:8px;box-sizing:border-box;font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s;background:#fff;font-family:inherit}
+          .task-field:focus{border-color:${accent};box-shadow:0 0 0 3px ${accent}33}
+          .task-box{background:#f4f5f7;border-radius:10px;padding:12px}
+          .task-add{margin-top:8px;width:100%;background:none;border:1px dashed #97a0af;color:#5e6c84;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700}
+          .task-add:hover{border-color:${accent};color:${accent}}
+          .task-mini{background:#f4f5f7;border-radius:10px;padding:10px 12px;flex:1;min-width:180px}
+          .task-urgent-box{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;cursor:pointer;background:#f4f5f7;border:2px solid transparent;border-radius:10px;padding:10px 12px;flex:1;min-width:160px;transition:all .15s;color:#172b4d}
+          .task-urgent-box.on{background:#ffebe6;border-color:#eb5a46;color:#bf2600}
+          .task-create{background:${accent};color:${accentFg};border:none;padding:12px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+          .task-create:hover{filter:brightness(.94)}
+          .task-create:disabled{opacity:.6;cursor:wait}
+        </style>
+        <div class="task-grid">
+          <div class="task-banner">
+            <span style="font-size:26px">${t ? t.dot : '➕'}</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Novo cartão</div>
+            <div style="font-size:12px;opacity:.92;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">${this.escape(list ? list.name : '')}</span>${chip}</div></div>
           </div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
-            <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:#5e6c84">📅 PRAZO <small style="font-weight:400">(opcional)</small>
-              <input id="task-due" type="datetime-local" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px">
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding-bottom:8px"><input id="task-urgent" type="checkbox"> 🔥 É urgência</label>
+          <div class="task-step"><span class="task-num">1</span>
+            <div style="flex:1;min-width:0"><div class="task-label">TÍTULO</div>
+            <input id="task-title" class="task-field" type="text" maxlength="255" placeholder="O que precisa ser feito?"></div>
           </div>
-          <button onclick="Kanpro.confirmTaskCard(${listId}, this)" style="background:#0079bf;color:#fff;border:none;padding:10px 16px;border-radius:4px;cursor:pointer;font-weight:700">Criar cartão</button>
+          <div class="task-step"><span class="task-num">2</span>
+            <div style="flex:1;min-width:0"><div class="task-label">☑️ O QUE FAZER <small style="font-weight:400">(vira checklist do cartão)</small></div>
+            <div class="task-box"><div id="task-items" style="display:grid;gap:6px"></div>
+            <button onclick="Kanpro.taskCardAddItem()" class="task-add">+ Adicionar item</button></div></div>
+          </div>
+          <div class="task-step"><span class="task-num">3</span>
+            <div style="flex:1;min-width:0"><div class="task-label">PRAZO E PRIORIDADE</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <div class="task-mini"><div style="font-size:11px;font-weight:700;color:#5e6c84;margin-bottom:4px">📅 PRAZO <small style="font-weight:400">(opcional)</small></div>
+              <input id="task-due" type="datetime-local" class="task-field" style="padding:8px 10px;font-size:13px"></div>
+              <label id="task-urgent-box" class="task-urgent-box"><input id="task-urgent" type="checkbox" onchange="document.getElementById('task-urgent-box').classList.toggle('on', this.checked)" style="width:16px;height:16px;accent-color:#eb5a46"> 🔥 É urgência</label>
+            </div></div>
+          </div>
+          <button onclick="Kanpro.confirmTaskCard(${listId}, this)" class="task-create">Criar cartão</button>
         </div>`
       });
       const pk = document.getElementById('kanpro-picker');
@@ -1260,8 +1287,8 @@
       inp.type = 'text';
       inp.maxLength = 255;
       inp.placeholder = 'Item do checklist... (Enter adiciona outro)';
-      inp.className = 'task-item-input';
-      inp.style.cssText = 'width:100%;padding:8px 10px;border:1px solid #dfe1e6;border-radius:4px;box-sizing:border-box';
+      inp.className = 'task-item-input task-field';
+      inp.style.cssText = 'padding:8px 10px;font-size:13px';
       inp.onkeydown = (e)=>{
         if(e.key === 'Enter'){ e.preventDefault(); Kanpro.taskCardAddItem(); }
       };
