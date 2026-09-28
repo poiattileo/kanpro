@@ -1701,21 +1701,32 @@
         if(s==='pendente') return '<span style="font-size:10px;font-weight:800;background:#fffae6;color:#975500;padding:2px 8px;border-radius:10px;white-space:nowrap">⏳ Pendente</span>';
         return '<span style="font-size:10px;font-weight:700;background:#f4f5f7;color:#5e6c84;padding:2px 8px;border-radius:10px;white-space:nowrap">sem status</span>';
       };
-      const rowsLivres = livres.map(m=>`
-        <label data-chamado-row="${this.escape(m.model||'')}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #dfe1e6;border-radius:10px;cursor:pointer;background:#fff;transition:border-color .15s,box-shadow .15s" onmouseover="this.style.borderColor='#e1316f'" onmouseout="this.style.borderColor='#dfe1e6'">
+      const normSt = (s)=>{
+        s = String(s||'').toLowerCase().trim();
+        if(s==='defect'||s==='defeito'||s==='nok') return 'inservivel';
+        if(s==='pending') return 'pendente';
+        if(['garantia','ok','inservivel','pendente'].includes(s)) return s;
+        return '';
+      };
+      const rowsLivres = livres.map(m=>{
+        const ns = normSt(m.status);
+        return `
+        <label data-chamado-row="${this.escape(m.model||'')}" data-chamado-status="${ns}" data-chamado-seq="${m.seq}" data-chamado-model="${this.escape((m.model||'').toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #dfe1e6;border-radius:10px;cursor:pointer;background:#fff;transition:border-color .15s,box-shadow .15s" onmouseover="this.style.borderColor='#e1316f'" onmouseout="this.style.borderColor='#dfe1e6'">
           <input type="checkbox" data-chamado-mid="${m.id}" checked onchange="Kanpro.chamadoUpdateCount()" style="width:18px;height:18px;accent-color:#e1316f;flex-shrink:0;cursor:pointer">
           <span style="background:#091e42;color:#fff;min-width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">#${m.seq}</span>
           <span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:700;color:#172b4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model||'')}</span>
           <span style="display:block;font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label||'')}</span></span>
           ${stPill(m.status)}
-        </label>`).join('');
-      const rowsTrav = travadas.map(m=>`
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed #dfe1e6;border-radius:10px;background:#f4f5f7;opacity:.7">
+        </label>`;}).join('');
+      const rowsTrav = travadas.map(m=>{
+        const ns = normSt(m.status);
+        return `
+        <div data-chamado-row="${this.escape(m.model||'')}" data-chamado-status="${ns}" data-chamado-seq="${m.seq}" data-chamado-locked="1" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed #dfe1e6;border-radius:10px;background:#f4f5f7;opacity:.7">
           <input type="checkbox" disabled style="width:18px;height:18px;flex-shrink:0">
           <span style="background:#97a0af;color:#fff;min-width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">#${m.seq}</span>
           <span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:700;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model||'')}</span></span>
           <span style="font-size:10px;font-weight:800;background:#ffebe6;color:#bf2600;padding:2px 8px;border-radius:10px;white-space:nowrap">🔒 travada</span>
-        </div>`).join('');
+        </div>`;}).join('');
       this.showPicker({
         title: 'Solicitar Chamado',
         html: `
@@ -1746,7 +1757,22 @@
               <button class="ch-mini-btn" onclick="Kanpro.chamadoCheckAll(true)">Marcar todas</button>
               <button class="ch-mini-btn" onclick="Kanpro.chamadoCheckAll(false)">Desmarcar</button>
             </div>
-            <input class="ch-field" style="margin-bottom:8px" placeholder="🔍 Buscar máquina..." oninput="Kanpro.chamadoFilter(this.value)">
+            <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+              <input id="kp-chamado-search" class="ch-field" style="flex:2;min-width:140px" placeholder="🔍 Buscar máquina..." oninput="Kanpro.chamadoApplyFilters()">
+              <select id="kp-chamado-fstatus" class="ch-field" style="flex:1;min-width:130px;cursor:pointer" onchange="Kanpro.chamadoApplyFilters()" title="Filtrar por status">
+                <option value="">Status: todos</option>
+                <option value="garantia">🛡️ Garantia</option>
+                <option value="ok">✅ OK</option>
+                <option value="inservivel">❌ Inservível</option>
+                <option value="pendente">⏳ Pendente</option>
+                <option value="sem">sem status</option>
+              </select>
+              <select id="kp-chamado-sort" class="ch-field" style="flex:1;min-width:130px;cursor:pointer" onchange="Kanpro.chamadoSort()" title="Ordenar por">
+                <option value="seq">Ordenar: #seq</option>
+                <option value="status">Ordenar: status</option>
+                <option value="modelo">Ordenar: modelo A-Z</option>
+              </select>
+            </div>
             <div id="kp-chamado-pick" style="display:grid;gap:8px;max-height:300px;overflow-y:auto">${rowsLivres}${rowsTrav}</div>
             </div>
           </div>
@@ -1762,11 +1788,53 @@
       if(pb){ pb.style.maxHeight = 'calc(100vh - 100px)'; pb.style.overflowY = 'auto'; }
     },
     chamadoFilter(q){
-      q = (q||'').toLowerCase();
+      // compat: busca antiga chama com valor — joga no input e aplica combinado
+      try {
+        if(q !== undefined && document.getElementById('kp-chamado-search') && document.activeElement !== document.getElementById('kp-chamado-search')) document.getElementById('kp-chamado-search').value = q || '';
+      } catch(e){}
+      this.chamadoApplyFilters();
+    },
+    chamadoApplyFilters(){
+      const qEl = document.getElementById('kp-chamado-search');
+      const fEl = document.getElementById('kp-chamado-fstatus');
+      const q = ((qEl && qEl.value) || '').toLowerCase().trim();
+      const f = (fEl && fEl.value) || '';
       document.querySelectorAll('#kp-chamado-pick [data-chamado-row]').forEach(lb=>{
-        const t = (lb.getAttribute('data-chamado-row')||'').toLowerCase() + ' ' + lb.textContent.toLowerCase();
-        lb.style.display = (!q || t.includes(q)) ? '' : 'none';
+        const t = ((lb.getAttribute('data-chamado-row')||'') + ' ' + lb.textContent).toLowerCase();
+        const st = lb.getAttribute('data-chamado-status') || '';
+        const okQ = (!q || t.includes(q));
+        const okF = (!f || (f === 'sem' ? st === '' : st === f));
+        lb.style.display = (okQ && okF) ? '' : 'none';
       });
+    },
+    chamadoSort(){
+      const sEl = document.getElementById('kp-chamado-sort');
+      const box = document.getElementById('kp-chamado-pick');
+      if(!sEl || !box) return;
+      const mode = sEl.value || 'seq';
+      const orderSt = {garantia: 0, ok: 1, inservivel: 2, pendente: 3, '': 4};
+      const livres = Array.from(box.querySelectorAll('label[data-chamado-row]'));
+      const trav = Array.from(box.querySelectorAll('div[data-chamado-row]'));
+      const norm = (s)=> String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      livres.sort((a,b)=>{
+        if(mode === 'status'){
+          const sa = a.getAttribute('data-chamado-status') || '', sb = b.getAttribute('data-chamado-status') || '';
+          const oa = orderSt[sa] ?? 9, ob = orderSt[sb] ?? 9;
+          if(oa !== ob) return oa - ob;
+        } else if(mode === 'modelo'){
+          const ma = norm(a.getAttribute('data-chamado-row')), mb = norm(b.getAttribute('data-chamado-row'));
+          if(ma !== mb) return ma < mb ? -1 : 1;
+        } else {
+          const qa = parseInt(a.getAttribute('data-chamado-seq') || '0', 10), qb = parseInt(b.getAttribute('data-chamado-seq') || '0', 10);
+          if(qa !== qb) return qa - qb;
+        }
+        const qa = parseInt(a.getAttribute('data-chamado-seq') || '0', 10), qb = parseInt(b.getAttribute('data-chamado-seq') || '0', 10);
+        return qa - qb;
+      });
+      trav.sort((a,b)=> (parseInt(a.getAttribute('data-chamado-seq')||'0',10) - parseInt(b.getAttribute('data-chamado-seq')||'0',10)));
+      livres.forEach(el=> box.appendChild(el));
+      trav.forEach(el=> box.appendChild(el));
+      try { this.chamadoApplyFilters(); } catch(e){}
     },
     chamadoUpdateCount(){
       const n = document.querySelectorAll('#kp-chamado-pick input[data-chamado-mid]:checked').length;
