@@ -1277,6 +1277,9 @@
       });
       const pk = document.getElementById('kanpro-picker');
       if(pk){ pk.style.maxWidth = '500px'; pk.style.width = 'min(500px, 94vw)'; }
+      // modal cresce até caber o conteúdo (só scrolla se a tela for muito baixa)
+      const pb = document.getElementById('picker-body');
+      if(pb){ pb.style.maxHeight = 'calc(100vh - 100px)'; pb.style.overflowY = 'auto'; }
       for(let i=0;i<3;i++) this.taskCardAddItem();
       setTimeout(()=>{ const el=document.getElementById('task-title'); if(el) el.focus(); }, 30);
     },
