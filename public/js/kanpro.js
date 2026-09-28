@@ -20,6 +20,7 @@
     transferStatus: K.transferStatus || {},
     ticketMap: K.ticketMap || {},
     members: K.members || [],
+    allUsers: K.allUsers || [],
     ajax_url: K.ajax_url || '/plugins/kanpro/front/ajax.php',
     openCardId: K.openCardId || null,
     canEdit: K.canEdit,
@@ -596,7 +597,7 @@
         }]);
       }catch(e){ return 'fp:' + (card && card.id); }
     },
-    // atualiza cabeçalho da lista no lugar (título/contador/categoria)
+    // atualiza cabeçalho da lista no lugar (título/contador/categoria/cadeado)
     updateListHead(listEl, list, count){
       const input = listEl.querySelector('.kp-list-title-input');
       if(input && input.style.display !== 'none') return; // renomeando: não mexe
@@ -610,6 +611,25 @@
         if(listEl._typeSig !== sig){
           listEl._typeSig = sig;
           slot.innerHTML = this.listTypeChip(list, false, true);
+        }
+      }
+      const isRestricted = !!(list.is_restricted || (list.viewer_ids && list.viewer_ids.length));
+      const lockSig = isRestricted ? '1' : '0';
+      if(listEl._lockSig !== lockSig){
+        listEl._lockSig = lockSig;
+        const head = listEl.querySelector('.kp-list-header');
+        const old = listEl.querySelector('.kp-list-lock');
+        if(isRestricted && !old && head){
+          const span = document.createElement('span');
+          span.className = 'kp-list-lock';
+          span.title = 'Lista restrita — só algumas pessoas veem';
+          span.style.cssText = 'display:inline-flex;align-items:center;gap:2px;background:#fffae6;border:1px solid #ffab00;color:#975500;font-size:11px;font-weight:700;padding:1px 6px;border-radius:10px;white-space:nowrap';
+          span.innerHTML = '<i class="ti ti-lock" style="font-size:11px"></i>🔒';
+          const slotEl = head.querySelector('.kp-ltype-slot');
+          if(slotEl && slotEl.nextSibling) head.insertBefore(span, slotEl.nextSibling);
+          else head.appendChild(span);
+        } else if(!isRestricted && old){
+          old.remove();
         }
       }
     },
@@ -662,12 +682,15 @@
       div.draggable = true;
       const collapsed = this.isListCollapsed(list.id);
       if(collapsed) div.classList.add('collapsed');
+      const isRestricted = !!(list.is_restricted || (list.viewer_ids && list.viewer_ids.length));
+      const lockHtml = isRestricted ? `<span class="kp-list-lock" title="Lista restrita — só algumas pessoas veem" style="display:inline-flex;align-items:center;gap:2px;background:#fffae6;border:1px solid #ffab00;color:#975500;font-size:11px;font-weight:700;padding:1px 6px;border-radius:10px;white-space:nowrap"><i class="ti ti-lock" style="font-size:11px"></i>🔒</span>` : '';
       div.innerHTML = `
         <div class="kp-list-header">
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
           <span class="kp-ltype-slot" style="display:inline-flex;min-width:0">${this.listTypeChip(list, false, true)}</span>
+          ${lockHtml}
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
@@ -867,6 +890,11 @@
       }
       if (comments>0) badges.push(`<span class="kp-badge"><i class="ti ti-message"></i> ${comments}</span>`);
       if (atts>0) badges.push(`<span class="kp-badge"><i class="ti ti-paperclip"></i> ${atts}</span>`);
+      // Notificado sobre o chamado — selo clicável (não abre o modal)
+      const isNotified = (card.is_notified == 1);
+      if (isNotified) {
+        badges.push(`<span class="kp-badge" title="Notificado sobre o chamado (clique para desmarcar)" onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
+      }
       if (members.length) {
         // members avatars handled separately
       }
@@ -875,6 +903,11 @@
       if(members.length){
         membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
       }
+
+      // botão Notificado (mini) — sempre visível p/ marcar rápido sem abrir
+      const notifiedBtnHtml = isNotified
+        ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcado como notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
+        : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar que foi notificado sobre o chamado" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificado?</button>`;
 
       // data de criação — pequenininha no canto inferior direito
       let createdHtml = '';
@@ -891,6 +924,7 @@
         ${checkBarHtml}
         ${dueBarHtml}
         ${membersHtml}
+        ${notifiedBtnHtml}
         ${createdHtml?`<div style="display:flex;justify-content:flex-end;margin-top:4px">${createdHtml}</div>`:''}
         <button class="kp-card-edit" onclick="event.stopPropagation(); Kanpro.quickEditCard(${card.id}, event)"><i class="ti ti-pencil" style="font-size:14px"></i></button>
       `;
@@ -1096,7 +1130,7 @@
         btn.disabled=false;
         if(res.success){
           // adiciona local
-          this.lists.push({id: res.id, plugin_kanpro_boards_id: this.board.id, name, rank: (this.lists.length+1)*1024, is_archived:0, require_approval:0, list_type});
+          this.lists.push({id: res.id, plugin_kanpro_boards_id: this.board.id, name, rank: (this.lists.length+1)*1024, is_archived:0, require_approval:0, list_type, viewer_ids:[], is_restricted:0, users_id:(window.KANPRO&&window.KANPRO.actingUserId)||0, can_manage_viewers:1});
           this.renderBoard();
           this.ajax('get_board_activity', {boards_id: this.board.id});
         } else alert(res.msg||'Erro');
@@ -1133,6 +1167,9 @@
         ? `<button class="kp-picker-item" onclick="Kanpro.setListApproval(${listId}, ${list.require_approval?0:1})"><i class="ti ti-shield-check"></i> ${list.require_approval?'Desativar aprovação do admin':'Exigir aprovação do admin'}</button>` : '';
       const curType = this.listTypeOf(list);
       const typeBtn = `<button class="kp-picker-item" onclick="Kanpro.openListTypePicker(${listId})"><i class="ti ti-tag"></i> Categoria da lista${curType ? ' (' + this.escape(curType.label) + ')' : ''}</button>`;
+      const isRestricted = !!(list.is_restricted || (list.viewer_ids && list.viewer_ids.length));
+      const visLabel = isRestricted ? `Quem pode ver (${(list.viewer_ids||[]).length} 🔒)` : 'Quem pode ver (todos)';
+      const visBtn = `<button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> ${visLabel}</button>`;
       this.showPicker({
         title: `Ações da lista: ${list.name}`,
         x: rect.left - 280,
@@ -1140,6 +1177,7 @@
         html: `
           <div style="display:grid;gap:4px">
             <button class="kp-picker-item" onclick="Kanpro.editListTitle(${listId}); Kanpro.closePicker()"><i class="ti ti-pencil"></i> Renomear lista</button>
+            ${visBtn}
             <button class="kp-picker-item" onclick="Kanpro.copyList(${listId})"><i class="ti ti-copy"></i> Copiar lista</button>
             <button class="kp-picker-item" onclick="Kanpro.moveAllCardsPicker(${listId})"><i class="ti ti-arrow-right"></i> Mover todos os cartões (${activeCount})</button>
             ${typeBtn}
@@ -1149,6 +1187,79 @@
             <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.archiveAllCards(${listId}, ${activeCount})"><i class="ti ti-box"></i> Arquivar todos os cartões (${activeCount})</button>
             <button class="kp-picker-item" style="color:#eb5a46" onclick="Kanpro.askDeleteList(${listId})"><i class="ti ti-trash"></i> Excluir lista</button>
           </div>`
+      });
+    },
+    openListVisibility(listId){
+      const list = this.lists.find(l=> l.id==listId);
+      const listName = list ? list.name : ('#' + listId);
+      this.showPicker({
+        title: `Quem vê: ${listName}`,
+        html: `<div style="text-align:center;color:#5e6c84;padding:12px">Carregando...</div>`
+      });
+      this.ajax('get_list_viewers', {lists_id: listId}).then(res=>{
+        if(!res || !res.success){
+          this.showPicker({title: `Quem vê: ${listName}`, html: `<div style="color:#bf2600;font-size:13px">${this.escape((res&&res.msg)||'Erro')}</div>`});
+          return;
+        }
+        const viewerIds = new Set((res.viewer_ids||[]).map(Number));
+        const canManage = !!res.can_manage;
+        const creatorTxt = res.creator_name ? `Criada por <strong>${this.escape(res.creator_name)}</strong>` : '';
+        const all = (this.allUsers || []).slice(0, 300);
+        // membros do quadro primeiro
+        const memberIds = new Set((this.members||[]).map(m=> Number(m.users_id)));
+        const sorted = all.slice().sort((a,b)=>{
+          const am = memberIds.has(Number(a.id)) ? 0 : 1;
+          const bm = memberIds.has(Number(b.id)) ? 0 : 1;
+          if(am !== bm) return am - bm;
+          return String(a.name||'').localeCompare(String(b.name||''));
+        });
+        const rows = sorted.map(u=>{
+          const uid = Number(u.id);
+          const checked = viewerIds.has(uid) ? 'checked' : '';
+          const dis = canManage ? '' : 'disabled';
+          return `<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:8px;cursor:${canManage?'pointer':'default'};background:${viewerIds.has(uid)?'#e6fcff':'#fff'}">
+            <input type="checkbox" data-lvis="${uid}" ${checked} ${dis} style="width:16px;height:16px;accent-color:#0079bf">
+            <span style="width:26px;height:26px;border-radius:50%;background:#dfe1e6;color:#172b4d;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${this.escape(u.initials||'?')}</span>
+            <span style="min-width:0"><span style="display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(u.name)}</span>
+            <span style="display:block;font-size:11px;color:#5e6c84">@${this.escape(u.login||'')}</span></span>
+          </label>`;
+        }).join('');
+        this.showPicker({
+          title: `Quem vê: ${this.escape(listName)}`,
+          html: `
+          <div style="display:grid;gap:8px">
+            <div style="font-size:12px;color:#5e6c84;line-height:1.5">${creatorTxt ? creatorTxt + '<br>' : ''}Vazio = <strong>todos do quadro</strong> veem. Marcou alguém = só <strong>marcados + quem gerencia</strong> (criador da lista e admins) veem.</div>
+            ${canManage ? `<div style="display:flex;gap:8px">
+              <button class="kp-picker-item" onclick="Kanpro.listVisAll(${listId}, true)" style="flex:1;text-align:center">Marcar todos</button>
+              <button class="kp-picker-item" onclick="Kanpro.listVisAll(${listId}, false)" style="flex:1;text-align:center">Liberar p/ todos</button>
+            </div>` : `<div style="font-size:11px;color:#975500;background:#fffae6;border:1px solid #ffab00;border-radius:6px;padding:6px 8px">Somente quem criou a lista ou admin do quadro pode alterar.</div>`}
+            <input type="text" placeholder="🔍 Buscar pessoa..." oninput="Kanpro.listVisFilter(this.value)" style="padding:8px 10px;border:1px solid #dfe1e6;border-radius:6px">
+            <div id="kp-lvis-list" style="display:grid;gap:6px;max-height:260px;overflow-y:auto">${rows || '<div style="color:#5e6c84">Nenhum usuário</div>'}</div>
+            ${canManage ? `<button onclick="Kanpro.saveListVisibility(${listId})" style="background:#0079bf;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:800">Salvar visibilidade</button>` : ''}
+          </div>`
+        });
+      });
+    },
+    listVisFilter(q){
+      q = (q||'').toLowerCase();
+      document.querySelectorAll('#kp-lvis-list label').forEach(lb=>{
+        const t = lb.textContent.toLowerCase();
+        lb.style.display = (!q || t.includes(q)) ? '' : 'none';
+      });
+    },
+    listVisAll(listId, mark){
+      document.querySelectorAll('#kp-lvis-list input[data-lvis]').forEach(cb=>{ cb.checked = !!mark; });
+    },
+    saveListVisibility(listId){
+      const ids = Array.from(document.querySelectorAll('#kp-lvis-list input[data-lvis]:checked')).map(cb=> parseInt(cb.getAttribute('data-lvis'), 10)).filter(v=> v>0);
+      this.ajax('set_list_viewers', {lists_id: listId, users_id: JSON.stringify(ids)}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro'); return; }
+        const l = this.lists.find(x=> x.id==listId);
+        if(l){ l.viewer_ids = res.viewer_ids||[]; l.is_restricted = res.is_restricted ? 1 : 0; }
+        this.closePicker();
+        this.showToast(res.is_restricted ? `Lista restrita (${(res.viewer_ids||[]).length} pessoa(s))` : 'Lista liberada para todos');
+        this.renderBoard();
+        this.forceSync();
       });
     },
     moveAllCardsPicker(listId){
@@ -1229,6 +1340,41 @@
           this.refreshCardModal();
         }
       });
+    },
+    toggleNotified(cardId, ev){
+      if(ev && ev.stopPropagation) ev.stopPropagation();
+      const cid = cardId || this.currentCardId;
+      if(!cid) return;
+      const c = this.cards.find(x=> x.id==cid);
+      const prev = c ? (c.is_notified == 1 ? 1 : 0) : 0;
+      // otimista: vira na hora no mini
+      if(c){ c.is_notified = prev ? 0 : 1; this.renderBoard(); }
+      // se o modal está aberto neste cartão, atualiza o botão na hora também
+      if(this.currentCardId == cid) this.renderNotifiedInModal(!prev ? 1 : 0);
+      this.ajax('toggle_notified', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){
+          if(c){ c.is_notified = prev; this.renderBoard(); }
+          if(this.currentCardId == cid) this.refreshCardModal();
+          alert((res&&res.msg)||'Não foi possível marcar como notificado');
+          return;
+        }
+        if(c) c.is_notified = res.is_notified ? 1 : 0;
+        this.renderBoard();
+        if(this.currentCardId == cid) this.refreshCardModal();
+        else this.showToast(res.is_notified ? 'Marcado como notificado 🔔' : 'Desmarcado como notificado');
+      }).catch(()=>{
+        if(c){ c.is_notified = prev; this.renderBoard(); }
+      });
+    },
+    renderNotifiedInModal(isNotified){
+      const box = document.getElementById('card-modal-badges');
+      if(!box) return;
+      const on = (isNotified == 1);
+      box.innerHTML = `
+        <button onclick="Kanpro.toggleNotified()" title="${on ? 'Marcado como notificado — clique para desmarcar' : 'Marcar que foi notificado sobre o chamado'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
+          <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificado?'}
+        </button>`;
+      box.style.display = 'flex';
     },
     approveCard(){
       this.ajax('approve_card', {cards_id: this.currentCardId}).then(res=>{
@@ -1313,7 +1459,8 @@
         btn.disabled=false;
         if(res.success){
           ta.value=''; // limpa (o composer agora persiste entre renders)
-          const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name, rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0};
+          const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name, rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0, is_notified:0};
+          if(newCard.is_notified === undefined) newCard.is_notified = 0;
           this.cards.push(newCard);
           this.cardLabels[newCard.id]=[];
           this.cardMembers[newCard.id]=[];
@@ -1422,7 +1569,8 @@
         btn.disabled = false;
         if(res.success){
           this.closePicker();
-          const nc = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: title, rank: 999999, description: '', due_date: due || null, start_date: null, cover_color: null, is_completed: 0, is_archived: 0, is_urgent: urgent};
+          const nc = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: title, rank: 999999, description: '', due_date: due || null, start_date: null, cover_color: null, is_completed: 0, is_archived: 0, is_urgent: urgent, is_notified: 0};
+          if(nc.is_notified === undefined) nc.is_notified = 0;
           this.cards.push(nc);
           this.cardLabels[nc.id] = [];
           this.cardMembers[nc.id] = [];
@@ -1490,6 +1638,8 @@
       const createdEl = $('#card-modal-created');
       if(createdEl) createdEl.textContent = data.date_creation ? ` • 🕐 Criado em ${this.formatDate(data.date_creation)}` : '';
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
+      // botão Notificado (aberto) — sempre visível no topo do modal
+      try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0); } catch(e){}
       // cover
       const cover = $('#card-modal-cover');
       if(data.cover_color){
@@ -1682,6 +1832,7 @@
         this.cards[idx].cover_color=data.cover_color;
         this.cards[idx].is_completed=data.is_completed;
         this.cards[idx].is_maintenance=data.is_maintenance||0;
+        if(data.is_notified !== undefined) this.cards[idx].is_notified = data.is_notified ? 1 : 0;
       }
       // atualiza maps
       this.cardLabels[data.id] = data.labels||[];

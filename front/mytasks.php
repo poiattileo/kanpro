@@ -23,7 +23,7 @@ if (!empty($memberCardIds)) {
     $where = ['c.id' => $memberCardIds, 'c.is_archived' => 0];
     if ($filter_board > 0) $where['c.plugin_kanpro_boards_id'] = $filter_board;
     $iter = $DB->request([
-        'SELECT' => ['c.*', 'b.name AS board_name', 'b.color AS board_color', 'l.name AS list_name'],
+        'SELECT' => ['c.*', 'b.name AS board_name', 'b.color AS board_color', 'l.name AS list_name', 'l.plugin_kanpro_boards_id AS list_board', 'l.users_id AS list_owner'],
         'FROM'   => 'glpi_plugin_kanpro_cards AS c',
         'LEFT JOIN' => [
             'glpi_plugin_kanpro_boards AS b' => ['ON' => ['b' => 'id', 'c' => 'plugin_kanpro_boards_id']],
@@ -32,7 +32,14 @@ if (!empty($memberCardIds)) {
         'WHERE'  => $where,
         'ORDER'  => 'c.due_date ASC',
     ]);
-    foreach ($iter as $r) $tasks[] = $r;
+    foreach ($iter as $r) {
+        // respeita visibilidade da lista (restrita some daqui, salvo quem gerencia)
+        if (function_exists('kanpro_can_view_list')) {
+            $lrow = ['id' => (int)($r['plugin_kanpro_lists_id'] ?? 0), 'plugin_kanpro_boards_id' => (int)($r['plugin_kanpro_boards_id'] ?? 0), 'users_id' => (int)($r['list_owner'] ?? 0)];
+            if (!kanpro_can_view_list($lrow)) continue;
+        }
+        $tasks[] = $r;
+    }
 }
 
 // quadros com tarefas minhas (filtro)

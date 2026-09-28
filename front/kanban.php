@@ -57,6 +57,10 @@ Html::header($board->fields['name'] . ' — KanPro', $_SERVER['PHP_SELF'], 'tool
 
 // Dados do quadro
 $lists = PluginKanproList::getListsForBoard($boards_id);
+// visibilidade por lista: enriquece (viewer_ids/is_restricted) e filtra o que o usuário pode ver
+if (function_exists('kanpro_enrich_lists_with_viewers')) $lists = kanpro_enrich_lists_with_viewers($lists);
+if (function_exists('kanpro_filter_visible_lists')) $lists = kanpro_filter_visible_lists($lists);
+$visibleListIds = array_map(function ($l) { return (int)($l['id'] ?? 0); }, $lists);
 $labels = PluginKanproLabel::getForBoard($boards_id);
 
 // Membros do quadro — 2 queries (evita new User por membro = N+1)
@@ -142,10 +146,15 @@ if (!empty($board_bg_raw)) {
     $board_bg_style = "url('{$bgUrlEsc}') center / cover no-repeat, {$board_color}";
 }
 
-// Busca cartões por lista para render inicial (evita N+1 via JS)
+// Busca cartões por lista para render inicial (evita N+1 via JS) — só listas visíveis
 $all_cards = [];
 $cards_by_list = [];
-$cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0], 'ORDER' => 'rank ASC']);
+$cards_where = ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0];
+if (isset($visibleListIds)) {
+    if (empty($visibleListIds)) $cards_where['plugin_kanpro_lists_id'] = [0];
+    else $cards_where['plugin_kanpro_lists_id'] = array_values($visibleListIds);
+}
+$cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => $cards_where, 'ORDER' => 'rank ASC']);
 foreach ($cards_iter as $c) {
     $all_cards[] = $c;
     $cards_by_list[$c['plugin_kanpro_lists_id']][] = $c;

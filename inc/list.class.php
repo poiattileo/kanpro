@@ -26,6 +26,9 @@ class PluginKanproList extends CommonDBTM {
             $max = $row['maxrank'] ?? 0;
             $input['rank'] = floatval($max) + 1024;
         }
+        if (empty($input['users_id'])) {
+            $input['users_id'] = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        }
         $input['date_creation'] = date('Y-m-d H:i:s');
         $input['date_mod'] = $input['date_creation'];
         return $input;
@@ -38,7 +41,11 @@ class PluginKanproList extends CommonDBTM {
 
     function cleanDBonPurge() {
         global $DB;
-        $cards = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $this->getID()]]);
+        $lid = $this->getID();
+        if ($DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
+            $DB->delete('glpi_plugin_kanpro_lists_viewers', ['plugin_kanpro_lists_id' => $lid]);
+        }
+        $cards = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $lid]]);
         foreach ($cards as $c) {
             $card = new PluginKanproCard();
             $card->delete(['id' => $c['id']], true);

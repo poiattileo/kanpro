@@ -70,6 +70,7 @@ function plugin_kanpro_install(): bool {
                 `color`                       VARCHAR(20)  DEFAULT NULL,
                 `require_approval`            TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin',
                 `list_type`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem criou a lista',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
@@ -86,6 +87,24 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)'");
         }
+        // criador da lista (p/ gerenciar visibilidade: quem criou escolhe quem vê)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'users_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `users_id` INT NOT NULL DEFAULT '0' COMMENT 'quem criou a lista' AFTER `list_type`");
+        }
+    }
+
+    // --- LISTS VIEWERS (quem pode ver cada lista — vazio = todos do quadro) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_lists_viewers` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_lists_id`      INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_plugin_kanpro_lists.id',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_users.id',
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_list_user` (`plugin_kanpro_lists_id`, `users_id`),
+                KEY `plugin_kanpro_lists_id` (`plugin_kanpro_lists_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
     }
 
     // --- CARDS (Cartões) ---
@@ -112,6 +131,9 @@ function plugin_kanpro_install(): bool {
                 `approval_from`               INT {$sign} NOT NULL DEFAULT '0' COMMENT 'lista de origem se aguardando aprovacao, 0=sem pendencia',
                 `tickets_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'chamado GLPI vinculado',
                 `entities_id`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'escola/entidade da manutenção (p/ fone do WhatsApp)',
+                `is_notified`                 TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=notificado sobre o chamado',
+                `notified_by`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem marcou como notificado',
+                `notified_date`               DATETIME     DEFAULT NULL COMMENT 'quando foi marcado como notificado',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -155,6 +177,16 @@ function plugin_kanpro_install(): bool {
         // entidade da escola (fone do WhatsApp) — antes só ia p/ o nome do card
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `entities_id` INT NOT NULL DEFAULT '0' AFTER `tickets_id`");
+        }
+        // notificado sobre o chamado (botão Notificado no mini + modal)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_notified')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_notified` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificado sobre o chamado'");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'notified_by')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `notified_by` INT NOT NULL DEFAULT '0' COMMENT 'quem marcou como notificado' AFTER `is_notified`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'notified_date')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `notified_date` DATETIME DEFAULT NULL COMMENT 'quando foi marcado como notificado' AFTER `notified_by`");
         }
     }
 
@@ -540,6 +572,7 @@ function plugin_kanpro_uninstall(): bool {
         'glpi_plugin_kanpro_cards_labels',
         'glpi_plugin_kanpro_labels',
         'glpi_plugin_kanpro_cards',
+        'glpi_plugin_kanpro_lists_viewers',
         'glpi_plugin_kanpro_lists',
         'glpi_plugin_kanpro_boards',
     ];

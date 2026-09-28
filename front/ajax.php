@@ -431,12 +431,34 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `entities_id` INT NOT NULL DEFAULT '0' AFTER `tickets_id`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_notified')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `is_notified` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificado sobre o chamado'"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'notified_by')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `notified_by` INT NOT NULL DEFAULT '0' AFTER `is_notified`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'notified_date')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `notified_date` DATETIME DEFAULT NULL AFTER `notified_by`"); } catch (Throwable $e) {}
+            }
         }
-        if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
-            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
+        if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)'"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'users_id')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `users_id` INT NOT NULL DEFAULT '0' COMMENT 'quem criou a lista' AFTER `list_type`"); } catch (Throwable $e) {}
+            }
         }
-        if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
-            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)'"); } catch (Throwable $e) {}
+        if (!$DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_lists_viewers` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_lists_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', PRIMARY KEY (`id`), UNIQUE KEY `uniq_list_user` (`plugin_kanpro_lists_id`, `users_id`), KEY `plugin_kanpro_lists_id` (`plugin_kanpro_lists_id`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
         }
         if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL"); } catch (Throwable $e) {}
@@ -1707,7 +1729,7 @@ switch ($action) {
         $name = trim($_POST['name'] ?? 'Nova Lista');
         if (!$name) $name = 'Nova Lista';
         $list = new PluginKanproList();
-        $id = $list->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$name,'list_type'=>kanpro_valid_list_type((string)($_POST['list_type'] ?? ''))]);
+        $id = $list->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$name,'list_type'=>kanpro_valid_list_type((string)($_POST['list_type'] ?? '')),'users_id'=>kanpro_acting_user_id()]);
         PluginKanproBoard::logActivity($bid, null, $id, 'list_create', "Lista '{$name}' criada");
         jexit(['success'=>true,'id'=>$id]);
 
@@ -1729,6 +1751,73 @@ switch ($action) {
         if (!$lchk->getFromDB($id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         $DB->update('glpi_plugin_kanpro_lists', ['list_type'=>$type], ['id'=>$id]);
         jexit(['success'=>true,'list_type'=>$type]);
+
+    case 'get_list_viewers':
+        // Quem pode ver a lista — criador da lista / admin do quadro gerencia; todos podem ler p/ exibir cadeado.
+        $lid = (int)($_REQUEST['lists_id'] ?? $_REQUEST['id'] ?? 0);
+        if (!$lid) jexit(['success'=>false,'msg'=>'Lista inválida']);
+        $lr = new PluginKanproList();
+        if (!$lr->getFromDB($lid)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $bid = (int)($lr->fields['plugin_kanpro_boards_id'] ?? 0);
+        $viewerIds = function_exists('kanpro_list_viewer_ids') ? kanpro_list_viewer_ids($lid) : [];
+        $canManage = function_exists('kanpro_can_manage_list') ? kanpro_can_manage_list($bid, $lr->fields) : false;
+        $viewers = [];
+        if (!empty($viewerIds)) {
+            $urows = [];
+            try {
+                foreach ($DB->request(['SELECT' => ['id','name','realname','firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => array_values($viewerIds)]]) as $ur) $urows[(int)$ur['id']] = $ur;
+            } catch (Throwable $e) {}
+            foreach ($viewerIds as $uid) {
+                $ur = $urows[$uid] ?? null;
+                if ($ur) {
+                    $tmpU = new User();
+                    $tmpU->fields = $ur + ($tmpU->fields ?? []);
+                    $uname = $tmpU->getFriendlyName();
+                } else $uname = 'Usuário #' . $uid;
+                $viewers[] = ['users_id' => (int)$uid, 'name' => $uname];
+            }
+        }
+        // criador da lista p/ exibir "criada por"
+        $creatorName = '';
+        $creatorId = (int)($lr->fields['users_id'] ?? 0);
+        if ($creatorId > 0) {
+            $cu = new User();
+            if ($cu->getFromDB($creatorId)) $creatorName = $cu->getFriendlyName();
+            else $creatorName = 'Usuário #' . $creatorId;
+        }
+        jexit(['success'=>true,'lists_id'=>$lid,'boards_id'=>$bid,'list_name'=>$lr->fields['name'] ?? '','users_id'=>$creatorId,'creator_name'=>$creatorName,'viewer_ids'=>array_values($viewerIds),'viewers'=>$viewers,'is_restricted'=>!empty($viewerIds),'can_manage'=>$canManage]);
+
+    case 'set_list_viewers':
+        needEdit();
+        $lid = (int)($_POST['lists_id'] ?? $_POST['id'] ?? 0);
+        if (!$lid) jexit(['success'=>false,'msg'=>'Lista inválida']);
+        $lr = new PluginKanproList();
+        if (!$lr->getFromDB($lid)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $bid = (int)($lr->fields['plugin_kanpro_boards_id'] ?? 0);
+        if (function_exists('kanpro_can_manage_list') && !kanpro_can_manage_list($bid, $lr->fields)) {
+            jexit(['success'=>false,'msg'=>'Somente quem criou a lista ou admin do quadro pode escolher quem vê.']);
+        }
+        $raw = $_POST['users_id'] ?? $_POST['viewers'] ?? '[]';
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $uids = is_array($decoded) ? $decoded : [];
+        } elseif (is_array($raw)) {
+            $uids = $raw;
+        } else $uids = [];
+        $uids = array_values(array_unique(array_map('intval', $uids)));
+        $uids = array_values(array_filter($uids, function ($v) { return $v > 0; }));
+        $uids = array_slice($uids, 0, 200);
+        try {
+            if ($DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
+                $DB->delete('glpi_plugin_kanpro_lists_viewers', ['plugin_kanpro_lists_id' => $lid]);
+                foreach ($uids as $uid) {
+                    try { $DB->insert('glpi_plugin_kanpro_lists_viewers', ['plugin_kanpro_lists_id' => $lid, 'users_id' => $uid]); } catch (Throwable $e) {}
+                }
+                $DB->update('glpi_plugin_kanpro_lists', ['date_mod' => date('Y-m-d H:i:s')], ['id' => $lid]);
+            }
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Falha ao salvar']); }
+        PluginKanproBoard::logActivity($bid, null, $lid, 'list_visibility', empty($uids) ? "Lista '{$lr->fields['name']}' liberada para todos" : "Visibilidade da lista '{$lr->fields['name']}' ajustada (" . count($uids) . " pessoa(s))");
+        jexit(['success'=>true,'viewer_ids'=>$uids,'is_restricted'=>!empty($uids)]);
 
     case 'archive_list':
         needEdit();
@@ -1827,8 +1916,13 @@ switch ($action) {
             };
             // listas: nome/arquivada/ordem/categoria (rename, arquivar, reorder, mover e set_list_type não tocam date_mod)
             $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank, '|', IFNULL(list_type, '')))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
-            // cartões: lista+rank+arquivada+aprovação+urgência (mover/reordenar na mesma lista é rank-only sem date_mod)
-            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0)))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // cartões: lista+rank+arquivada+aprovação+urgência+notificado (mover/reordenar na mesma lista é rank-only sem date_mod)
+            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0), '|', IFNULL(is_notified, 0)))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // visibilidade das listas: trocar quem vê não toca date_mod — sem isso o outro PC nunca percebe
+            $listVisBit = '';
+            if ($DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
+                $listVisBit = $ag("COUNT(*) AS c, COALESCE(MAX(v.id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(v.plugin_kanpro_lists_id, '|', v.users_id))), 0) AS s", "`glpi_plugin_kanpro_lists_viewers` AS v INNER JOIN `glpi_plugin_kanpro_lists` AS l ON l.id = v.plugin_kanpro_lists_id", "l.plugin_kanpro_boards_id = {$bidInt}");
+            }
             // etiquetas do quadro: criar/renomear/recolorir/prazo/excluir
             $labelsBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', color, '|', IFNULL(due_date, '')))), 0) AS s", "`glpi_plugin_kanpro_labels`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // etiquetas/membros no cartão: toggle é insert/delete sem data
@@ -1866,7 +1960,7 @@ switch ($action) {
                 }
                 $tstat = implode(',', $tbits);
             }
-            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax, $tstat, $listsBit, $cardsBit, $labelsBit, $clBit, $cmBit, $chkBit, $chitBit, $machBit, $bmBit, $bpBit, $coBit, $attBit, $notesBit]));
+            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax, $tstat, $listsBit, $cardsBit, $listVisBit, $labelsBit, $clBit, $cmBit, $chkBit, $chitBit, $machBit, $bmBit, $bpBit, $coBit, $attBit, $notesBit]));
             // viewers junto (barato) p/ avatares continuarem vivos sem snapshot pesado
             $viewers = [];
             $cutoff = date('Y-m-d H:i:s', time() - 15);
@@ -1908,6 +2002,10 @@ switch ($action) {
         if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
 
         $lists = PluginKanproList::getListsForBoard($boards_id);
+        // visibilidade por lista: quem não pode ver nem recebe a lista/cards (segurança + polling)
+        if (function_exists('kanpro_enrich_lists_with_viewers')) $lists = kanpro_enrich_lists_with_viewers($lists);
+        if (function_exists('kanpro_filter_visible_lists')) $lists = kanpro_filter_visible_lists($lists);
+        $visibleListIds = array_map(function ($l) { return (int)($l['id'] ?? 0); }, $lists);
         $labels = PluginKanproLabel::getForBoard($boards_id);
 
         $members_raw = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]);
@@ -1941,7 +2039,12 @@ switch ($action) {
         }
 
         $all_cards = [];
-        $cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0], 'ORDER' => 'rank ASC']);
+        $cards_where = ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0];
+        if (isset($visibleListIds)) {
+            if (empty($visibleListIds)) $cards_where['plugin_kanpro_lists_id'] = [0];
+            else $cards_where['plugin_kanpro_lists_id'] = array_values($visibleListIds);
+        }
+        $cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => $cards_where, 'ORDER' => 'rank ASC']);
         foreach ($cards_iter as $c) $all_cards[] = $c;
 
         $card_labels_map = [];
@@ -2145,6 +2248,8 @@ switch ($action) {
             $board = $boards_by_id[$c['plugin_kanpro_boards_id']] ?? null;
             if (!$board) return false;
             $list = $lists_by_id[$c['plugin_kanpro_lists_id']] ?? null;
+            // respeita visibilidade da lista
+            if ($list && function_exists('kanpro_can_view_list') && !kanpro_can_view_list($list, (int)$c['plugin_kanpro_boards_id'])) return false;
             $seen_ids[$cid] = true;
             $results[] = [
                 'card_id'    => $cid,
@@ -2211,6 +2316,14 @@ switch ($action) {
         $l = new PluginKanproList();
         if (!$l->getFromDB($id)) jexit(['success'=>false]);
         $new_id = $l->add(['plugin_kanpro_boards_id'=>$l->fields['plugin_kanpro_boards_id'],'name'=>$l->fields['name'].' (cópia)','list_type'=>kanpro_valid_list_type((string)($l->fields['list_type'] ?? ''))]);
+        // copia visibilidade (quem via a original vê a cópia)
+        try {
+            if ($new_id && $DB->tableExists('glpi_plugin_kanpro_lists_viewers') && function_exists('kanpro_list_viewer_ids')) {
+                foreach (kanpro_list_viewer_ids($id) as $uid) {
+                    try { $DB->insert('glpi_plugin_kanpro_lists_viewers', ['plugin_kanpro_lists_id' => $new_id, 'users_id' => (int)$uid]); } catch (Throwable $e) {}
+                }
+            }
+        } catch (Throwable $e) {}
         // copia cartões
         $cards = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$id,'is_archived'=>0]]);
         foreach ($cards as $c) {
@@ -2287,6 +2400,15 @@ switch ($action) {
         kanpro_ensure_board_extras();
         $data = PluginKanproCard::getFullData($cid);
         if (!$data) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        // trava de visibilidade da lista: quem não pode ver a lista não abre o cartão
+        if (function_exists('kanpro_can_view_list')) {
+            $lrChk = new PluginKanproList();
+            if ($lrChk->getFromDB((int)($data['plugin_kanpro_lists_id'] ?? 0))) {
+                if (!kanpro_can_view_list($lrChk->fields, (int)($data['plugin_kanpro_boards_id'] ?? 0))) {
+                    jexit(['success'=>false,'msg'=>'Você não tem acesso a esta lista.']);
+                }
+            }
+        }
         jexit(['success'=>true,'data'=>$data]);
 
     case 'update_card':
@@ -2506,7 +2628,16 @@ switch ($action) {
         foreach ($liter as $l) {
             $nl = new PluginKanproList();
             $newLid = $nl->add(['plugin_kanpro_boards_id'=>$newBid,'name'=>$l['name'],'rank'=>$l['rank'],'is_archived'=>$l['is_archived'],'color'=>($l['color'] ?? null)]);
-            if ($newLid) $listMap[(int)$l['id']] = (int)$newLid;
+            if ($newLid) {
+                $listMap[(int)$l['id']] = (int)$newLid;
+                try {
+                    if ($DB->tableExists('glpi_plugin_kanpro_lists_viewers') && function_exists('kanpro_list_viewer_ids')) {
+                        foreach (kanpro_list_viewer_ids((int)$l['id']) as $uid) {
+                            try { $DB->insert('glpi_plugin_kanpro_lists_viewers', ['plugin_kanpro_lists_id' => $newLid, 'users_id' => (int)$uid]); } catch (Throwable $e) {}
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
         }
         // etiquetas (mapa)
         $labelMap = [];
@@ -2991,6 +3122,25 @@ switch ($action) {
         $DB->update('glpi_plugin_kanpro_cards', ['is_completed'=>$new], ['id'=>$cid]);
         PluginKanproBoard::logActivity((int)$row['plugin_kanpro_boards_id'], $cid, (int)$row['plugin_kanpro_lists_id'], $new ? 'card_complete' : 'card_reopen', $new ? 'Cartão concluído' : 'Cartão reaberto');
         jexit(['success'=>true,'is_completed'=>$new]);
+
+    case 'toggle_notified':
+        // Marca/desmarca que foi notificado sobre o chamado (botão Notificado no mini + modal).
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $new = !empty($row['is_notified']) ? 0 : 1;
+        $auid = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        $DB->update('glpi_plugin_kanpro_cards', [
+            'is_notified' => $new,
+            'notified_by' => $new ? $auid : 0,
+            'notified_date' => $new ? date('Y-m-d H:i:s') : null,
+            'date_mod' => date('Y-m-d H:i:s'),
+        ], ['id'=>$cid]);
+        kanpro_touch_member($cid, $auid);
+        PluginKanproBoard::logActivity((int)$row['plugin_kanpro_boards_id'], $cid, (int)$row['plugin_kanpro_lists_id'], $new ? 'card_notified' : 'card_unnotified', $new ? 'Marcado como notificado sobre o chamado' : 'Desmarcado como notificado');
+        jexit(['success'=>true,'is_notified'=>$new]);
 
     // --- BOARD ACTIVITY ---
     case 'get_board_activity':
