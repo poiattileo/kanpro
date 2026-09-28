@@ -2798,33 +2798,55 @@
           return raw !== 'Unidade Regional de Ensino de Jales' && raw.toLowerCase() !== 'unidade regional de ensino de jales' && raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
         });
         const html = `
-          <div style="display:grid;gap:10px">
-            <div style="background:#e6f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:6px;color:#003a8c;font-size:12px;line-height:1.3">
-              <strong><i class="ti ti-building" style="color:#1890ff"></i> Entidade</strong> — digite para buscar. O <strong>nome do Card virará o nome da entidade</strong> selecionada.
-            </div>
+        <style>
+          .mh-grid{display:grid;gap:14px;min-width:min(480px,84vw)}
+          .mh-banner{background:linear-gradient(135deg,#ff991f 0%,#ffab00 100%);border-radius:10px;padding:14px 16px;color:#172b4d;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .mh-step{display:flex;gap:10px;align-items:flex-start}
+          .mh-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#ff991f;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:2px}
+          .mh-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .mh-field{width:100%;padding:9px 12px;border:1px solid #dfe1e6;border-radius:8px;box-sizing:border-box;font-size:13px;outline:none;background:#fff}
+          .mh-field:focus{border-color:#ff991f;box-shadow:0 0 0 3px #ff991f33}
+          .mh-confirm{background:#ffab00;color:#172b4d;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+          .mh-confirm:hover{filter:brightness(.96)}
+          .mh-cancel{background:#fff;border:1px solid #dfe1e6;padding:10px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d}
+        </style>
+        <div class="mh-grid">
+          <div class="mh-banner">
+            <span style="font-size:26px">🛠️</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Gerenciar Manutenção</div>
+            <div style="font-size:12px;opacity:.85">O nome do card vira o nome da entidade selecionada</div></div>
+          </div>
+          <div class="mh-step"><span class="mh-num">1</span>
+            <div style="flex:1;min-width:0"><div class="mh-label">ENTIDADE</div>
             <div style="position:relative">
-              <input id="maint-entity-search" type="text" placeholder="Digite para buscar entidade... ex: Adelino, EE, Jales" autocomplete="off" style="width:100%;padding:10px 10px 10px 36px;border:2px solid #1890ff;border-radius:6px;font-size:13px;background:#fff;box-sizing:border-box" oninput="Kanpro.onEntitySearch(this.value)" onfocus="Kanpro.showEntityDropdown()" onkeydown="if(event.key==='Escape') Kanpro.hideEntityDropdown()">
+              <input id="maint-entity-search" type="text" placeholder="Digite para buscar entidade... ex: Adelino, EE, Jales" autocomplete="off" class="mh-field" style="padding-left:36px;border-width:2px;border-color:#ff991f" oninput="Kanpro.onEntitySearch(this.value)" onfocus="Kanpro.showEntityDropdown()" onkeydown="if(event.key==='Escape') Kanpro.hideEntityDropdown()">
               <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#8c8c8c;font-size:14px"></i>
-              <div id="maint-entity-dropdown" style="position:absolute;top:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:#fff;border:1px solid #91d5ff;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;z-index:20"></div>
+              <div id="maint-entity-dropdown" style="position:absolute;top:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:#fff;border:1px solid #ffd166;border-top:none;border-radius:0 0 8px 8px;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;z-index:20"></div>
             </div>
             <input type="hidden" id="maint-entity-select" value="">
-            <div id="maint-entity-selected" style="font-size:12px;color:#389e0d;display:none;background:#f6ffed;border:1px solid #b7eb8f;padding:6px 8px;border-radius:4px"><i class="ti ti-check"></i> Selecionado: <strong id="maint-entity-selected-name"></strong> <a href="#" onclick="Kanpro.clearEntitySelection();return false" style="margin-left:8px;color:#ff4d4f;font-size:11px">trocar</a></div>
+            <div id="maint-entity-selected" style="font-size:12px;color:#389e0d;display:none;background:#f6ffed;border:1px solid #b7eb8f;padding:6px 8px;border-radius:8px;margin-top:8px"><i class="ti ti-check"></i> Selecionado: <strong id="maint-entity-selected-name"></strong> <a href="#" onclick="Kanpro.clearEntitySelection();return false" style="margin-left:8px;color:#ff4d4f;font-size:11px">trocar</a></div>
             <div id="maint-entity-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
-            <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:6px;color:#172b4d;font-size:12px;line-height:1.3">
+            </div>
+          </div>
+          <div class="mh-step"><span class="mh-num">2</span>
+            <div style="flex:1;min-width:0"><div class="mh-label">CONFIRMAÇÃO</div>
+            <div style="background:#fffae6;border:1px solid #ffecb5;padding:8px 10px;border-radius:8px;color:#172b4d;font-size:12px;line-height:1.4;margin-bottom:8px">
               <strong><i class="ti ti-alert-triangle" style="color:#ff991f"></i> Atenção</strong> — Este card vira <strong>Manutenção</strong> com checklist por máquina (1 em diante).
             </div>
             <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
               <div style="font-size:10px;opacity:.7;letter-spacing:0.04em">DIGITE A PALAVRA ABAIXO</div>
               <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
             </div>
-            <input id="maint-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" style="width:100%;padding:8px;border:2px solid #ffab00;border-radius:6px;font-size:15px;box-sizing:border-box;text-transform:uppercase;letter-spacing:0.06em;text-align:center;font-weight:700">
+            <input id="maint-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" class="mh-field" style="margin-top:8px;border-width:2px;border-color:#ffab00;font-size:15px;text-transform:uppercase;letter-spacing:0.06em;text-align:center;font-weight:700">
             <div id="maint-step1-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:4px">
-              <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
-              <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px">Confirmar e Converter</button>
             </div>
-            <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
           </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" class="mh-cancel" style="flex:0 0 110px">Cancelar</button>
+            <button id="maint-step1-btn" onclick="Kanpro.confirmMaintenanceStep1()" class="mh-confirm" style="flex:1">Confirmar e Converter</button>
+          </div>
+          <div style="text-align:center"><a href="#" onclick="Kanpro.showMaintenanceStep1();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+        </div>
         `;
         this.showPicker({title:"Confirmação — Manutenção", html});
         setTimeout(()=>{
@@ -2834,6 +2856,8 @@
             picker.style.maxHeight = "85vh";
             picker.style.display = "flex";
             picker.style.flexDirection = "column";
+            picker.style.maxWidth = "540px";
+            picker.style.width = "min(540px, 94vw)";
           }
           if(body){
             body.style.maxHeight = "none";
@@ -3191,21 +3215,42 @@
       const isAppendMode = !!isAppend;
       const title = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas — Manutenção";
       const models = this.getMaintModels();
+      const bannerTitle = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas";
+      const bannerSub = isAppendMode ? "Novas máquinas entram no fim da checklist" : "Quantidade + modelo por linha — checklist enumerada de 1 em diante";
       const html = `
-        <div style="display:grid;gap:10px">
-          <div style="background:#f4f5f7;padding:8px 10px;border-radius:6px;font-size:11px;color:#5e6c84;line-height:1.4">
-            Informe <strong>quantidade</strong> e <strong>modelo</strong> por linha. Use <code style="background:#fff;padding:1px 4px;border-radius:3px">+</code> para adicionar mais tipos.
+        <style>
+          .mh-grid{display:grid;gap:14px;min-width:min(480px,84vw)}
+          .mh-banner{background:linear-gradient(135deg,#ff991f 0%,#ffab00 100%);border-radius:10px;padding:14px 16px;color:#172b4d;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .mh-step{display:flex;gap:10px;align-items:flex-start}
+          .mh-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#ff991f;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:2px}
+          .mh-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .mh-confirm{background:#ffab00;color:#172b4d;border:none;padding:12px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2);flex:1}
+          .mh-confirm:hover{filter:brightness(.96)}
+          .mh-cancel{background:#fff;border:1px solid #dfe1e6;padding:12px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d;flex:0 0 110px}
+        </style>
+        <div class="mh-grid">
+          <div class="mh-banner">
+            <span style="font-size:26px">🛠️</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">${bannerTitle}</div>
+            <div style="font-size:12px;opacity:.85">${bannerSub}</div></div>
           </div>
-          <div id="maint-rows" style="display:grid;gap:8px;max-height:220px;overflow-y:auto;padding-right:2px"></div>
-          <div style="display:flex;gap:8px">
-            <button onclick="Kanpro.addMaintenanceRow()" style="flex:1;background:#fff;border:1px dashed #97a0af;color:#172b4d;padding:8px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px"><i class="ti ti-plus"></i> Adicionar tipo</button>
-            <button onclick="Kanpro.promptAddCustomModel()" title="Cadastrar novo modelo" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px"><i class="ti ti-plus"></i> Modelo</button>
+          <div class="mh-step"><span class="mh-num">1</span>
+            <div style="flex:1;min-width:0"><div class="mh-label">TIPOS E QUANTIDADES</div>
+          <div style="background:#f4f5f7;padding:8px 10px;border-radius:8px;font-size:11px;color:#5e6c84;line-height:1.4;margin-bottom:8px">
+            Informe <strong>quantidade</strong> e <strong>modelo</strong> por linha. Use <strong>+</strong> para adicionar mais tipos.
           </div>
-          <div id="maint-setup-preview" style="background:#fff;border:1px dashed #dfe1e6;border-radius:6px;padding:8px;min-height:32px;font-size:12px;color:#5e6c84;text-align:center">Adicione pelo menos um tipo</div>
+          <div id="maint-rows" style="display:grid;gap:8px;max-height:240px;overflow-y:auto;padding-right:2px"></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button onclick="Kanpro.addMaintenanceRow()" style="flex:1;background:#fff;border:1px dashed #97a0af;color:#172b4d;padding:8px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-plus"></i> Adicionar tipo</button>
+            <button onclick="Kanpro.promptAddCustomModel()" title="Cadastrar novo modelo" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-plus"></i> Modelo</button>
+          </div>
+          <div id="maint-setup-preview" style="background:#fff;border:1px dashed #dfe1e6;border-radius:8px;padding:8px;min-height:32px;font-size:12px;color:#5e6c84;text-align:center;margin-top:8px">Adicione pelo menos um tipo</div>
           <div id="maint-setup-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:6px">
-            <button onclick="Kanpro.closePicker()" style="background:#f4f5f7;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Cancelar</button>
-            <button id="maint-setup-btn" onclick="Kanpro.submitMaintenanceSetup(${isAppendMode?1:0})" style="background:#ffab00;color:#172b4d;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-tool"></i> ${isAppendMode?"Adicionar":"Gerar Checklist Enumerado"}</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" class="mh-cancel">Cancelar</button>
+            <button id="maint-setup-btn" onclick="Kanpro.submitMaintenanceSetup(${isAppendMode?1:0})" class="mh-confirm"><i class="ti ti-tool"></i> ${isAppendMode?"Adicionar":"Gerar Checklist Enumerado"}</button>
           </div>
         </div>
       `;
