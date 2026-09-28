@@ -135,15 +135,16 @@ if (count($iterator) === 0) {
             $ltype = trim(strtolower($l['list_type'] ?? ''));
             if ($ltype === '') {
                 $lnorm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
+                $lnorm = strtr($lnorm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
                 if ($lnorm === 'a fazer') $ltype = 'todo';
                 elseif ($lnorm === 'em progresso') $ltype = 'doing';
                 elseif ($lnorm === 'pautas futuras') $ltype = 'backlog';
-                elseif ($lnorm === 'concluido' || $lnorm === 'concluído') $ltype = 'done';
+                elseif ($lnorm === 'concluido') $ltype = 'done';
                 elseif ($lnorm === 'aguardando chegada') $ltype = 'awaiting';
                 elseif ($lnorm === 'pendente') $ltype = 'pending';
                 elseif ($lnorm === 'em andamento') $ltype = 'andamento';
                 elseif ($lnorm === 'retirada') $ltype = 'retirada';
-                elseif ($lnorm === 'pendencia chamado' || $lnorm === 'pendência chamado' || $lnorm === 'pendencia chamados') $ltype = 'pend_chamado';
+                elseif (strpos($lnorm, 'pendencia') !== false && strpos($lnorm, 'chamado') !== false) $ltype = 'pend_chamado';
             }
             if ($ltype === 'todo') {
                 $badge = 'background:#ffab00;color:#172b4d'; // A Fazer = amarela

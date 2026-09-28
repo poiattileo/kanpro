@@ -575,7 +575,7 @@ function kanpro_find_list_by_type(int $boards_id, string $type): ?array {
                 $nm = strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
                 if ($type === 'pending' && $nm === 'pendente') return $l;
                 if ($type === 'andamento' && $nm === 'em andamento') return $l;
-                if ($type === 'pend_chamado' && ($nm === 'pendencia chamado' || $nm === 'pendencia chamados' || $nm === 'pendencia de chamado')) return $l;
+                if ($type === 'pend_chamado' && (strpos($nm, 'pendencia') !== false && strpos($nm, 'chamado') !== false)) return $l;
             }
         }
     } catch (Throwable $e) {}
@@ -4607,8 +4607,9 @@ switch ($action) {
         PluginKanproBoard::logActivity($bid, $srcId, (int)$src->fields['plugin_kanpro_lists_id'], 'chamado_request', "Solicitado chamado p/ " . count($mids) . " máquina(s) → card #{$newId}");
         PluginKanproBoard::logActivity($bid, $newId, $targetLid, 'chamado_created', "Pendência Chamado criada a partir de #{$srcId} (" . count($mids) . " máquina(s))");
         // WhatsApp p/ o aprovador: 1 msg por card novo (nunca quebra o fluxo)
-        try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::sendPendencia((int)$newId); } catch (Throwable $e) {}
-        jexit(['success'=>true,'pendencia_id'=>$newId,'target_lists_id'=>$targetLid,'locked'=>count($mids)]);
+        $zapOk = false; $zapErr = '';
+        try { if (class_exists('PluginKanproMaintenanceZap')) { $zr = PluginKanproMaintenanceZap::sendPendencia((int)$newId); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
+        jexit(['success'=>true,'pendencia_id'=>$newId,'target_lists_id'=>$targetLid,'locked'=>count($mids),'zap_ok'=>$zapOk,'zap_error'=>$zapErr]);
 
     case 'confirm_chamado_created':
         needEdit();
@@ -4726,7 +4727,12 @@ switch ($action) {
         }
         if (!empty($allM)) {
             $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
-            if (!$pendList) jexit(['success'=>false,'msg'=>'Pego e movido, mas crie a lista "Pendência Chamado" para gerar a pendência','moved'=>true,'need_pend_list'=>true,'dest_lists_id'=>$destLid]);
+            if (!$pendList) {
+                kanpro_touch_card($cid);
+                $fresh0 = new PluginKanproCard();
+                $fresh0->getFromDB($cid);
+                jexit(['success'=>true,'warning'=>'Pego e movido, mas crie a lista "Pendência Chamado" (categoria) para gerar a pendência','need_pend_list'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>0,'locked'=>0,'card'=>($fresh0->fields ?? null)]);
+            }
             $pendLid = (int)$pendList['id'];
             $nc = new PluginKanproCard();
             $nm = mb_substr(trim($c->fields['name'] ?? ('Card #' . $cid)), 0, 255);
@@ -4749,13 +4755,16 @@ switch ($action) {
                 kanpro_touch_card($pendId);
                 PluginKanproBoard::logActivity($bid, $pendId, $pendLid, 'chamado_created', "Pendência Chamado criada via Pegar de #{$cid} ({$lockedN} máquina(s))");
                 // WhatsApp p/ o aprovador: 1 msg por card novo (nunca quebra o fluxo)
-                try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::sendPendencia((int)$pendId); } catch (Throwable $e) {}
+                $zapOk2 = false; $zapErr2 = '';
+                try { if (class_exists('PluginKanproMaintenanceZap')) { $zr2 = PluginKanproMaintenanceZap::sendPendencia((int)$pendId); $zapOk2 = !empty($zr2['ok']); $zapErr2 = (string)($zr2['error'] ?? ''); } } catch (Throwable $e) { $zapErr2 = $e->getMessage(); }
             }
         }
         kanpro_touch_card($cid);
         $fresh = new PluginKanproCard();
         $fresh->getFromDB($cid);
-        jexit(['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'card'=>$fresh->fields]);
+        $respPeg = ['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'card'=>$fresh->fields];
+        if (isset($zapOk2)) { $respPeg['zap_ok'] = $zapOk2; $respPeg['zap_error'] = $zapErr2; }
+        jexit($respPeg);
 
     // --- CARD <-> CHAMADO GLPI ---
     case 'link_ticket':

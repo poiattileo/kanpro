@@ -1856,6 +1856,7 @@
         if(!res || !res.success){ alert((res&&res.msg)||'Erro ao solicitar'); return; }
         this.closePicker();
         this.showToast(`Chamado solicitado → card #${res.pendencia_id} (${res.locked} travada(s))`);
+        if(res.zap_error && res.zap_error !== 'duplicate') this.showToast('Zap não enviado: ' + res.zap_error);
         this.refreshCardModal();
         this.forceSync();
       });
@@ -2003,8 +2004,10 @@
       this.ajax('pegar_pending_card', {cards_id: cid}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
         this.closePicker();
+        if(res.warning) alert(res.warning);
         if(res.pendencia_id) this.showToast(`Pego ✓ → Em Andamento + pendência #${res.pendencia_id}`);
         else this.showToast('Pego ✓ → Em Andamento');
+        if(res.zap_error && res.pendencia_id && res.zap_error !== 'duplicate') this.showToast('Zap não enviado: ' + res.zap_error);
         if(this.currentCardId == cid) this.closeCardModal();
         this.forceSync();
         setTimeout(()=> this.forceSync(), 1500);
