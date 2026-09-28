@@ -433,7 +433,7 @@ function kanpro_migrate_schema_once() {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0'"); } catch (Throwable $e) {}
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists') && !$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
-            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done (vazio=normal)'"); } catch (Throwable $e) {}
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)'"); } catch (Throwable $e) {}
         }
         if ($DB->tableExists('glpi_plugin_kanpro_labels') && !$DB->fieldExists('glpi_plugin_kanpro_labels', 'due_date')) {
             try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_labels` ADD `due_date` DATETIME DEFAULT NULL"); } catch (Throwable $e) {}
@@ -511,11 +511,12 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
 }
 
 // Categorias de lista (listas de ajuste): backlog=Pautas futuras, todo=A Fazer,
-// doing=Em Progresso, done=Concluído. '' = lista normal (vale dedução pelo nome p/ legado),
+// doing=Em Progresso, done=Concluído, awaiting=Aguardando Chegada, pending=Pendente,
+// andamento=Em Andamento, retirada=Retirada. '' = lista normal (vale dedução pelo nome p/ legado),
 // 'none' = normal explícito (usuário tirou a categoria: nome NÃO reaplica).
 function kanpro_valid_list_type(string $t): string {
     $t = trim(strtolower($t));
-    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'none'], true) ? $t : '';
+    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'awaiting', 'pending', 'andamento', 'retirada', 'none'], true) ? $t : '';
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.

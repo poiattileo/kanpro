@@ -69,7 +69,7 @@ function plugin_kanpro_install(): bool {
                 `is_archived`                 TINYINT(1)   NOT NULL DEFAULT '0',
                 `color`                       VARCHAR(20)  DEFAULT NULL,
                 `require_approval`            TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin',
-                `list_type`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done (vazio=normal)',
+                `list_type`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
@@ -82,9 +82,9 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin'");
         }
-        // categoria da lista (listas de ajuste: pautas futuras, a fazer, em progresso, concluído)
+        // categoria da lista (listas de ajuste: pautas futuras, a fazer, em progresso, concluído, aguardando chegada, pendente, em andamento, retirada)
         if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done (vazio=normal)'");
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)'");
         }
     }
 

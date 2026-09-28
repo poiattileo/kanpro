@@ -530,8 +530,12 @@
           </label>
           <select class="kp-list-type-select" style="display:none;width:100%;margin-top:6px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;background:#fff">
             <option value="backlog">🟣 Pautas futuras</option>
+            <option value="awaiting">🟠 Aguardando Chegada</option>
+            <option value="pending">🔴 Pendente</option>
             <option value="todo" selected>🟡 A Fazer</option>
+            <option value="andamento">🔷 Em Andamento</option>
             <option value="doing">🔵 Em Progresso</option>
+            <option value="retirada">📦 Retirada</option>
             <option value="done">🟢 Concluído</option>
           </select>
           <div class="kp-composer-actions">
@@ -4204,10 +4208,14 @@
     },
     /* ---------- categorias de lista (listas de ajuste) ---------- */
     LIST_TYPES: {
-      backlog: {label: 'Pautas futuras', color: '#6554c0', fg: '#fff', dot: '🟣'},
-      todo:    {label: 'A Fazer',        color: '#ffab00', fg: '#172b4d', dot: '🟡'},
-      doing:   {label: 'Em Progresso',   color: '#0079bf', fg: '#fff', dot: '🔵'},
-      done:    {label: 'Concluído',      color: '#61bd4f', fg: '#fff', dot: '🟢'},
+      backlog:   {label: 'Pautas futuras',     color: '#6554c0', fg: '#fff',    dot: '🟣'},
+      todo:      {label: 'A Fazer',            color: '#ffab00', fg: '#172b4d', dot: '🟡'},
+      doing:     {label: 'Em Progresso',       color: '#0079bf', fg: '#fff',    dot: '🔵'},
+      done:      {label: 'Concluído',          color: '#61bd4f', fg: '#fff',    dot: '🟢'},
+      awaiting:  {label: 'Aguardando Chegada', color: '#ff991f', fg: '#fff',    dot: '🟠'},
+      pending:   {label: 'Pendente',           color: '#ff5630', fg: '#fff',    dot: '🔴'},
+      andamento: {label: 'Em Andamento',       color: '#0052cc', fg: '#fff',    dot: '🔷'},
+      retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
     },
     listTypeOf(list){
       if(!list) return null;
@@ -4217,9 +4225,13 @@
       // legado (lista sem tipo): deduz pelo nome
       const n = this.normText(list.name || '').trim();
       if(n === 'a fazer') return Object.assign({code: 'todo'}, this.LIST_TYPES.todo);
-      if(n === 'em andamento' || n === 'em progresso') return Object.assign({code: 'doing'}, this.LIST_TYPES.doing);
+      if(n === 'em progresso') return Object.assign({code: 'doing'}, this.LIST_TYPES.doing);
       if(n === 'pautas futuras') return Object.assign({code: 'backlog'}, this.LIST_TYPES.backlog);
       if(n === 'concluido') return Object.assign({code: 'done'}, this.LIST_TYPES.done);
+      if(n === 'aguardando chegada') return Object.assign({code: 'awaiting'}, this.LIST_TYPES.awaiting);
+      if(n === 'pendente') return Object.assign({code: 'pending'}, this.LIST_TYPES.pending);
+      if(n === 'em andamento') return Object.assign({code: 'andamento'}, this.LIST_TYPES.andamento);
+      if(n === 'retirada') return Object.assign({code: 'retirada'}, this.LIST_TYPES.retirada);
       return null;
     },
     listTypeChip(list, small, clickable){

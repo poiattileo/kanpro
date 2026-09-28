@@ -136,9 +136,13 @@ if (count($iterator) === 0) {
             if ($ltype === '') {
                 $lnorm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
                 if ($lnorm === 'a fazer') $ltype = 'todo';
-                elseif ($lnorm === 'em andamento' || $lnorm === 'em progresso') $ltype = 'doing';
+                elseif ($lnorm === 'em progresso') $ltype = 'doing';
                 elseif ($lnorm === 'pautas futuras') $ltype = 'backlog';
                 elseif ($lnorm === 'concluido' || $lnorm === 'concluído') $ltype = 'done';
+                elseif ($lnorm === 'aguardando chegada') $ltype = 'awaiting';
+                elseif ($lnorm === 'pendente') $ltype = 'pending';
+                elseif ($lnorm === 'em andamento') $ltype = 'andamento';
+                elseif ($lnorm === 'retirada') $ltype = 'retirada';
             }
             if ($ltype === 'todo') {
                 $badge = 'background:#ffab00;color:#172b4d'; // A Fazer = amarela
@@ -148,6 +152,14 @@ if (count($iterator) === 0) {
                 $badge = 'background:#6554c0;color:#fff'; // Pautas futuras = roxa
             } elseif ($ltype === 'done') {
                 $badge = 'background:#61bd4f;color:#fff'; // Concluído = verde
+            } elseif ($ltype === 'awaiting') {
+                $badge = 'background:#ff991f;color:#fff'; // Aguardando Chegada = laranja
+            } elseif ($ltype === 'pending') {
+                $badge = 'background:#ff5630;color:#fff'; // Pendente = vermelha
+            } elseif ($ltype === 'andamento') {
+                $badge = 'background:#0052cc;color:#fff'; // Em Andamento = azul escuro
+            } elseif ($ltype === 'retirada') {
+                $badge = 'background:#00b8d9;color:#fff'; // Retirada = ciano
             } else {
                 $badge = 'background:rgba(0,0,0,.35);color:#fff';
             }
