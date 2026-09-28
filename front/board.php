@@ -285,13 +285,14 @@ echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; wind
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
 <div id="kpb-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;align-items:center;justify-content:center;padding:16px">
-  <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:520px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #dfe1e6">
+  <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);width:min(760px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #dfe1e6;flex-shrink:0">
       <strong id="kpb-title">Acesso ao quadro</strong>
       <button onclick="KanproBoards.close()" style="background:none;border:none;cursor:pointer;font-size:18px">✕</button>
     </div>
-    <div id="kpb-body" style="padding:16px;overflow-y:auto;display:grid;gap:12px"></div>
-    <div style="padding:12px 16px;border-top:1px solid #dfe1e6;display:flex;justify-content:flex-end">
+    <!-- flex:1 + min-height:0: sem isso o grid esmaga a lista de pessoas (ficava com ~1cm) -->
+    <div id="kpb-body" style="padding:16px;overflow-y:auto;min-height:0;flex:1 1 auto;display:grid;gap:12px;align-content:start"></div>
+    <div style="padding:12px 16px;border-top:1px solid #dfe1e6;display:flex;justify-content:flex-end;flex-shrink:0">
       <button onclick="KanproBoards.close()" class="btn btn-outline-secondary btn-sm">Fechar</button>
     </div>
   </div>
@@ -334,41 +335,41 @@ window.KanproBoards = (function(){
     var body = document.getElementById('kpb-body');
     document.getElementById('kpb-title').textContent = 'Acesso — ' + (d.board_name || ('Quadro #' + state.boardId));
     var html = '<div style="font-size:12px;color:#5e6c84">Quem pode visualizar este quadro. O <strong>criador</strong> e os <strong>admins</strong> podem adicionar pessoas e trocar papéis. Membro comum só visualiza.</div>';
-    html += '<div style="display:grid;gap:6px">' + d.members.map(function(m){
+    html += '<div style="display:grid;gap:6px;max-height:min(32vh,280px);overflow-y:auto;align-content:start;padding-right:2px">' + d.members.map(function(m){
       var ctrl;
       if (m.is_creator) {
-        ctrl = '<small style="color:#5e6c84;font-size:11px">acesso total</small>';
+        ctrl = '<small style="color:#5e6c84;font-size:12px">acesso total</small>';
       } else if (d.can_manage) {
         ctrl = '<span style="display:flex;gap:6px;align-items:center">'
-          + '<select onchange="KanproBoards.setRole(' + m.users_id + ', this.value)" style="padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:11px;background:#fff">'
+          + '<select onchange="KanproBoards.setRole(' + m.users_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff">'
           + '<option value="admin"' + (m.role==='admin'?' selected':'') + '>⭐ Admin</option>'
           + '<option value="member"' + (m.role==='member'?' selected':'') + '>👤 Membro</option>'
           + '</select>'
-          + '<button onclick="KanproBoards.remove(' + m.users_id + ')" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer">✕</button>'
+          + '<button onclick="KanproBoards.remove(' + m.users_id + ')" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer">✕</button>'
           + '</span>';
       } else {
         ctrl = '';
       }
-      return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f9fafb;border:1px solid #dfe1e6;padding:8px 10px;border-radius:8px;gap:8px">'
-        + '<span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:28px;height:28px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(m.initials) + '</span>'
-        + '<span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</span> ' + roleBadge(m) + '</span>'
+      return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f9fafb;border:1px solid #dfe1e6;padding:10px 12px;border-radius:8px;gap:10px">'
+        + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">' + esc(m.initials) + '</span>'
+        + '<span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</span> ' + roleBadge(m) + '</span>'
         + ctrl + '</div>';
     }).join('') + '</div>';
     if (d.can_manage) {
       html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
         + '<div style="font-size:13px;font-weight:700;color:#172b4d">🎭 Perfis do GLPI com acesso</div>'
         + '<div style="font-size:11px;color:#5e6c84">Todos os usuários vinculados ao perfil passam a ver este quadro.</div>'
-        + '<div style="display:grid;gap:6px">' + (d.profiles || []).map(function(p){
+        + '<div style="display:grid;gap:6px;max-height:min(24vh,200px);overflow-y:auto;align-content:start;padding-right:2px">' + (d.profiles || []).map(function(p){
           var ctrl = '<span style="display:flex;gap:6px;align-items:center">'
-            + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:11px;background:#fff">'
+            + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff">'
             + '<option value="admin"' + (p.role==='admin'?' selected':'') + '>⭐ Admin</option>'
             + '<option value="member"' + (p.role==='member'?' selected':'') + '>🎭 Membro</option>'
             + '</select>'
-            + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer">✕</button>'
+            + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer">✕</button>'
             + '</span>';
-          return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f7ff;border:1px solid #91d5ff;padding:8px 10px;border-radius:8px;gap:8px">'
-            + '<span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:28px;height:28px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">🎭</span>'
-            + '<span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.name) + '</span> ' + profileBadge(p) + '</span>'
+          return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f7ff;border:1px solid #91d5ff;padding:10px 12px;border-radius:8px;gap:10px">'
+            + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">🎭</span>'
+            + '<span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.name) + '</span> ' + profileBadge(p) + '</span>'
             + ctrl + '</div>';
         }).join('') + '</div>';
       if ((d.available_profiles || []).length) {
@@ -389,8 +390,8 @@ window.KanproBoards = (function(){
         + '<option value="admin">⭐ Administrador — pode adicionar pessoas</option>'
         + '<option value="member" selected>👤 Membro — só visualiza</option>'
         + '</select></label>'
-        + '<input id="kpb-search" type="text" placeholder="🔍 Buscar pessoa por nome ou login..." oninput="KanproBoards.filter(this.value)" style="padding:10px;border:1px solid #dfe1e6;border-radius:6px">'
-        + '<div id="kpb-results" style="display:grid;gap:6px;max-height:220px;overflow-y:auto"></div>';
+        + '<input id="kpb-search" type="text" placeholder="🔍 Buscar pessoa por nome ou login..." oninput="KanproBoards.filter(this.value)" style="width:100%;padding:10px;border:1px solid #dfe1e6;border-radius:6px;font-size:14px;box-sizing:border-box">'
+        + '<div id="kpb-results" style="display:grid;gap:6px;min-height:200px;max-height:min(46vh,440px);overflow-y:auto;align-content:start"></div>';
     } else {
       html += '<div style="font-size:11px;color:#5e6c84;text-align:center">Você não tem permissão para alterar o acesso.</div>';
     }
@@ -402,12 +403,12 @@ window.KanproBoards = (function(){
     if (!box) return;
     if (!list.length) { box.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhuma pessoa encontrada — refine a busca (vale nome, sobrenome ou login, sem acento)</div>'; return; }
     box.innerHTML = list.slice(0, 60).map(function(u){
-      return '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px 10px;gap:8px">'
-        + '<span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:28px;height:28px;border-radius:50%;background:#dfe1e6;color:#172b4d;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(u.initials) + '</span>'
-        + '<span style="min-width:0"><span style="display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(u.name) + '</span>'
-        + '<span style="display:block;font-size:11px;color:#5e6c84">@' + esc(u.login) + '</span></span></span>'
-        + '<button onclick="KanproBoards.add(' + u.id + ', this)" style="background:#0079bf;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;flex-shrink:0">Adicionar</button></div>';
-    }).join('') + (list.length > 60 ? '<div style="text-align:center;font-size:11px;color:#5e6c84">+' + (list.length - 60) + ' — refine a busca</div>' : '');
+      return '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;gap:10px">'
+        + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:34px;height:34px;border-radius:50%;background:#dfe1e6;color:#172b4d;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">' + esc(u.initials) + '</span>'
+        + '<span style="min-width:0"><span style="display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(u.name) + '</span>'
+        + '<span style="display:block;font-size:12px;color:#5e6c84">@' + esc(u.login) + '</span></span></span>'
+        + '<button onclick="KanproBoards.add(' + u.id + ', this)" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0">Adicionar</button></div>';
+    }).join('') + (list.length > 60 ? '<div style="text-align:center;font-size:12px;color:#5e6c84;padding:6px">+' + (list.length - 60) + ' — refine a busca</div>' : '');
   }
   function norm(s){
     s = String(s || '').toLowerCase();
