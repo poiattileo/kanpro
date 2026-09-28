@@ -118,8 +118,7 @@ if (count($iterator) === 0) {
         // conta membros
         $member_count = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $bid]);
 
-        // listas preview (só nomes) + bolinhas de contagem no canto superior direito (só listas com cards)
-        $lists_preview = '';
+        // bolinhas de contagem no canto superior direito (só listas com cards)
         $count_balls = '';
         $list_counts = [];
         try {
@@ -129,7 +128,6 @@ if (count($iterator) === 0) {
         } catch (Throwable $e) {}
         $lists = $DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'is_archived' => 0], 'ORDER' => 'rank ASC', 'LIMIT' => 3]);
         foreach ($lists as $l) {
-            $lists_preview .= "<span style='background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;font-size:11px;margin-right:4px'>" . htmlspecialchars(mb_strimwidth($l['name'], 0, 18, '…')) . "</span>";
             $cnt = $list_counts[(int)$l['id']] ?? 0;
             if ($cnt <= 0) continue; // lista vazia: não aparece nada
             // cor pela categoria da lista; legado sem categoria deduz pelo nome
@@ -183,7 +181,6 @@ if (count($iterator) === 0) {
         echo "<a href='{$kanban_url}' style='display:block;height:110px;background:{$headerBg};padding:12px;color:#fff;text-decoration:none;position:relative;overflow:hidden'>{$bgImgTag}";
         echo "<div style='font-weight:700;font-size:16px;line-height:1.2;display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:1;'><span style='min-width:0;overflow:hidden;text-overflow:ellipsis'>" . htmlspecialchars($row['name']) . " {$star}</span><span style='display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:8px'>{$count_balls}{$archived_badge}</span></div>";
         if (!empty($row['comment'])) echo "<div style='font-size:12px;opacity:.9;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative;z-index:1;'>" . htmlspecialchars(mb_strimwidth($row['comment'], 0, 80, '…')) . "</div>";
-        echo "<div style='position:absolute;bottom:10px;left:12px;right:12px;display:flex;gap:4px;flex-wrap:wrap;z-index:1;'>{$lists_preview}</div>";
         echo "</a>";
         echo "<div style='padding:12px;display:flex;justify-content:space-between;align-items:center;background:#fff'>";
         echo "<div style='display:flex;gap:12px;font-size:12px;color:#6b778c'>";
