@@ -121,7 +121,16 @@
       });
       // ESC fecha tudo + atalhos (N novo cartão, F filtrar, setas navegar, Enter abrir, Ctrl+K busca)
       document.addEventListener('keydown', e=>{
-        if (e.key==='Escape') { this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); this.closeCalendarView(); this.clearCardSelection(); return; }
+        if (e.key==='Escape') {
+          // editando comentário inline: ESC só sai da edição (não fecha o card nem perde o resto)
+          const ae = document.activeElement;
+          if(ae && ae.id && ae.id.indexOf('kp-comment-edit-') === 0){
+            const cid = ae.id.replace('kp-comment-edit-', '');
+            this.cancelCommentEdit(cid);
+            return;
+          }
+          this.closeCardModal(); this.closePicker(); this.closeBoardMenu(); this.closeCalendarView(); this.clearCardSelection(); return;
+        }
         if ((e.ctrlKey || e.metaKey) && (e.key==='k' || e.key==='K')) {
           e.preventDefault();
           if(document.getElementById('kp-quickfind')) this.closeQuickFind();
@@ -1315,7 +1324,7 @@
           <div>${this.avatarHtml(c.picture_url, (c.firstname?.[0]||c.user_name?.[0]||'?').toUpperCase(), c.realname||c.firstname||c.user_name||'Usuário')}</div>
           <div style="flex:1;background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);${pinned?'border:1px solid #ffab00;background:#fffae6;':''}">
             <div style="font-weight:700;font-size:13px">${this.escape(c.realname||c.firstname||c.user_name||'Usuário')} <span style="font-weight:400;color:#5e6c84;font-size:11px">${this.formatDate(c.date_creation)}</span>${pinned?' <span style="background:#ffab00;color:#172b4d;padding:1px 8px;border-radius:10px;font-size:10px">📌 Fixado</span>':''}</div>
-                        <div style="margin-top:4px;word-break:break-word">${this.highlightMentions(this.parseMarkdown(c.content))}</div>
+                        <div id="kp-comment-content-${c.id}" style="margin-top:4px;word-break:break-word">${this.highlightMentions(this.parseMarkdown(c.content))}</div>
 
             <div style="margin-top:6px;display:flex;gap:8px;font-size:12px"><a href="#" onclick="Kanpro.editComment(${c.id});return false">Editar</a> <a href="#" onclick="Kanpro.pinComment(${c.id});return false">${pinned?'Desafixar':'Fixar'}</a> <a href="#" onclick="Kanpro.deleteComment(${c.id});return false" style="color:#eb5a46">Excluir</a></div>
           </div>
@@ -3128,20 +3137,42 @@
       });
     },
     editDescription(){
+      const ta = $('#card-desc-edit');
+      if(!ta || ta.style.display !== 'none') return; // já editando
+      this._descOrig = ta.value;
+      this._descSaving = false;
+      this._descSkipBlur = false;
+      ta.onblur = ()=> this.blurSaveDescription();
       $('#card-modal-desc').style.display='none';
       $('#card-desc-edit').style.display='block';
       $('#card-desc-actions').style.display='flex';
       $('#card-desc-edit').focus();
     },
+    blurSaveDescription(){
+      // salvamento automático ao clicar fora do campo
+      if(this._descSkipBlur){ this._descSkipBlur = false; return; }
+      const ta = $('#card-desc-edit');
+      if(!ta || ta.style.display === 'none') return;
+      if(ta.value !== (this._descOrig || '')) this.saveDescription();
+      else this.cancelDescription();
+    },
     cancelDescription(){
+      this._descSkipBlur = true; // esconder o textarea dispara blur: não salvar
+      const ta = $('#card-desc-edit');
+      if(ta && this._descOrig !== undefined) ta.value = this._descOrig;
       $('#card-modal-desc').style.display='block';
       $('#card-desc-edit').style.display='none';
       $('#card-desc-actions').style.display='none';
     },
     saveDescription(){
+      if(this._descSaving) return; // blur + clique no Salvar disparam juntos: salva 1x
+      this._descSaving = true;
+      this._descSkipBlur = true; // esconder o textarea dispara blur: não salvar de novo
       const val = $('#card-desc-edit').value;
       this.ajax('update_card', {id: this.currentCardId, description: val}).then(res=>{
+        this._descSaving = false;
         if(res.success){
+          this._descOrig = val;
           $('#card-modal-desc').innerHTML = val ? this.parseMarkdown(val) : 'Adicionar uma descrição mais detalhada...';
           $('#card-modal-desc').style.opacity = val ? '1':'0.6';
           const card = this.cards.find(c=>c.id==this.currentCardId);
@@ -3420,13 +3451,32 @@
         }
       });
     },
-    async editComment(id){
+    editComment(id){
+      // edição inline no próprio campo (sem janela)
+      const box = document.getElementById('kp-comment-content-' + id);
+      if(!box || box.querySelector('textarea')) return; // já editando
       const existing = (this._lastModalData?.comments || []).find(c=> String(c.id)===String(id));
-      const cur = await this.kpPrompt('Editar comentário:', existing ? existing.content : '');
-      if(cur===null) return;
-      this.ajax('update_comment', {id, content: cur}).then(res=>{
+      const cur = existing ? existing.content : '';
+      box.innerHTML = `<textarea id="kp-comment-edit-${id}" style="width:100%;min-height:60px;padding:8px;border:2px solid #0079bf;border-radius:4px;resize:vertical">${this.escape(cur)}</textarea>`
+        + `<div style="display:flex;gap:8px;margin-top:6px">`
+        + `<button onclick="Kanpro.saveCommentEdit(${id})" style="background:#0079bf;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px">Salvar</button>`
+        + `<button onclick="Kanpro.cancelCommentEdit(${id})" style="background:none;border:none;cursor:pointer;font-size:16px;color:#5e6c84" title="Cancelar">✕</button>`
+        + `</div>`;
+      const ta = document.getElementById('kp-comment-edit-' + id);
+      if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    },
+    saveCommentEdit(id){
+      const ta = document.getElementById('kp-comment-edit-' + id);
+      if(!ta) return;
+      const val = ta.value;
+      if(!val.trim()){ ta.focus(); return; }
+      this.ajax('update_comment', {id, content: val}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
       });
+    },
+    cancelCommentEdit(id){
+      // recarrega o card e restaura o texto original
+      this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
     },
     pinComment(id){
       this.ajax('toggle_comment_pin', {id}).then(res=>{

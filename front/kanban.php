@@ -449,12 +449,12 @@ echo <<<HTML
         <!-- Descrição -->
         <div style="margin-bottom:20px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-align-left"></i><strong>Descrição</strong><button onclick="Kanpro.editDescription()" style="margin-left:8px;background:#eaecf0;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">Editar</button></div>
-          <div id="card-modal-desc" style="background:#fff;padding:12px;border-radius:4px;min-height:56px;color:#172b4d;word-break:break-word;box-shadow:0 1px 1px rgba(9,30,66,.13)"></div>
+          <div id="card-modal-desc" onclick="Kanpro.editDescription()" title="Clique para editar" style="background:#fff;padding:12px;border-radius:4px;min-height:56px;color:#172b4d;word-break:break-word;box-shadow:0 1px 1px rgba(9,30,66,.13);cursor:pointer"></div>
           <textarea id="card-desc-edit" style="display:none;width:100%;min-height:80px;padding:10px;border:2px solid #0079bf;border-radius:4px;resize:vertical"></textarea>
           <div style="font-size:11px;color:#5e6c84;margin-top:4px">Suporta Markdown: <code>**negrito**</code> <code>*itálico*</code> <code>`código`</code> <code>[texto](link)</code></div>
           <div id="card-desc-actions" style="display:none;margin-top:8px;gap:8px">
-            <button onclick="Kanpro.saveDescription()" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">Salvar</button>
-            <button onclick="Kanpro.cancelDescription()" style="background:none;border:none;cursor:pointer;font-size:18px">✕</button>
+            <button onmousedown="Kanpro._descSkipBlur=true" onclick="Kanpro.saveDescription()" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">Salvar</button>
+            <button onmousedown="Kanpro._descSkipBlur=true" onclick="Kanpro.cancelDescription()" style="background:none;border:none;cursor:pointer;font-size:18px">✕</button>
           </div>
         </div>
 
