@@ -890,9 +890,11 @@
       }
       if (comments>0) badges.push(`<span class="kp-badge"><i class="ti ti-message"></i> ${comments}</span>`);
       if (atts>0) badges.push(`<span class="kp-badge"><i class="ti ti-paperclip"></i> ${atts}</span>`);
-      // Notificado sobre o chamado — selo clicável (não abre o modal)
+      // Notificado — SÓ na lista Retirada (selo clicável, não abre o modal)
       const isNotified = (card.is_notified == 1);
-      if (isNotified) {
+      let isRetiradaCard = false;
+      try { isRetiradaCard = this.isCardInListType(card, 'retirada'); } catch(e){ isRetiradaCard = false; }
+      if (isRetiradaCard && isNotified) {
         badges.push(`<span class="kp-badge" title="Notificado sobre o chamado (clique para desmarcar)" onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
       }
       // Travada aguardando chamado — selo de bloqueio
@@ -918,10 +920,10 @@
         membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
       }
 
-      // botão Notificado (mini) — sempre visível p/ marcar rápido sem abrir
-      const notifiedBtnHtml = isNotified
+      // botão Notificado (mini) — SÓ na Retirada, p/ marcar rápido sem abrir
+      const notifiedBtnHtml = !isRetiradaCard ? '' : (isNotified
         ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcado como notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
-        : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar que foi notificado sobre o chamado" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificado?</button>`;
+        : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar que foi notificado sobre o chamado" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificado?</button>`);
 
       // botão Pegar (mini) — só Pendente + só admin do quadro
       let pegarBtnHtml = '';
@@ -1392,12 +1394,28 @@
         if(c){ c.is_notified = prev; this.renderBoard(); }
       });
     },
-    renderNotifiedInModal(isNotified){
+    renderNotifiedInModal(isNotified, cardData){
       const box = document.getElementById('card-modal-badges');
       if(!box) return;
+      // SÓ Retirada mostra Notificado
+      let showNotif = true;
+      try {
+        const ref = cardData || ((this._lastModalData && this._lastModalData.id) ? this._lastModalData : (this.cards||[]).find(x=> x.id==this.currentCardId));
+        showNotif = ref ? this.isCardInListType(ref, 'retirada') : true;
+        // fallback: se lista não está no cache filtrado, usa list_name do modal
+        if(!showNotif && cardData && cardData.list_name){
+          const nm = String(cardData.list_name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+          if(nm === 'retirada') showNotif = true;
+        }
+      } catch(e){ showNotif = true; }
       const on = (isNotified == 1);
       // preserva botões de chamado (Pegar / Chamado criado) que também moram aqui
-      const extra = box.querySelector('#kp-chamado-actions') ? box.querySelector('#kp-chamado-actions').outerHTML : '';
+      const extra = box.querySelector('#kp-chamado-actions') ? box.querySelector('#kp-chamado-actions').outerHTML : '<span id="kp-chamado-actions" style="display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center"></span>';
+      if(!showNotif){
+        box.innerHTML = extra;
+        box.style.display = box.querySelector('#kp-chamado-actions') && box.querySelector('#kp-chamado-actions').innerHTML.trim() ? 'flex' : 'none';
+        return;
+      }
       box.innerHTML = `
         <button onclick="Kanpro.toggleNotified()" title="${on ? 'Marcado como notificado — clique para desmarcar' : 'Marcar que foi notificado sobre o chamado'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
           <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificado?'}
@@ -1840,8 +1858,8 @@
       const createdEl = $('#card-modal-created');
       if(createdEl) createdEl.textContent = data.date_creation ? ` • 🕐 Criado em ${this.formatDate(data.date_creation)}` : '';
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
-      // botão Notificado (aberto) — sempre visível no topo do modal
-      try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0); } catch(e){}
+      // botão Notificado (aberto) — SÓ Retirada
+      try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0, data); } catch(e){}
       // pendência chamado / pegar / solicitar (botões do fluxo)
       try { this.renderChamadoInModal(data); } catch(e){ console.error(e); }
       // cover

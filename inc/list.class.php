@@ -27,7 +27,16 @@ class PluginKanproList extends CommonDBTM {
             $input['rank'] = floatval($max) + 1024;
         }
         if (empty($input['users_id'])) {
-            $input['users_id'] = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+            try {
+                global $DB;
+                if ($DB->tableExists('glpi_plugin_kanpro_lists') && $DB->fieldExists('glpi_plugin_kanpro_lists', 'users_id')) {
+                    $input['users_id'] = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+                } else {
+                    unset($input['users_id']);
+                }
+            } catch (Throwable $e) {
+                unset($input['users_id']);
+            }
         }
         $input['date_creation'] = date('Y-m-d H:i:s');
         $input['date_mod'] = $input['date_creation'];

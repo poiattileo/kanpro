@@ -259,6 +259,7 @@ if (!function_exists('kanpro_can_manage_list')) {
 
 if (!function_exists('kanpro_can_view_list')) {
     // Pode ver a lista? Sem restrição = todos. Restrita = viewers + quem gerencia (criador lista/quadro, admin).
+    // Fail-open: qualquer erro mostra a lista (evita sumir tudo do nada).
     function kanpro_can_view_list($list_row, ?int $boards_id = null): bool {
         try {
             $lid = is_array($list_row) ? (int)($list_row['id'] ?? 0) : (int)$list_row;
@@ -285,8 +286,10 @@ if (!function_exists('kanpro_can_view_list')) {
             // criador da lista sempre vê
             if (is_array($list_row) && (int)($list_row['users_id'] ?? 0) > 0 && in_array((int)$list_row['users_id'], $viewerIds, true)) return true;
             if ($bid && function_exists('kanpro_can_manage_list') && kanpro_can_manage_list((int)$bid, $list_row)) return true;
-        } catch (Throwable $e) {}
-        return false;
+            return false;
+        } catch (Throwable $e) {
+            return true;
+        }
     }
 }
 
@@ -321,14 +324,54 @@ if (!function_exists('kanpro_enrich_lists_with_viewers')) {
 }
 
 if (!function_exists('kanpro_filter_visible_lists')) {
-    // Filtra listas que o usuário atual pode ver (mantém ordem).
+    // Filtra listas que o usuário atual pode ver (mantém ordem). Fail-open: erro mostra tudo.
     function kanpro_filter_visible_lists(array $lists): array {
-        $out = [];
-        foreach ($lists as $l) {
-            $bid = (int)($l['plugin_kanpro_boards_id'] ?? 0);
-            if (function_exists('kanpro_can_view_list') && !kanpro_can_view_list($l, $bid ?: null)) continue;
-            $out[] = $l;
-        }
-        return $out;
+        try {
+            if (empty($lists)) return $lists;
+            global $DB;
+            try {
+                if (!$DB->tableExists('glpi_plugin_kanpro_lists_viewers')) return $lists;
+            } catch (Throwable $e) { return $lists; }
+            $out = [];
+            foreach ($lists as $l) {
+                try {
+                    $bid = (int)($l['plugin_kanpro_boards_id'] ?? 0);
+                    if (function_exists('kanpro_can_view_list') && !kanpro_can_view_list($l, $bid ?: null)) continue;
+                } catch (Throwable $e) {
+                    // erro numa lista específica: mostra ela (fail-open)
+                }
+                $out[] = $l;
+            }
+            // segurança anti-sumir-tudo: se filtrou TUDO mas tinha listas, volta tudo (fail-open)
+            if (empty($out) && !empty($lists)) {
+                try {
+                    $totalRestrictions = 0;
+                    foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_lists_viewers', 'LIMIT' => 1]) as $r) { $totalRestrictions++; break; }
+                    if ($totalRestrictions === 0) return $lists;
+                } catch (Throwable $e) { return $lists; }
+            }
+            return $out;
+        } catch (Throwable $e) { return $lists; }
+    }
+}
+
+if (!function_exists('kanpro_board_has_list_restrictions')) {
+    // Tem alguma restrição de lista neste quadro? Se não, pula o filtro (rápido + seguro).
+    function kanpro_board_has_list_restrictions(int $boards_id): bool {
+        global $DB;
+        try {
+            if ($boards_id <= 0) return false;
+            if (!$DB->tableExists('glpi_plugin_kanpro_lists_viewers')) return false;
+            if (!$DB->tableExists('glpi_plugin_kanpro_lists')) return false;
+            $listIds = [];
+            foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id]]) as $l) {
+                $listIds[] = (int)$l['id'];
+            }
+            if (empty($listIds)) return false;
+            foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_lists_viewers', 'WHERE' => ['plugin_kanpro_lists_id' => $listIds], 'LIMIT' => 1]) as $r) {
+                return true;
+            }
+        } catch (Throwable $e) { return false; }
+        return false;
     }
 }

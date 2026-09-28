@@ -57,9 +57,16 @@ Html::header($board->fields['name'] . ' — KanPro', $_SERVER['PHP_SELF'], 'tool
 
 // Dados do quadro
 $lists = PluginKanproList::getListsForBoard($boards_id);
-// visibilidade por lista: enriquece (viewer_ids/is_restricted) e filtra o que o usuário pode ver
-if (function_exists('kanpro_enrich_lists_with_viewers')) $lists = kanpro_enrich_lists_with_viewers($lists);
-if (function_exists('kanpro_filter_visible_lists')) $lists = kanpro_filter_visible_lists($lists);
+// visibilidade por lista: só filtra se há restrição no quadro (senão mostra tudo — anti-sumir-tudo)
+try {
+    $hasRestr = function_exists('kanpro_board_has_list_restrictions') ? kanpro_board_has_list_restrictions($boards_id) : true;
+    if ($hasRestr) {
+        if (function_exists('kanpro_enrich_lists_with_viewers')) $lists = kanpro_enrich_lists_with_viewers($lists);
+        if (function_exists('kanpro_filter_visible_lists')) $lists = kanpro_filter_visible_lists($lists);
+    }
+} catch (Throwable $e) {
+    $lists = PluginKanproList::getListsForBoard($boards_id);
+}
 $visibleListIds = array_map(function ($l) { return (int)($l['id'] ?? 0); }, $lists);
 $labels = PluginKanproLabel::getForBoard($boards_id);
 
