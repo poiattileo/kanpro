@@ -3038,6 +3038,72 @@ switch ($action) {
         }
         jexit(['success'=>true,'lists'=>$lists,'cards'=>$cards,'moves'=>$moves]);
 
+    case 'get_retirada_schools':
+        // TEMPORÁRIO (até a notificação automática): escolas com cards na coluna Retirada,
+        // deduplicadas (a mesma escola pode se repetir na coluna).
+        // Coluna Retirada = lista com categoria 'retirada' ou nome "Retirada" (legado).
+        $bid = (int)($_REQUEST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $bchk = new PluginKanproBoard();
+        if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        $__me = (int)Session::getLoginUserID();
+        $__creator = (int)($bchk->fields['users_id'] ?? 0);
+        if ($__me !== $__creator) {
+            $__isM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid,'users_id'=>kanpro_viewer_ids()]) > 0;
+            $__hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id'=>$bid]) > 0;
+            if (!$__isM && $__hasM) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        }
+        $retLists = []; // id => name
+        foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_lists','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'is_archived'=>0]]) as $l) {
+            $lt = strtolower(trim($l['list_type'] ?? ''));
+            $nm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
+            if ($lt === 'retirada' || $nm === 'retirada') $retLists[(int)$l['id']] = (string)$l['name'];
+        }
+        $schools = [];
+        if (!empty($retLists)) {
+            $rcards = [];
+            $eids = [];
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>array_keys($retLists),'is_archived'=>0],'ORDER'=>'id ASC']) as $c) {
+                $rcards[] = $c;
+                if ((int)($c['entities_id'] ?? 0) > 0) $eids[] = (int)$c['entities_id'];
+            }
+            $enames = [];
+            if (!empty($eids)) {
+                foreach ($DB->request(['SELECT'=>['id','name','completename'],'FROM'=>'glpi_entities','WHERE'=>['id'=>array_values(array_unique($eids))]]) as $e) {
+                    $nm = trim($e['name'] ?? '');
+                    if ($nm === '') $nm = trim($e['completename'] ?? '');
+                    $enames[(int)$e['id']] = $nm !== '' ? $nm : ('Entidade #' . (int)$e['id']);
+                }
+            }
+            $groups = []; // chave => ['name'=>, 'cards'=>[]]
+            foreach ($rcards as $c) {
+                $eid = (int)($c['entities_id'] ?? 0);
+                if ($eid > 0 && isset($enames[$eid])) {
+                    $key = 'e' . $eid;
+                    $sname = $enames[$eid];
+                } else {
+                    // sem entidade: agrupa pelo nome normalizado (iguais juntam, diferentes separam)
+                    $cn = function_exists('mb_strtolower') ? mb_strtolower(trim($c['name'] ?? ''), 'UTF-8') : strtolower(trim($c['name'] ?? ''));
+                    $key = 'n:' . $cn;
+                    $sname = trim($c['name'] ?? '') !== '' ? trim($c['name']) : ('Cartão #' . (int)$c['id']);
+                }
+                if (!isset($groups[$key])) $groups[$key] = ['name'=>$sname, 'cards'=>[]];
+                $groups[$key]['cards'][] = ['id'=>(int)$c['id'],'name'=>(string)($c['name'] ?? ''),'list'=>(string)($retLists[(int)$c['plugin_kanpro_lists_id']] ?? '')];
+            }
+            foreach ($groups as $g) {
+                usort($g['cards'], function ($a, $b) { return $a['id'] <=> $b['id']; });
+                $schools[] = ['name'=>$g['name'],'count'=>count($g['cards']),'cards'=>$g['cards']];
+            }
+            usort($schools, function ($a, $b) {
+                $na = function_exists('mb_strtolower') ? mb_strtolower($a['name'], 'UTF-8') : strtolower($a['name']);
+                $nb = function_exists('mb_strtolower') ? mb_strtolower($b['name'], 'UTF-8') : strtolower($b['name']);
+                return $na <=> $nb;
+            });
+        }
+        $totalCards = 0;
+        foreach ($schools as $s) $totalCards += $s['count'];
+        jexit(['success'=>true,'schools'=>$schools,'total_schools'=>count($schools),'total_cards'=>$totalCards]);
+
     // --- SEARCH FILTER ---
     case 'search_cards':
         $bid = (int)($_REQUEST['boards_id'] ?? 0);

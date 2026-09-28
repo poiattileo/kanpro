@@ -4810,6 +4810,57 @@
         this.renderBoardReport(30);
       });
     },
+    // TEMPORÁRIO (até a notificação automática): escolas com cards na coluna Retirada, deduplicadas
+    openRetiradaNotify(){
+      this.showPicker({title:'🔔 Avisar retiradas', html:'<div style="padding:20px;text-align:center;color:#5e6c84">Carregando...</div>'});
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='480px'; p.style.maxWidth='94vw'; p.style.width='560px'; p.style.maxHeight='90vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      const b = document.getElementById('picker-body');
+      if(b){ b.style.maxHeight='72vh'; b.style.overflowY='auto'; }
+      this.ajax('get_retirada_schools', {boards_id: this.board.id}).then(res=>{
+        if(!res.success){ alert(res.msg||'Erro'); this.closePicker(); return; }
+        this._lastRetirada = res;
+        const schools = res.schools || [];
+        let html = `<div style="font-size:12px;color:#5e6c84;margin-bottom:10px">Coluna <strong>Retirada</strong>: <strong>${res.total_schools||0}</strong> ${res.total_schools===1?'escola':'escolas'} • <strong>${res.total_cards||0}</strong> ${res.total_cards===1?'cartão':'cartões'}. Clique no cartão para abrir.</div>`;
+        if(!schools.length){
+          html += `<div style="text-align:center;padding:24px;color:#61bd4f;font-weight:700">🎉 Nenhuma escola pendente de aviso</div>`;
+        } else {
+          html += `<div style="display:grid;gap:8px">` + schools.map(s=>`
+            <div style="background:#f4f5f7;border-radius:8px;padding:10px 12px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-weight:800;color:#172b4d;font-size:13px">${this.escape(s.name)}</span>
+                <span style="background:#00b8d9;color:#fff;min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;padding:0 6px">${s.count}</span>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">` + s.cards.map(c=>
+                `<button onclick="Kanpro.closePicker();Kanpro.openCard(${c.id})" title="${this.escape(c.name)}" style="background:#fff;border:1px solid #dfe1e6;border-radius:12px;padding:3px 10px;font-size:11px;cursor:pointer;color:#0747a6">#${c.id} ${this.escape((c.name||'').length>28 ? c.name.slice(0,28)+'…' : c.name)}</button>`
+              ).join('') + `</div>
+            </div>`).join('') + `</div>`;
+          html += `<button onclick="Kanpro.copyRetiradaList()" style="margin-top:12px;background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-weight:700;width:100%"><i class="ti ti-copy"></i> Copiar lista p/ avisar</button>`;
+        }
+        this.showPicker({title:'🔔 Avisar retiradas', html});
+        const b2 = document.getElementById('picker-body');
+        if(b2){ b2.style.maxHeight='72vh'; b2.style.overflowY='auto'; }
+      });
+    },
+    copyRetiradaList(){
+      // texto pronto p/ colar no WhatsApp: uma escola por linha
+      const schools = (this._lastRetirada && this._lastRetirada.schools) || [];
+      if(!schools.length) return;
+      const lines = schools.map(s=> `• ${s.name} (${s.count} ${s.count===1?'cartão':'cartões'}: ${s.cards.map(c=> '#'+c.id).join(', ')})`);
+      const txt = '🔔 Retiradas a avisar:\n' + lines.join('\n');
+      const done = ()=> this.showToast('Lista copiada!');
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(done).catch(()=> this.fallbackCopy(txt, done));
+      } else this.fallbackCopy(txt, done);
+    },
+    fallbackCopy(txt, done){
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      document.body.appendChild(ta);
+      ta.select();
+      try{ document.execCommand('copy'); if(done) done(); }catch(e){ alert('Não copiou sozinho — selecione e copie manualmente'); }
+      ta.remove();
+    },
     reportParseDate(s){
       if(!s) return null;
       const t = Date.parse(String(s).replace(' ', 'T'));
