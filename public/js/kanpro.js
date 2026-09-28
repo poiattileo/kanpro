@@ -895,6 +895,20 @@
       if (isNotified) {
         badges.push(`<span class="kp-badge" title="Notificado sobre o chamado (clique para desmarcar)" onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
       }
+      // Travada aguardando chamado — selo de bloqueio
+      const mProgLock = this.maintenanceProgress && this.maintenanceProgress[card.id];
+      const lockedN = mProgLock ? parseInt(mProgLock.locked||0) : 0;
+      if (lockedN > 0) {
+        badges.push(`<span class="kp-badge" title="${lockedN} máquina(s) travada(s) aguardando Chamado criado" style="background:#ffebe6;color:#bf2600;font-weight:800;border:1px solid #eb5a46"><i class="ti ti-lock"></i> 🔒 ${lockedN} travada(s)</span>`);
+      }
+      // Pendência Chamado — selo rosa
+      const cardListForCh = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
+      const chType = this.listTypeOf(cardListForCh);
+      if ((chType && chType.code === 'pend_chamado') || (card.chamado_source_id && Number(card.chamado_source_id) > 0)) {
+        const chSt = String(card.chamado_status || '');
+        if (chSt === 'liberado') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">📞 Chamado criado ✓</span>`);
+        else badges.push(`<span class="kp-badge" style="background:#e1316f;color:#fff;font-weight:800;border:1px solid #e1316f">📞 Pendência Chamado</span>`);
+      }
       if (members.length) {
         // members avatars handled separately
       }
@@ -908,6 +922,17 @@
       const notifiedBtnHtml = isNotified
         ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcado como notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
         : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar que foi notificado sobre o chamado" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificado?</button>`;
+
+      // botão Pegar (mini) — só Pendente + só admin do quadro
+      let pegarBtnHtml = '';
+      try {
+        const lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
+        const lt = this.listTypeOf(lst);
+        const isPending = lt && lt.code === 'pending';
+        if (isPending && this.isBoardAdmin()) {
+          pegarBtnHtml = `<button onclick="event.stopPropagation();Kanpro.pegarPendingCard(${card.id}, event)" title="Pegar: mover para Em Andamento e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+        }
+      } catch(e){}
 
       // data de criação — pequenininha no canto inferior direito
       let createdHtml = '';
@@ -925,6 +950,7 @@
         ${dueBarHtml}
         ${membersHtml}
         ${notifiedBtnHtml}
+        ${pegarBtnHtml}
         ${createdHtml?`<div style="display:flex;justify-content:flex-end;margin-top:4px">${createdHtml}</div>`:''}
         <button class="kp-card-edit" onclick="event.stopPropagation(); Kanpro.quickEditCard(${card.id}, event)"><i class="ti ti-pencil" style="font-size:14px"></i></button>
       `;
@@ -1370,11 +1396,187 @@
       const box = document.getElementById('card-modal-badges');
       if(!box) return;
       const on = (isNotified == 1);
+      // preserva botões de chamado (Pegar / Chamado criado) que também moram aqui
+      const extra = box.querySelector('#kp-chamado-actions') ? box.querySelector('#kp-chamado-actions').outerHTML : '';
       box.innerHTML = `
         <button onclick="Kanpro.toggleNotified()" title="${on ? 'Marcado como notificado — clique para desmarcar' : 'Marcar que foi notificado sobre o chamado'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
           <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificado?'}
-        </button>`;
+        </button>${extra}`;
       box.style.display = 'flex';
+    },
+    // ---------- PENDÊNCIA CHAMADO ----------
+    isCardInListType(cardOrId, code){
+      try {
+        const cid = (typeof cardOrId === 'object') ? cardOrId.id : cardOrId;
+        const c = (typeof cardOrId === 'object') ? cardOrId : (this.cards||[]).find(x=> x.id==cid);
+        if(!c) return false;
+        const lst = (this.lists||[]).find(l=> l.id==c.plugin_kanpro_lists_id);
+        const t = this.listTypeOf(lst);
+        return !!(t && t.code === code);
+      } catch(e){ return false; }
+    },
+    renderChamadoInModal(data){
+      // garante container de ações do chamado no topo + botões na sidebar
+      const box = document.getElementById('card-modal-badges');
+      let act = document.getElementById('kp-chamado-actions');
+      if(box && !act){
+        act = document.createElement('span');
+        act.id = 'kp-chamado-actions';
+        act.style.cssText = 'display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center';
+        box.appendChild(act);
+      }
+      if(act) act.innerHTML = '';
+      // sidebar: garante botões Solicitar Chamado / Pegar (cria 1x)
+      const sideBtns = document.querySelector('#kanpro-card-modal .kp-sidebar-btn')?.parentElement;
+      let btnSol = document.getElementById('kp-solicitar-chamado-btn');
+      if(sideBtns && !btnSol){
+        btnSol = document.createElement('button');
+        btnSol.id = 'kp-solicitar-chamado-btn';
+        btnSol.className = 'kp-sidebar-btn';
+        btnSol.style.cssText = 'background:#e1316f;color:#fff;border:1px solid #e1316f;font-weight:800';
+        btnSol.innerHTML = '<i class="ti ti-phone-call"></i> Solicitar Chamado';
+        btnSol.onclick = ()=> Kanpro.openSolicitarChamado();
+        // insere após Manutenção
+        const maint = document.getElementById('kp-maintenance-btn');
+        if(maint && maint.parentElement === sideBtns) maint.after(btnSol);
+        else sideBtns.prepend(btnSol);
+      }
+      let btnPegar = document.getElementById('kp-pegar-btn');
+      if(sideBtns && !btnPegar){
+        btnPegar = document.createElement('button');
+        btnPegar.id = 'kp-pegar-btn';
+        btnPegar.className = 'kp-sidebar-btn';
+        btnPegar.style.cssText = 'background:#0052cc;color:#fff;border:1px solid #0052cc;font-weight:800';
+        btnPegar.innerHTML = '<i class="ti ti-hand-grab"></i> ✋ Pegar';
+        btnPegar.onclick = ()=> Kanpro.pegarPendingCard();
+        const m0 = document.getElementById('kp-maintenance-btn');
+        if(m0 && m0.parentElement === sideBtns) m0.after(btnPegar);
+        else sideBtns.appendChild(btnPegar);
+      }
+      if(btnSol) btnSol.style.display = 'none';
+      if(btnPegar) btnPegar.style.display = 'none';
+      const isMaint = !!(data.is_maintenance && data.is_maintenance == 1);
+      const isPendChamado = (data.chamado_source_id && Number(data.chamado_source_id) > 0) || this.isCardInListType(data, 'pend_chamado');
+      const isPending = this.isCardInListType(data, 'pending');
+      const amAdmin = this.isBoardAdmin();
+      // Solicitar Chamado: só manutenção (lado direito em Ações)
+      if(isMaint && btnSol) btnSol.style.display = '';
+      // Pegar: só Pendente + só admin (topo + sidebar)
+      if(isPending && amAdmin){
+        if(btnPegar) btnPegar.style.display = '';
+        if(act) act.innerHTML += `<button onclick="Kanpro.pegarPendingCard()" title="Pegar: mover para Em Andamento e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+      }
+      // Pendência Chamado: botão Chamado criado (só admin libera)
+      if(isPendChamado){
+        const st = String(data.chamado_status || '');
+        const srcName = data.chamado_source_name || ('#' + (data.chamado_source_id||''));
+        const isLib = (st === 'liberado');
+        if(act){
+          act.innerHTML += isLib
+            ? `<span title="Origem ${this.escape(srcName)} liberada" style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">📞 Chamado criado ✓</span>`
+            : `<button onclick="Kanpro.confirmChamadoCriado()" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcName)} (só admin)" style="background:${amAdmin ? '#61bd4f' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-phone-check"></i> 📞 Chamado criado${amAdmin ? '' : ' (só admin)'}</button>`;
+        }
+        // aviso de origem no modal
+        const descEl = document.getElementById('card-modal-desc');
+        if(descEl && data.chamado_source_id && !document.getElementById('kp-chamado-origem')){
+          const div = document.createElement('div');
+          div.id = 'kp-chamado-origem';
+          div.style.cssText = 'margin-top:8px;background:#fff0f4;border:1px solid #e1316f;border-radius:8px;padding:8px 12px;font-size:12px;color:#5e6c84';
+          div.innerHTML = `📞 Pendência do card <strong style="color:#172b4d">#${data.chamado_source_id} ${this.escape(srcName)}</strong> ${isLib ? '— <strong style="color:#006644">liberado ✓</strong>' : '— aguardando <strong>Chamado criado</strong>'}`;
+          descEl.after(div);
+        } else {
+          const old = document.getElementById('kp-chamado-origem');
+          if(old) old.remove();
+        }
+      } else {
+        const old = document.getElementById('kp-chamado-origem');
+        if(old) old.remove();
+      }
+      // origem travada: aviso no modal
+      const lockedN = (data.maintenance_progress && data.maintenance_progress.locked) || ((data.maintenance_machines||[]).filter(m=> m.is_locked==1).length);
+      const oldLock = document.getElementById('kp-chamado-lockwarn');
+      if(oldLock) oldLock.remove();
+      if(isMaint && lockedN > 0){
+        const wrap = document.getElementById('card-modal-maintenance');
+        if(wrap){
+          const w = document.createElement('div');
+          w.id = 'kp-chamado-lockwarn';
+          w.style.cssText = 'margin-bottom:10px;background:#ffebe6;border:1px solid #eb5a46;border-radius:8px;padding:10px 12px;font-size:13px;color:#bf2600;font-weight:700';
+          w.innerHTML = `🔒 ${lockedN} máquina(s) travada(s) aguardando <strong>Chamado criado</strong> na Pendência Chamado — nada pode ser editado nelas.`;
+          wrap.prepend(w);
+        }
+      }
+    },
+    openSolicitarChamado(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      const data = this._lastModalData;
+      const machines = (data && data.maintenance_machines) || [];
+      if(!machines.length){ alert('Este card não tem máquinas para solicitar.'); return; }
+      const livres = machines.filter(m=> !m.is_locked);
+      if(!livres.length){ alert('Todas as máquinas já estão travadas aguardando chamado.'); return; }
+      const rows = livres.map(m=>`
+        <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #dfe1e6;border-radius:8px;cursor:pointer;background:#fff">
+          <input type="checkbox" data-chamado-mid="${m.id}" checked style="width:16px;height:16px;accent-color:#e1316f">
+          <span style="flex:1;min-width:0"><strong>#${m.seq}</strong> ${this.escape(m.model||'')} <span style="color:#5e6c84;font-size:11px">${this.escape(m.label||'')}</span></span>
+          ${m.status ? `<span style="font-size:11px;background:#f4f5f7;padding:2px 8px;border-radius:10px">${this.escape(m.status)}</span>` : ''}
+        </label>`).join('');
+      this.showPicker({
+        title: 'Solicitar Chamado — quais máquinas?',
+        html: `
+        <div style="display:grid;gap:8px">
+          <div style="font-size:12px;color:#5e6c84">Selecionadas vão para a lista <strong>Pendência Chamado</strong> (mesmo nome do card, máquinas em checklist) e ficam <strong>🔒 travadas aqui</strong> até <strong>Chamado criado</strong>.</div>
+          <div style="display:flex;gap:8px">
+            <button class="kp-picker-item" onclick="Kanpro.chamadoCheckAll(true)" style="flex:1;text-align:center">Marcar todas</button>
+            <button class="kp-picker-item" onclick="Kanpro.chamadoCheckAll(false)" style="flex:1;text-align:center">Desmarcar</button>
+          </div>
+          <div id="kp-chamado-pick" style="display:grid;gap:6px;max-height:280px;overflow-y:auto">${rows}</div>
+          <button onclick="Kanpro.confirmSolicitarChamado()" style="background:#e1316f;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:800">OK — Solicitar Chamado</button>
+        </div>`
+      });
+    },
+    chamadoCheckAll(v){
+      document.querySelectorAll('#kp-chamado-pick input[data-chamado-mid]').forEach(cb=>{ cb.checked = !!v; });
+    },
+    confirmSolicitarChamado(){
+      const cid = this.currentCardId;
+      const ids = Array.from(document.querySelectorAll('#kp-chamado-pick input[data-chamado-mid]:checked')).map(cb=> parseInt(cb.getAttribute('data-chamado-mid'),10)).filter(v=> v>0);
+      if(!ids.length){ alert('Selecione ao menos 1 máquina.'); return; }
+      this.ajax('request_chamado', {source_cards_id: cid, machine_ids: JSON.stringify(ids)}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao solicitar'); return; }
+        this.closePicker();
+        this.showToast(`Chamado solicitado → card #${res.pendencia_id} (${res.locked} travada(s))`);
+        this.refreshCardModal();
+        this.forceSync();
+      });
+    },
+    confirmChamadoCriado(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode confirmar.'); return; }
+      if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem?')) return;
+      this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro'); return; }
+        this.showToast('Origem liberada ✓');
+        this.refreshCardModal();
+        this.forceSync();
+      });
+    },
+    pegarPendingCard(cardId, ev){
+      if(ev && ev.stopPropagation) ev.stopPropagation();
+      const cid = cardId || this.currentCardId;
+      if(!cid) return;
+      if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode pegar.'); return; }
+      if(!confirm('Pegar este card? Ele vai para Em Andamento e será atribuído a você.')) return;
+      this.ajax('pegar_pending_card', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
+        this.closePicker();
+        if(res.pendencia_id) this.showToast(`Pego ✓ → Em Andamento + pendência #${res.pendencia_id}`);
+        else this.showToast('Pego ✓ → Em Andamento');
+        if(this.currentCardId == cid) this.closeCardModal();
+        this.forceSync();
+        setTimeout(()=> this.forceSync(), 1500);
+      });
     },
     approveCard(){
       this.ajax('approve_card', {cards_id: this.currentCardId}).then(res=>{
@@ -1640,6 +1842,8 @@
       $('#card-modal-title').onclick = ()=> this.editCardTitle();
       // botão Notificado (aberto) — sempre visível no topo do modal
       try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0); } catch(e){}
+      // pendência chamado / pegar / solicitar (botões do fluxo)
+      try { this.renderChamadoInModal(data); } catch(e){ console.error(e); }
       // cover
       const cover = $('#card-modal-cover');
       if(data.cover_color){
@@ -2088,6 +2292,9 @@
       }
       html += `<div style="display:grid;gap:10px">`;
       machines.forEach(m=>{
+        const isLocked = !!(m.is_locked && Number(m.is_locked) == 1);
+        const lockCard = m.locked_chamado_card_id ? ` <span title="Travada pela pendência #${m.locked_chamado_card_id}" style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">🔒 Pendência #${m.locked_chamado_card_id}</span>` : ' <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">🔒 Aguardando chamado</span>';
+        const dis = isLocked ? 'disabled' : '';
         const isDone = m.is_done==1;
         const rawStatus = (m.status||"").toString().trim().toLowerCase();
         // normaliza legado
@@ -2112,43 +2319,46 @@
         const statusSelectBg = !status ? "#fff" : statusColor;
         const statusSelectColor = !status ? "#bf2600" : statusTextColor;
         const invBtns = this.maintInvBtnsHTML(m);
+        const lockBanner = isLocked ? `<div style="background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> 🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado</div>` : '';
+        const dis = isLocked ? 'disabled' : '';
         html += `
-          <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isUrgent?"#fff1f0":"#fff"};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${borderColor};overflow:hidden">
+          <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${isLocked ? '#fafafa' : (isUrgent?"#fff1f0":"#fff")};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${isLocked ? '#eb5a46' : borderColor};overflow:hidden;${isLocked ? 'opacity:.95' : ''}">
+            ${lockBanner}
             <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;background:${isUrgent?"#ffecec":isDone?"#e3fcef":"#f4f5f7"};flex-wrap:wrap">
               <div style="display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:0">
-                ${selectMode ? `<input type="checkbox" data-mid="${m.id}" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
+                ${selectMode && !isLocked ? `<input type="checkbox" data-mid="${m.id}" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
                 <span style="background:${isUrgent?"#eb5a46":"#091e42"};color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
                 <div style="flex:1;min-width:0">
-                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}</div>
+                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}${isLocked?lockCard:""}</div>
                   <div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label)}</div>
                 </div>
               </div>
-              <div style="display:flex;align-items:center;gap:6px;flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start;max-width:100%">
+              <div style="display:flex;align-items:center;gap:6px;flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start;max-width:100%;${isLocked ? 'pointer-events:none;opacity:.6' : ''}">
                 <label style="display:flex;align-items:center;gap:4px;background:#fff;padding:4px 8px;border-radius:20px;border:1px solid #dfe1e6;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0${status==="pendente"?";opacity:.55":""}">
-                  <input type="checkbox" ${isDone?"checked":""} ${status==="pendente"?"disabled title='Máquina Pendente não pode ser marcada como Feita'":""} onchange="Kanpro.toggleMaintenanceDone(${m.id}, this.checked)" style="accent-color:#61bd4f"> Feito
+                  <input type="checkbox" ${isDone?"checked":""} ${isLocked || status==="pendente"?"disabled title='Travada ou Pendente'":""} onchange="Kanpro.toggleMaintenanceDone(${m.id}, this.checked)" style="accent-color:#61bd4f"> Feito
                 </label>
-                <select onchange="Kanpro.updateMaintenanceStatus(${m.id}, this.value)" style="padding:6px 10px;border-radius:20px;border:${selectBorder};background:${statusSelectBg};color:${statusSelectColor};font-size:11px;font-weight:700;cursor:pointer;min-width:130px;flex-shrink:0">
+                <select ${dis} onchange="Kanpro.updateMaintenanceStatus(${m.id}, this.value)" style="padding:6px 10px;border-radius:20px;border:${selectBorder};background:${statusSelectBg};color:${statusSelectColor};font-size:11px;font-weight:700;cursor:pointer;min-width:130px;flex-shrink:0">
                   <option value="" ${!status?"selected":""}>— Status Final *</option>
                   <option value="garantia" ${status==="garantia"?"selected":""}>🛡️ Garantia</option>
                   <option value="ok" ${status==="ok"?"selected":""}>✅ OK</option>
                   <option value="inservivel" ${status==="inservivel"?"selected":""}>❌ Inservível</option>
                   <option value="pendente" ${status==="pendente"?"selected":""}>⏳ Pendente</option>
                 </select>
-                ${invBtns.needs}
-                ${invBtns.inv}
-                <button onclick="Kanpro.toggleUrgent(${m.id})" title="${isUrgent?"Remover urgência":"Marcar como urgência"}" style="display:flex;align-items:center;gap:4px;background:${urgBg};color:${urgColor};border:${urgBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:80px;justify-content:center;white-space:nowrap;flex-shrink:0">
+                ${isLocked ? '' : invBtns.needs}
+                ${isLocked ? '' : invBtns.inv}
+                ${isLocked ? '' : `<button onclick="Kanpro.toggleUrgent(${m.id})" title="${isUrgent?"Remover urgência":"Marcar como urgência"}" style="display:flex;align-items:center;gap:4px;background:${urgBg};color:${urgColor};border:${urgBorder};padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;min-width:80px;justify-content:center;white-space:nowrap;flex-shrink:0">
                   <i class="${urgIcon}" style="font-size:12px"></i> ${urgLabel}
-                </button>
-                ${isUrgent ? `<button onclick="Kanpro.retiradaMachine(${m.id})" title="Criar card de Retirada para esta máquina e ir para Assinatura" style="display:flex;align-items:center;gap:4px;background:#ff5630;color:#fff;border:1px solid #ff5630;padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-truck" style="font-size:12px"></i> Retirada</button>` : ""}
+                </button>`}
+                ${(!isLocked && isUrgent) ? `<button onclick="Kanpro.retiradaMachine(${m.id})" title="Criar card de Retirada para esta máquina e ir para Assinatura" style="display:flex;align-items:center;gap:4px;background:#ff5630;color:#fff;border:1px solid #ff5630;padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-truck" style="font-size:12px"></i> Retirada</button>` : ""}
                 <button onclick="Kanpro.openMachineNotes(${m.id})" title="Anotações sobre esta máquina" style="position:relative;display:flex;align-items:center;gap:4px;background:#fff;color:#5e6c84;border:1px solid #dfe1e6;padding:6px 10px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0">
                   <i class="ti ti-notes" style="font-size:13px"></i> Notas${(parseInt(m.notes_count||0)>0)?`<span style="background:#eb5a46;color:#fff;min-width:18px;height:18px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;padding:0 5px">${parseInt(m.notes_count)}</span>`:""}
                 </button>
-                <button onclick="Kanpro.deleteMaintenanceMachine(${m.id})" title="Remover máquina" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:14px"></i></button>
+                ${isLocked ? '' : `<button onclick="Kanpro.deleteMaintenanceMachine(${m.id})" title="Remover máquina" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:14px"></i></button>`}
               </div>
             </div>
             <div style="padding:10px 12px">
               <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">RELATÓRIO — o que foi feito nesta máquina</div>
-              <textarea id="maint-diary-${m.id}" placeholder="Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
+              <textarea id="maint-diary-${m.id}" ${dis} placeholder="${isLocked ? 'Travada — aguardando Chamado criado' : 'Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)'}" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box;${isLocked ? 'background:#f4f5f7' : ''}" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
                 <span style="font-size:10px;color:#97a0af;font-style:italic">💾 salvamento automático a cada digitação</span>
@@ -2737,6 +2947,7 @@
       });
     },
     toggleMaintenanceDone(mid, checked){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); this.refreshCardModal(); return; }
       // Pendente nunca pode ser Feito — barra na origem (o checkbox já vem disabled, isto é rede de segurança)
       const row = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
       const sel = row ? row.querySelector('select') : null;
@@ -2767,6 +2978,7 @@
       });
     },
     updateMaintenanceStatus(mid, status){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); this.refreshCardModal(); return; }
       const data = {id: mid, status};
       // Ao virar Pendente, desmarca Feito na hora (Pendente nunca é Feito)
       const row = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
@@ -2923,7 +3135,14 @@
         } else alert(res.msg||'Erro');
       });
     },
+    isMachineLocked(mid){
+      try {
+        const m = this.maintMachineById(mid);
+        return !!(m && m.is_locked && Number(m.is_locked) == 1);
+      } catch(e){ return false; }
+    },
     toggleMaintenanceNeeds(mid){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); return; }
       const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
       const current = data ? Number(data.needs_inventory)||0 : 0;
       const newVal = current ? 0 : 1;
@@ -2939,6 +3158,7 @@
       }).catch(()=>{ if(data){ data.needs_inventory = current; this.patchMaintUI(mid); } });
     },
     toggleMaintenanceInventoried(mid){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); return; }
       // busca estado atual para inverter
       const wrap = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
       const btn = wrap ? wrap.querySelector('button[onclick*="toggleMaintenanceInventoried"]') : null;
@@ -2970,6 +3190,7 @@
       });
     },
     toggleUrgent(mid){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); return; }
       const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
       const current = data ? Number(data.is_urgent)||0 : 0;
       const newVal = current ? 0 : 1;
@@ -2985,6 +3206,7 @@
       }).catch(()=>{ if(data){ data.is_urgent = current; this.patchMaintUI(mid); } });
     },
     retiradaMachine(mid){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); return; }
       if(!confirm("Criar card de Retirada para esta máquina (urgência)? O card atual perderá esta máquina e um novo card será criado com as mesmas informações, indo para Assinatura.")) return;
       this.ajax("retirada_machine", {id: mid}).then(res=>{
         if(!res.success){ alert(res.msg||"Erro"); return; }
@@ -3014,6 +3236,7 @@
       this._diaryTimers[mid]=setTimeout(()=> this.autoSaveDiary(mid), delay);
     },
     autoSaveDiary(mid){
+      if(this.isMachineLocked(mid)){ const ta0=document.getElementById("maint-diary-"+mid); if(ta0) ta0.value = this._lastDiarySaved[mid] || ta0.value; return; }
       const ta=document.getElementById("maint-diary-"+mid);
       const status=document.getElementById("maint-save-status-"+mid);
       if(!ta) return;
@@ -3041,6 +3264,7 @@
       });
     },
     deleteMaintenanceMachine(mid){
+      if(this.isMachineLocked(mid)){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); return; }
       this.kpConfirm("Remover esta máquina? A numeração será re-sequenciada (1…N).").then(ok=>{
         if(!ok) return;
         this.ajax("delete_maintenance_machine", {id: mid}).then(res=>{
@@ -4664,9 +4888,10 @@
       pending:   {label: 'Pendente',           color: '#ff5630', fg: '#fff',    dot: '🔴'},
       andamento: {label: 'Em Andamento',       color: '#0052cc', fg: '#fff',    dot: '🔷'},
       retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
+      pend_chamado: {label: 'Pendência Chamado', color: '#e1316f', fg: '#fff', dot: '📞'},
     },
     // estas categorias só notificam no Seus Quadros — no kanban ficam invisíveis
-    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1},
+    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, pend_chamado: 1},
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
@@ -4682,6 +4907,7 @@
       if(n === 'pendente') return Object.assign({code: 'pending'}, this.LIST_TYPES.pending);
       if(n === 'em andamento') return Object.assign({code: 'andamento'}, this.LIST_TYPES.andamento);
       if(n === 'retirada') return Object.assign({code: 'retirada'}, this.LIST_TYPES.retirada);
+      if(n === 'pendencia chamado' || n === 'pendencia chamados' || n === 'pendencia de chamado') return Object.assign({code: 'pend_chamado'}, this.LIST_TYPES.pend_chamado);
       return null;
     },
     listTypeChip(list, small, clickable){

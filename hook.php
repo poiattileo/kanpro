@@ -69,7 +69,7 @@ function plugin_kanpro_install(): bool {
                 `is_archived`                 TINYINT(1)   NOT NULL DEFAULT '0',
                 `color`                       VARCHAR(20)  DEFAULT NULL,
                 `require_approval`            TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin',
-                `list_type`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)',
+                `list_type`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,pend_chamado,none (vazio/none=normal)',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem criou a lista',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -83,9 +83,9 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `require_approval` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=entrada de cartoes exige aprovacao de admin'");
         }
-        // categoria da lista (listas de ajuste: pautas futuras, a fazer, em progresso, concluído, aguardando chegada, pendente, em andamento, retirada)
+        // categoria da lista (listas de ajuste: pautas futuras, a fazer, em progresso, concluído, aguardando chegada, pendente, em andamento, retirada, pendência chamado)
         if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'list_type')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,none (vazio/none=normal)'");
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_lists` ADD `list_type` VARCHAR(30) NOT NULL DEFAULT '' COMMENT 'categoria: backlog,todo,doing,done,awaiting,pending,andamento,retirada,pend_chamado,none (vazio/none=normal)'");
         }
         // criador da lista (p/ gerenciar visibilidade: quem criou escolhe quem vê)
         if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'users_id')) {
@@ -134,6 +134,9 @@ function plugin_kanpro_install(): bool {
                 `is_notified`                 TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=notificado sobre o chamado',
                 `notified_by`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem marcou como notificado',
                 `notified_date`               DATETIME     DEFAULT NULL COMMENT 'quando foi marcado como notificado',
+                `chamado_source_id`           INT {$sign} NOT NULL DEFAULT '0' COMMENT 'card origem da solicitacao de chamado (0=normal)',
+                `chamado_machines`            TEXT         DEFAULT NULL COMMENT 'JSON ids das maquinas da origem',
+                `chamado_status`              VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'pendente,liberado',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -187,6 +190,16 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'notified_date')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `notified_date` DATETIME DEFAULT NULL COMMENT 'quando foi marcado como notificado' AFTER `notified_by`");
+        }
+        // pendência de chamado: card em Pendência Chamado aponta p/ origem + máquinas
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_source_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_source_id` INT NOT NULL DEFAULT '0' COMMENT 'card origem da solicitacao de chamado' AFTER `notified_date`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_machines')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_machines` TEXT DEFAULT NULL COMMENT 'JSON ids das maquinas da origem' AFTER `chamado_source_id`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_status` VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'pendente,liberado' AFTER `chamado_machines`");
         }
     }
 
@@ -382,6 +395,8 @@ function plugin_kanpro_install(): bool {
                 `is_inventoried`              TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao,1=inventariado',
                 `needs_inventory`             TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao precisa,1=precisa inventariar',
                 `is_urgent`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=normal,1=urgencia',
+                `is_locked`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=travada aguardando chamado',
+                `locked_chamado_card_id`      INT {$sign} NOT NULL DEFAULT '0' COMMENT 'card pendencia que travou',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -420,6 +435,13 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_urgent')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
+        }
+        // trava aguardando chamado (Solicitar Chamado / Pegar)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_locked')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_locked` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=travada aguardando chamado' AFTER `is_urgent`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'locked_chamado_card_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `locked_chamado_card_id` INT NOT NULL DEFAULT '0' COMMENT 'card pendencia que travou' AFTER `is_locked`");
         }
     }
 

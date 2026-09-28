@@ -266,15 +266,17 @@ if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
         $total = count($machines);
         $done = 0;
         $urgent = 0;
+        $locked = 0;
         foreach ($machines as $mm) {
             if (!empty($mm['is_done'])) $done++;
             if (!empty($mm['is_urgent'])) $urgent++;
+            if (!empty($mm['is_locked'])) $locked++;
         }
-        $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent,'notes'=>($notes_by_card[$cid] ?? 0)];
+        $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent,'notes'=>($notes_by_card[$cid] ?? 0),'locked'=>$locked];
     }
     foreach ($all_cards as $c) {
         if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) {
-            $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0];
+            $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0,'locked'=>0];
         }
     }
 }

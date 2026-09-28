@@ -302,6 +302,8 @@ function kanpro_ensure_maintenance_tables() {
                 `is_inventoried`              TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao,1=inventariado',
                 `needs_inventory`             TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=nao precisa,1=precisa inventariar',
                 `is_urgent`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '0=normal,1=urgencia',
+                `is_locked`                   TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=travada aguardando chamado',
+                `locked_chamado_card_id`      INT {$sign} NOT NULL DEFAULT '0',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -331,6 +333,12 @@ function kanpro_ensure_maintenance_tables() {
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_urgent')) {
                 $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_urgent` TINYINT(1) NOT NULL DEFAULT '0' AFTER `is_inventoried`");
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'is_locked')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `is_locked` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=travada aguardando chamado' AFTER `is_urgent`");
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', 'locked_chamado_card_id')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_maintenance_machines` ADD `locked_chamado_card_id` INT NOT NULL DEFAULT '0' AFTER `is_locked`");
             }
             // limpeza: Nome do Recebedor deve ficar vazio por padrão — remove preenchimento automático antigo em transferências pendentes do KanPro
             try {
@@ -440,6 +448,15 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'notified_date')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `notified_date` DATETIME DEFAULT NULL AFTER `notified_by`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_source_id')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_source_id` INT NOT NULL DEFAULT '0' AFTER `notified_date`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_machines')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_machines` TEXT DEFAULT NULL AFTER `chamado_source_id`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_status` VARCHAR(20) NOT NULL DEFAULT '' AFTER `chamado_machines`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
             if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
@@ -537,11 +554,32 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
 
 // Categorias de lista (listas de ajuste): backlog=Pautas futuras, todo=A Fazer,
 // doing=Em Progresso, done=Concluído, awaiting=Aguardando Chegada, pending=Pendente,
-// andamento=Em Andamento, retirada=Retirada. '' = lista normal (vale dedução pelo nome p/ legado),
+// andamento=Em Andamento, retirada=Retirada, pend_chamado=Pendência Chamado. '' = lista normal (vale dedução pelo nome p/ legado),
 // 'none' = normal explícito (usuário tirou a categoria: nome NÃO reaplica).
 function kanpro_valid_list_type(string $t): string {
     $t = trim(strtolower($t));
-    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'awaiting', 'pending', 'andamento', 'retirada', 'none'], true) ? $t : '';
+    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'awaiting', 'pending', 'andamento', 'retirada', 'pend_chamado', 'none'], true) ? $t : '';
+}
+
+// Acha a lista do quadro pela categoria (vale dedução pelo nome p/ legado).
+function kanpro_find_list_by_type(int $boards_id, string $type): ?array {
+    global $DB;
+    $type = trim(strtolower($type));
+    if ($boards_id <= 0 || $type === '') return null;
+    try {
+        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0], 'ORDER' => 'rank ASC']) as $l) {
+            $lt = trim(strtolower($l['list_type'] ?? ''));
+            if ($lt === $type) return $l;
+            if ($lt === '' || $lt === 'none') {
+                $nm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
+                $nm = strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+                if ($type === 'pending' && $nm === 'pendente') return $l;
+                if ($type === 'andamento' && $nm === 'em andamento') return $l;
+                if ($type === 'pend_chamado' && ($nm === 'pendencia chamado' || $nm === 'pendencia chamados' || $nm === 'pendencia de chamado')) return $l;
+            }
+        }
+    } catch (Throwable $e) {}
+    return null;
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
@@ -1916,8 +1954,8 @@ switch ($action) {
             };
             // listas: nome/arquivada/ordem/categoria (rename, arquivar, reorder, mover e set_list_type não tocam date_mod)
             $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank, '|', IFNULL(list_type, '')))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
-            // cartões: lista+rank+arquivada+aprovação+urgência+notificado (mover/reordenar na mesma lista é rank-only sem date_mod)
-            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0), '|', IFNULL(is_notified, 0)))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // cartões: lista+rank+arquivada+aprovação+urgência+notificado+chamado (mover/reordenar na mesma lista é rank-only sem date_mod)
+            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0), '|', IFNULL(is_notified, 0), '|', IFNULL(chamado_source_id, 0), '|', IFNULL(chamado_status, '')))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // visibilidade das listas: trocar quem vê não toca date_mod — sem isso o outro PC nunca percebe
             $listVisBit = '';
             if ($DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
@@ -1931,8 +1969,8 @@ switch ($action) {
             // checklists: marcar/desmarcar item (is_checked) não tem data — a soma cobre
             $chkBit = $ag("COUNT(*) AS c, COALESCE(MAX(cl.id), 0) AS m", "`glpi_plugin_kanpro_checklists` AS cl INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = cl.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
             $chitBit = $ag("COUNT(*) AS c, COALESCE(MAX(ci.id), 0) AS m, COALESCE(SUM(ci.is_checked), 0) AS k", "`glpi_plugin_kanpro_checklist_items` AS ci INNER JOIN `glpi_plugin_kanpro_checklists` AS cl ON cl.id = ci.plugin_kanpro_checklists_id INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = cl.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
-            // manutenção: edições tocam machines.date_mod (fora do selo até agora)
-            $machBit = $ag("COUNT(*) AS c, COALESCE(MAX(mm.id), 0) AS m, COALESCE(MAX(mm.date_mod), '') AS d, COALESCE(SUM(mm.is_done), 0) AS k", "`glpi_plugin_kanpro_maintenance_machines` AS mm INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = mm.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            // manutenção: edições tocam machines.date_mod (fora do selo até agora) — inclui trava de chamado
+            $machBit = $ag("COUNT(*) AS c, COALESCE(MAX(mm.id), 0) AS m, COALESCE(MAX(mm.date_mod), '') AS d, COALESCE(SUM(mm.is_done), 0) AS k, COALESCE(SUM(mm.is_locked), 0) AS l", "`glpi_plugin_kanpro_maintenance_machines` AS mm INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = mm.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
             // acesso ao quadro: adicionar/remover/trocar papel (sem data)
             $bmBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(CRC32(CONCAT(users_id, '|', role))), 0) AS s", "`glpi_plugin_kanpro_boards_members`", "`plugin_kanpro_boards_id` = {$bidInt}");
             $bpBit = '';
@@ -2137,14 +2175,16 @@ switch ($action) {
                 $total = count($machines);
                 $done = 0;
                 $urgent = 0;
+                $locked = 0;
                 foreach ($machines as $mm) {
                     if (!empty($mm['is_done'])) $done++;
                     if (!empty($mm['is_urgent'])) $urgent++;
+                    if (!empty($mm['is_locked'])) $locked++;
                 }
-                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent,'notes'=>($notes_by_card[$cid] ?? 0)];
+                $maintenance_progress[$cid] = ['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'urgent'=>$urgent,'notes'=>($notes_by_card[$cid] ?? 0),'locked'=>$locked];
             }
             foreach ($all_cards as $c) {
-                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0];
+                if (!empty($c['is_maintenance']) && !isset($maintenance_progress[$c['id']])) $maintenance_progress[$c['id']] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0,'locked'=>0];
             }
         }
 
@@ -3529,6 +3569,10 @@ switch ($action) {
         if (!$mid) jexit(['success'=>false,'msg'=>'Máquina inválida']);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
         if (!$row) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
+        // trava total: aguardando chamado não edita nada
+        if (!empty($row['is_locked'])) {
+            jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado (#' . (int)($row['locked_chamado_card_id'] ?? 0) . ')','locked'=>true]);
+        }
         $updates = [];
         if (array_key_exists('diary', $_POST)) $updates['diary'] = $_POST['diary'];
         if (array_key_exists('is_done', $_POST)) $updates['is_done'] = (int)$_POST['is_done'] ? 1:0;
@@ -3659,8 +3703,9 @@ switch ($action) {
         $doneVal = $applyDone ? ((int)$_POST['is_done'] ? 1 : 0) : null;
         if (!$applyStatus && !$applyDone) jexit(['success'=>false,'msg'=>'Nada para aplicar']);
         $rows = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$ids,'plugin_kanpro_cards_id'=>$cid]]);
-        $n = 0;
+        $n = 0; $skippedLocked = 0;
         foreach ($rows as $r) {
+            if (!empty($r['is_locked'])) { $skippedLocked++; continue; }
             $u = ['date_mod'=>date('Y-m-d H:i:s'),'users_id'=>kanpro_acting_user_id()];
             if ($applyStatus) {
                 $u['status'] = $st;
@@ -3684,9 +3729,9 @@ switch ($action) {
                 kanpro_ticket_followup($tid, $msg);
             }
             if ($tid) kanpro_ticket_set_attending($tid);
-            PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Atualização em massa: {$n} máquina(s) (" . implode(' | ', $bits) . ")");
+            PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Atualização em massa: {$n} máquina(s) (" . implode(' | ', $bits) . ")" . ($skippedLocked ? " — {$skippedLocked} travada(s) ignorada(s)" : ""));
         }
-        jexit(['success'=>true,'updated'=>$n]);
+        jexit(['success'=>true,'updated'=>$n,'skipped_locked'=>$skippedLocked]);
 
     case 'set_all_needs_inventory':
         needEdit();
@@ -3789,6 +3834,7 @@ switch ($action) {
         if (!$mid) jexit(['success'=>false,'msg'=>'ID inválido']);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
         if (!$row) jexit(['success'=>false,'msg'=>'Não encontrado']);
+        if (!empty($row['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado','locked'=>true]);
         $cid = $row['plugin_kanpro_cards_id'];
         $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
         $tid = kanpro_card_ticket_id((int)$cid);
@@ -3901,6 +3947,7 @@ switch ($action) {
         if ($note === '') jexit(['success'=>false,'msg'=>'Escreva a anotação']);
         $mrow = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
         if (!$mrow) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
+        if (!empty($mrow['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado','locked'=>true]);
         $now = date('Y-m-d H:i:s');
         $nid = $DB->insert('glpi_plugin_kanpro_maintenance_notes', [
             'machine_id'    => $mid,
@@ -3933,6 +3980,7 @@ switch ($action) {
         if (!$mid) jexit(['success'=>false,'msg'=>'Máquina inválida']);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
         if (!$row) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
+        if (!empty($row['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado','locked'=>true]);
         if (empty($row['is_urgent'])) jexit(['success'=>false,'msg'=>'Apenas máquinas com urgência podem ser retiradas']);
         $cid = (int)$row['plugin_kanpro_cards_id'];
         $card = new PluginKanproCard();
@@ -4092,6 +4140,12 @@ switch ($action) {
         }
         $total = count($machines);
         if ($total===0) jexit(['success'=>false,'msg'=>'Nenhuma máquina cadastrada. Configure as máquinas antes de finalizar.']);
+        // trava total: se há máquina aguardando chamado, não finaliza
+        $locked = array_values(array_filter($machines, function ($m) { return !empty($m['is_locked']); }));
+        if (!empty($locked)) {
+            $seqs = implode(', #', array_slice(array_map(function ($m) { return (int)$m['seq']; }, $locked), 0, 10));
+            jexit(['success'=>false,'msg'=>'Há ' . count($locked) . ' máquina(s) travada(s) aguardando Chamado criado (#' . $seqs . '). Libere antes de finalizar.','locked'=>true]);
+        }
         // Validação obrigatória: Status Final não pode ficar em branco
         $missing = [];
         foreach ($machines as $m) {
@@ -4430,6 +4484,216 @@ switch ($action) {
             try { PluginKanproMaintenanceZap::sendOnce('retirada', $cid); } catch (Throwable $e) {}
         }
         jexit($resp);
+
+    // --- PENDÊNCIA CHAMADO (Solicitar Chamado / Chamado criado / Pegar) ---
+    case 'request_chamado':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $srcId = (int)($_POST['source_cards_id'] ?? $_POST['cards_id'] ?? 0);
+        if (!$srcId) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $src = new PluginKanproCard();
+        if (!$src->getFromDB($srcId)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($src->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Só card de manutenção pode solicitar chamado']);
+        $bid = (int)$src->fields['plugin_kanpro_boards_id'];
+        $rawIds = $_POST['machine_ids'] ?? $_POST['machines'] ?? '[]';
+        $mids = is_string($rawIds) ? (json_decode($rawIds, true) ?: []) : (is_array($rawIds) ? $rawIds : []);
+        $mids = array_values(array_unique(array_map('intval', (array)$mids)));
+        $mids = array_values(array_filter($mids, function ($v) { return $v > 0; }));
+        if (empty($mids)) jexit(['success'=>false,'msg'=>'Selecione ao menos 1 máquina']);
+        if (count($mids) > 200) jexit(['success'=>false,'msg'=>'Muitas máquinas (máx 200)']);
+        // busca máquinas da origem
+        $srcMachines = [];
+        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['id' => $mids, 'plugin_kanpro_cards_id' => $srcId]]) as $m) $srcMachines[(int)$m['id']] = $m;
+        if (count($srcMachines) !== count($mids)) jexit(['success'=>false,'msg'=>'Alguma máquina não pertence a este card']);
+        foreach ($srcMachines as $m) {
+            if (!empty($m['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina #' . (int)$m['seq'] . ' já está travada aguardando chamado']);
+        }
+        $target = kanpro_find_list_by_type($bid, 'pend_chamado');
+        if (!$target) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Pendência Chamado" neste quadro','need_list'=>true]);
+        $targetLid = (int)$target['id'];
+        $newCard = new PluginKanproCard();
+        $newName = mb_substr(trim($src->fields['name'] ?? ('Card #' . $srcId)), 0, 255);
+        $desc = "Solicitação de chamado a partir do card #{$srcId} '" . ($src->fields['name'] ?? '') . "'.\n"
+            . count($mids) . " máquina(s): " . implode(', ', array_map(function ($m) { return '#' . (int)$m['seq'] . ' ' . ($m['model'] ?? ''); }, array_values($srcMachines))) . "\n\n"
+            . "Ao clicar em 'Chamado criado' as máquinas são liberadas na origem.";
+        $newId = $newCard->add([
+            'plugin_kanpro_boards_id' => $bid,
+            'plugin_kanpro_lists_id'  => $targetLid,
+            'name'        => $newName,
+            'description' => $desc,
+        ]);
+        if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card na Pendência Chamado']);
+        $DB->update('glpi_plugin_kanpro_cards', [
+            'chamado_source_id' => $srcId,
+            'chamado_machines'  => json_encode(array_values($mids), JSON_UNESCAPED_UNICODE),
+            'chamado_status'    => 'pendente',
+            'entities_id'       => (int)($src->fields['entities_id'] ?? 0),
+            'date_mod'          => date('Y-m-d H:i:s'),
+        ], ['id' => $newId]);
+        // checklist com as máquinas (espelho p/ acompanhar no card da pendência)
+        $cl = new PluginKanproChecklist();
+        $clId = (int)$cl->add(['plugin_kanpro_cards_id' => $newId, 'name' => 'Máquinas para chamado']);
+        if ($clId) {
+            $rk = 1024;
+            foreach (array_values($srcMachines) as $m) {
+                $it = new PluginKanproChecklistItem();
+                $it->add(['plugin_kanpro_checklists_id' => $clId, 'name' => '#' . (int)$m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' [mid:' . (int)$m['id'] . ']', 'rank' => $rk]);
+                $rk += 1024;
+            }
+        }
+        // trava origem
+        $now = date('Y-m-d H:i:s');
+        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 1, 'locked_chamado_card_id' => $newId, 'date_mod' => $now], ['id' => $mids]);
+        kanpro_touch_card($srcId);
+        kanpro_touch_card($newId);
+        PluginKanproBoard::logActivity($bid, $srcId, (int)$src->fields['plugin_kanpro_lists_id'], 'chamado_request', "Solicitado chamado p/ " . count($mids) . " máquina(s) → card #{$newId}");
+        PluginKanproBoard::logActivity($bid, $newId, $targetLid, 'chamado_created', "Pendência Chamado criada a partir de #{$srcId} (" . count($mids) . " máquina(s))");
+        jexit(['success'=>true,'pendencia_id'=>$newId,'target_lists_id'=>$targetLid,'locked'=>count($mids)]);
+
+    case 'confirm_chamado_created':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+        if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma Pendência Chamado']);
+        if (($pc->fields['chamado_status'] ?? '') === 'liberado') jexit(['success'=>true,'already'=>true]);
+        // só admin do quadro libera
+        $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
+        if (function_exists('kanpro_can_manage_list')) {
+            // reaproveita regra de gestão do quadro (criador/admin/UPDATE)
+            $can = false;
+            try {
+                if (Session::haveRight('plugin_kanpro', UPDATE)) $can = true;
+                else {
+                    $vids = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
+                    $b = new PluginKanproBoard();
+                    if ($b->getFromDB($bidC) && in_array((int)($b->fields['users_id'] ?? 0), $vids, true) && (int)($b->fields['users_id'] ?? 0) > 0) $can = true;
+                    else {
+                        foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bidC, 'users_id' => $vids]]) as $mr) {
+                            if (($mr['role'] ?? '') === 'admin') { $can = true; break; }
+                        }
+                        if (!$can && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($bidC) === 'admin') $can = true;
+                    }
+                }
+            } catch (Throwable $e) {}
+            if (!$can) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode confirmar Chamado criado']);
+        }
+        $mids = [];
+        try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
+        $mids = array_values(array_unique(array_map('intval', (array)$mids)));
+        $mids = array_values(array_filter($mids, function ($v) { return $v > 0; }));
+        if (!empty($mids)) {
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $mids]);
+        } else {
+            // fallback: destrava por vínculo
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => date('Y-m-d H:i:s')], ['locked_chamado_card_id' => $pid]);
+        }
+        $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => date('Y-m-d H:i:s')], ['id' => $pid]);
+        kanpro_touch_card($srcId);
+        kanpro_touch_card($pid);
+        $srcCard = new PluginKanproCard();
+        $srcBid = $bidC; $srcLid = 0;
+        if ($srcCard->getFromDB($srcId)) { $srcBid = (int)$srcCard->fields['plugin_kanpro_boards_id']; $srcLid = (int)$srcCard->fields['plugin_kanpro_lists_id']; }
+        PluginKanproBoard::logActivity($srcBid, $srcId, $srcLid, 'chamado_released', "Chamado criado confirmado (pendência #{$pid}) — máquinas liberadas");
+        PluginKanproBoard::logActivity($bidC, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_released', "Chamado criado — origem #{$srcId} liberada");
+        jexit(['success'=>true,'source_cards_id'=>$srcId,'unlocked'=>count($mids)]);
+
+    case 'pegar_pending_card':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $bid = (int)$c->fields['plugin_kanpro_boards_id'];
+        $curLid = (int)$c->fields['plugin_kanpro_lists_id'];
+        // precisa estar na Pendente
+        $curList = new PluginKanproList();
+        $isPending = false;
+        if ($curList->getFromDB($curLid)) {
+            $lt = trim(strtolower($curList->fields['list_type'] ?? ''));
+            if ($lt === 'pending') $isPending = true;
+            else {
+                $nm = function_exists('mb_strtolower') ? mb_strtolower(trim($curList->fields['name'] ?? ''), 'UTF-8') : strtolower(trim($curList->fields['name'] ?? ''));
+                if ($nm === 'pendente') $isPending = true;
+            }
+        }
+        if (!$isPending) jexit(['success'=>false,'msg'=>'Só card da lista Pendente pode ser pego']);
+        // só admin do quadro pega (botão só aparece p/ admin, mas valida no servidor)
+        $isAdmin = false;
+        try {
+            if (Session::haveRight('plugin_kanpro', UPDATE)) $isAdmin = true;
+            else {
+                $vids = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
+                $b = new PluginKanproBoard();
+                if ($b->getFromDB($bid) && in_array((int)($b->fields['users_id'] ?? 0), $vids, true) && (int)($b->fields['users_id'] ?? 0) > 0) $isAdmin = true;
+                else {
+                    foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $vids]]) as $mr) {
+                        if (($mr['role'] ?? '') === 'admin') { $isAdmin = true; break; }
+                    }
+                    if (!$isAdmin && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($bid) === 'admin') $isAdmin = true;
+                }
+            }
+        } catch (Throwable $e) {}
+        if (!$isAdmin) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode pegar']);
+        $dest = kanpro_find_list_by_type($bid, 'andamento');
+        if (!$dest) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Em Andamento" neste quadro','need_list'=>true]);
+        $destLid = (int)$dest['id'];
+        $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        // move p/ Em Andamento (fim da fila)
+        $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$destLid],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+        $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$destLid,'rank'=>$rank,'approval_from'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]);
+        // atribui quem pegou
+        try {
+            if ($who > 0 && $DB->tableExists('glpi_plugin_kanpro_cards_members')) {
+                if (!countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$who])) {
+                    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$who]);
+                }
+            }
+        } catch (Throwable $e) {}
+        kanpro_touch_member($cid, $who);
+        PluginKanproBoard::logActivity($bid, $cid, $destLid, 'card_move', "Pego por técnico e movido para '{$dest['name']}'");
+        // cria pendência com TODAS as máquinas (se for manutenção) e trava tudo
+        $pendId = 0; $lockedN = 0;
+        $isMaint = !empty($c->fields['is_maintenance']);
+        $allM = [];
+        if ($isMaint && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']) as $m) $allM[] = $m;
+        }
+        if (!empty($allM)) {
+            $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
+            if (!$pendList) jexit(['success'=>false,'msg'=>'Pego e movido, mas crie a lista "Pendência Chamado" para gerar a pendência','moved'=>true,'need_pend_list'=>true,'dest_lists_id'=>$destLid]);
+            $pendLid = (int)$pendList['id'];
+            $nc = new PluginKanproCard();
+            $nm = mb_substr(trim($c->fields['name'] ?? ('Card #' . $cid)), 0, 255);
+            $pendId = (int)$nc->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$pendLid,'name'=>$nm,'description'=>"Pegar: card #{$cid} movido para '{$dest['name']}'. Todas as máquinas travadas até 'Chamado criado'."]);
+            if ($pendId) {
+                $midsAll = array_map(function ($m) { return (int)$m['id']; }, $allM);
+                $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($midsAll), JSON_UNESCAPED_UNICODE),'chamado_status'=>'pendente','entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pendId]);
+                $cl = new PluginKanproChecklist();
+                $clId = (int)$cl->add(['plugin_kanpro_cards_id'=>$pendId,'name'=>'Máquinas para chamado']);
+                if ($clId) {
+                    $rk = 1024;
+                    foreach ($allM as $m) {
+                        $it = new PluginKanproChecklistItem();
+                        $it->add(['plugin_kanpro_checklists_id'=>$clId,'name'=>'#' . (int)$m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' [mid:' . (int)$m['id'] . ']','rank'=>$rk]);
+                        $rk += 1024;
+                    }
+                }
+                $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked'=>1,'locked_chamado_card_id'=>$pendId,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$midsAll]);
+                $lockedN = count($midsAll);
+                kanpro_touch_card($pendId);
+                PluginKanproBoard::logActivity($bid, $pendId, $pendLid, 'chamado_created', "Pendência Chamado criada via Pegar de #{$cid} ({$lockedN} máquina(s))");
+            }
+        }
+        kanpro_touch_card($cid);
+        $fresh = new PluginKanproCard();
+        $fresh->getFromDB($cid);
+        jexit(['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'card'=>$fresh->fields]);
 
     // --- CARD <-> CHAMADO GLPI ---
     case 'link_ticket':

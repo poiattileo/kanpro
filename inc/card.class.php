@@ -346,7 +346,7 @@ class PluginKanproCard extends CommonDBTM {
         $data['maintenance_date'] = $data['maintenance_date'] ?? null;
         $data['maintenance_by'] = $data['maintenance_by'] ?? 0;
         $data['maintenance_machines'] = [];
-        $data['maintenance_progress'] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0];
+        $data['maintenance_progress'] = ['total'=>0,'done'=>0,'percent'=>0,'urgent'=>0,'notes'=>0,'locked'=>0];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             $mm = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id],'ORDER'=>'seq ASC']);
             foreach ($mm as $r) $data['maintenance_machines'][] = $r;
@@ -372,13 +372,30 @@ class PluginKanproCard extends CommonDBTM {
             $done = 0;
             $urgent = 0;
             $notes = 0;
+            $locked = 0;
             foreach ($data['maintenance_machines'] as $m) {
                 if (!empty($m['is_done'])) $done++;
                 if (!empty($m['is_urgent'])) $urgent++;
+                if (!empty($m['is_locked'])) $locked++;
                 $notes += (int)($m['notes_count'] ?? 0);
             }
-            $data['maintenance_progress'] = ['total'=>$total,'done'=>$done,'percent'=>$total? (int)round($done/$total*100):0,'urgent'=>$urgent,'notes'=>$notes];
+            $data['maintenance_progress'] = ['total'=>$total,'done'=>$done,'percent'=>$total? (int)round($done/$total*100):0,'urgent'=>$urgent,'notes'=>$notes,'locked'=>$locked];
         }
+
+        // pendência chamado: origem/destino
+        $data['chamado_source_id'] = (int)($data['chamado_source_id'] ?? 0);
+        $data['chamado_status'] = (string)($data['chamado_status'] ?? '');
+        $data['chamado_source_name'] = '';
+        if ($data['chamado_source_id'] > 0) {
+            $sc = new self();
+            if ($sc->getFromDB($data['chamado_source_id'])) $data['chamado_source_name'] = $sc->fields['name'] ?? ('#' . $data['chamado_source_id']);
+        }
+        $data['chamado_pendencias'] = [];
+        try {
+            foreach ($DB->request(['SELECT' => ['id','name','chamado_status'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $cards_id]]) as $pr) {
+                $data['chamado_pendencias'][] = ['id' => (int)$pr['id'], 'name' => $pr['name'] ?? '', 'status' => $pr['chamado_status'] ?? ''];
+            }
+        } catch (\Throwable $e) {}
 
         return $data;
     }
