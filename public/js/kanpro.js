@@ -577,7 +577,7 @@
         </div>
         <div class="kp-list-cards" data-list-id="${list.id}">
         </div>
-        <button class="kp-add-card" onclick="Kanpro.showAddCard(${list.id})"><i class="ti ti-plus"></i> Adicionar um cartão</button>
+        <button class="kp-add-card" onclick="Kanpro.showAddCard(event, ${list.id})"><i class="ti ti-plus"></i> Adicionar um cartão</button>
         <div class="kp-card-composer" style="display:none">
           <textarea placeholder="Digite um título para este cartão..." rows="3"></textarea>
           <div class="kp-composer-actions">
@@ -1164,7 +1164,12 @@
     },
 
     // ---------- CARD OPERATIONS ----------
-    showAddCard(listId){
+    showAddCard(eOrListId, listId){
+      // o handler global fecha o picker no clique fora: este clique não pode borbulhar (o modal de tarefa usa picker)
+      let e = null;
+      if(typeof eOrListId === 'number'){ listId = eOrListId; }
+      else { e = eOrListId; }
+      if(e && e.stopPropagation) e.stopPropagation();
       // listas A Fazer / Pautas futuras: criação guiada (título + checklist + prazo + urgência)
       const list = this.lists.find(l=> l.id==listId);
       const lt = this.listTypeOf(list);
@@ -1222,10 +1227,10 @@
       const t = this.listTypeOf(list);
       const chip = t ? `<span style="background:${t.color};color:${t.fg};padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700">${t.dot} ${this.escape(t.label)}</span>` : '';
       this.showPicker({
-        title: 'Novo cartão ' + chip,
+        title: 'Novo cartão',
         html: `
         <div style="display:grid;gap:12px;min-width:min(440px,82vw)">
-          <div style="font-size:12px;color:#5e6c84">Lista: <strong>${this.escape(list ? list.name : '')}</strong></div>
+          <div style="font-size:12px;color:#5e6c84;display:flex;align-items:center;gap:8px">Lista: <strong>${this.escape(list ? list.name : '')}</strong> ${chip}</div>
           <label style="display:grid;gap:4px;font-size:12px;font-weight:700;color:#5e6c84">TÍTULO
             <input id="task-title" type="text" maxlength="255" placeholder="O que precisa ser feito?" style="width:100%;padding:8px 10px;border:1px solid #dfe1e6;border-radius:4px;box-sizing:border-box">
           </label>
@@ -1243,6 +1248,8 @@
           <button onclick="Kanpro.confirmTaskCard(${listId}, this)" style="background:#0079bf;color:#fff;border:none;padding:10px 16px;border-radius:4px;cursor:pointer;font-weight:700">Criar cartão</button>
         </div>`
       });
+      const pk = document.getElementById('kanpro-picker');
+      if(pk){ pk.style.maxWidth = '500px'; pk.style.width = 'min(500px, 94vw)'; }
       for(let i=0;i<3;i++) this.taskCardAddItem();
       setTimeout(()=>{ const el=document.getElementById('task-title'); if(el) el.focus(); }, 30);
     },
