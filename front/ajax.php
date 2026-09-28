@@ -1483,7 +1483,7 @@ switch ($action) {
             foreach ($order as $obid) {
                 $obid = (int)$obid;
                 if ($obid <= 0 || !kanpro_can_view_board($obid)) continue;
-                $cur = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'plugin_kanpro_cards_id' => $obid]])->current();
+                $cur = $DB->request(['FROM' => 'glpi_plugin_kanpro_board_groups_items', 'WHERE' => ['users_id' => $owner, 'plugin_kanpro_boards_id' => $obid]])->current();
                 if ($cur) {
                     $DB->update('glpi_plugin_kanpro_board_groups_items', ['groups_id' => $gid, 'rank' => $rank], ['id' => (int)$cur['id']]);
                 } else {
@@ -1493,6 +1493,7 @@ switch ($action) {
             }
             jexit(['success'=>true]);
         } catch (Throwable $e) {
+            error_log('[KanPro] reorder_board_group: ' . $e->getMessage());
             jexit(['success'=>false,'msg'=>'Erro ao salvar ordem']);
         }
 
