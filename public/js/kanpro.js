@@ -312,17 +312,24 @@
         this.transferStatus = res.transferStatus || {};
 
         // retoma auto-exclusão de pendências liberadas (mesmo sem abrir o modal — 30s desde date_mod)
+        // + zap de liberado (25s desde date_mod). Anti-duplicado no servidor.
         try {
           (this.cards||[]).forEach(c=>{
             if(c && Number(c.chamado_source_id||0) > 0 && String(c.chamado_status||'') === 'liberado'){
-              if(this._autoDelTimers && this._autoDelTimers[c.id]) return;
-              let remain = 30;
+              let elapsed = 0;
               if(c.date_mod){
                 const ts = new Date(String(c.date_mod).replace(' ', 'T')).getTime();
-                if(!isNaN(ts)) remain = 30 - Math.floor((Date.now() - ts) / 1000);
+                if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
               }
-              if(remain <= 0) remain = 2;
-              if(remain <= 30) this.schedulePendenciaAutoDelete(c.id, Math.min(30, remain));
+              if(!(this._autoDelTimers && this._autoDelTimers[c.id])){
+                const delRemain = Math.min(30, Math.max(2, 30 - elapsed));
+                if(delRemain <= 30) this.schedulePendenciaAutoDelete(c.id, delRemain);
+              }
+              if(!(this._libZapTimers && this._libZapTimers[c.id])){
+                const zapRemain = 25 - elapsed;
+                if(zapRemain <= 0) this.scheduleLiberadoZap(c.id, 2);
+                else if(zapRemain <= 25) this.scheduleLiberadoZap(c.id, zapRemain);
+              }
             }
           });
         } catch(e){}
@@ -1639,15 +1646,16 @@
         if(act){
           if(isLib){
             act.innerHTML += `<span title="Origem ${this.escape(srcName)} liberada — auto-exclui em 30s" style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">📞 Chamado criado ✓ <span style="background:#006644;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">⏳ <span id="kp-autodel-count-${data.id}">30s</span></span></span>`;
-            // retoma contagem após reload (30s desde date_mod da liberação)
+            // retoma contagem após reload (zap 25s + delete 30s desde date_mod da liberação)
             try {
-              let remain = 30;
+              let elapsed = 0;
               if(data.date_mod){
                 const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
-                if(!isNaN(ts)) remain = Math.max(2, 30 - Math.floor((Date.now() - ts) / 1000));
+                if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
               }
-              this.schedulePendenciaAutoDelete(data.id, remain);
-            } catch(e){ this.schedulePendenciaAutoDelete(data.id, 30); }
+              this.scheduleLiberadoZap(data.id, Math.max(2, 25 - elapsed));
+              this.schedulePendenciaAutoDelete(data.id, Math.max(2, 30 - elapsed));
+            } catch(e){ this.scheduleLiberadoZap(data.id, 25); this.schedulePendenciaAutoDelete(data.id, 30); }
           } else {
             act.innerHTML += `<button onclick="Kanpro.confirmChamadoCriado()" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcName)} (só admin)" style="background:${amAdmin ? '#61bd4f' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-phone-check"></i> 📞 Chamado criado${amAdmin ? '' : ' (só admin)'}</button>`;
           }
@@ -1868,11 +1876,31 @@
       if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem? O card se auto-exclui em 30s.')) return;
       this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro'); return; }
-        this.showToast('Origem liberada ✓ — excluindo em 30s ⏳');
+        this.showToast('Origem liberada ✓ — zap em 25s, excluindo em 30s ⏳');
         this.refreshCardModal();
         this.forceSync();
+        this.scheduleLiberadoZap(cid, 25);
         this.schedulePendenciaAutoDelete(cid, 30);
       });
+    },
+    scheduleLiberadoZap(pid, seconds){
+      try {
+        this._libZapTimers = this._libZapTimers || {};
+        if(this._libZapTimers[pid]) clearTimeout(this._libZapTimers[pid]);
+        const wait = Math.max(1, Math.round(seconds || 25));
+        this._libZapTimers[pid] = setTimeout(()=>{
+          delete this._libZapTimers[pid];
+          this.ajax('send_liberado_zap', {pendencia_cards_id: pid}).then(res=>{
+            if(res && res.success && res.sent){
+              this.showToast(`Zap liberado enviado ✓ (${res.sent} técnico(s))`);
+            } else if(res && (res.already || (res.success && !res.sent))){
+              // já enviado por outro cliente — silencioso
+            } else if(this.currentCardId == pid){
+              this.showToast('Zap liberado: ' + ((res && res.msg) || 'falhou — ver Atividade do card'));
+            }
+          });
+        }, wait * 1000);
+      } catch(e){}
     },
     schedulePendenciaAutoDelete(pid, seconds){
       try {

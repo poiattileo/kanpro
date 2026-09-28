@@ -1,0 +1,22 @@
+# KanPro • WhatsApp de LIBERADO (texto puro, sem HTML)
+# Gatilho: confirm_chamado_created + 25s (scheduleLiberadoZap no kanban)
+# Destinatário: técnico(s) membro(s) do card origem (fone do cadastro GLPI)
+# Placeholders: {tecnico} {card_id} {card_nome} {escola} {quadro}
+#               {origem_id} {origem_nome} {chamado_id} {chamado_nome}
+#               {quantidade} {maquinas} {solicitado_por} {data}
+
+✅ *CHAMADO CRIADO — MÁQUINAS LIBERADAS*
+
+Olá *{tecnico}*! O chamado foi criado e as máquinas foram liberadas para você realizar a manutenção.
+
+🎫 Chamado *#{chamado_id} "{chamado_nome}"*
+📋 Pendência *#{card_id} "{card_nome}"* | Origem *#{origem_id} "{origem_nome}"*
+🏫 Escola: *{escola}* | 🖥️ Quadro: *{quadro}*
+👤 Pego/Solicitado por: *{solicitado_por}* em *{data}*
+
+📦 *{quantidade} máquina(s) liberada(s):*
+{maquinas}
+
+Boa manutenção! 🛠️
+
+_Manutenção de TI - URE Jales_

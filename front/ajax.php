@@ -457,6 +457,9 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_status` VARCHAR(20) NOT NULL DEFAULT '' AFTER `chamado_machines`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_by` INT NOT NULL DEFAULT '0' AFTER `chamado_status`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
             if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
@@ -2932,6 +2935,20 @@ switch ($action) {
         $pc->delete(['id'=>$pid], true);
         jexit(['success'=>true,'deleted'=>true]);
 
+    case 'send_liberado_zap':
+        // Disparo 25s após Chamado criado (agendado no kanban). Anti-duplicado por técnico. Nunca quebra.
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        try {
+            if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
+            $r = PluginKanproMaintenanceZap::sendLiberado($pid);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
+        if (!empty($r['ok'])) jexit(['success'=>true,'sent'=>($r['sent'] ?? 1)]);
+        if (($r['error'] ?? '') === 'duplicate') jexit(['success'=>true,'already'=>true]);
+        jexit(['success'=>false,'msg'=>($r['error'] ?? 'Falha ao enviar')]);
+
     case 'get_history':
         try {
         $bid = (int)($_REQUEST['boards_id'] ?? 0);
@@ -4659,6 +4676,7 @@ switch ($action) {
             'chamado_source_id' => $srcId,
             'chamado_machines'  => json_encode(array_values($mids), JSON_UNESCAPED_UNICODE),
             'chamado_status'    => 'pendente',
+            'chamado_by'        => kanpro_acting_user_id(),
             'entities_id'       => (int)($src->fields['entities_id'] ?? 0),
             'date_mod'          => date('Y-m-d H:i:s'),
         ], ['id' => $newId]);
@@ -4813,7 +4831,7 @@ switch ($action) {
             $pendId = (int)$nc->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$pendLid,'name'=>$nm,'description'=>"Pegar: card #{$cid} movido para '{$dest['name']}'. Todas as máquinas travadas até 'Chamado criado'."]);
             if ($pendId) {
                 $midsAll = array_map(function ($m) { return (int)$m['id']; }, $allM);
-                $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($midsAll), JSON_UNESCAPED_UNICODE),'chamado_status'=>'pendente','entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pendId]);
+                $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($midsAll), JSON_UNESCAPED_UNICODE),'chamado_status'=>'pendente','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pendId]);
                 $cl = new PluginKanproChecklist();
                 $clId = (int)$cl->add(['plugin_kanpro_cards_id'=>$pendId,'name'=>'Máquinas para chamado']);
                 if ($clId) {

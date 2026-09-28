@@ -12,6 +12,7 @@ Olá! Apareceu *1 novo card pendente* em *Pendência Chamado* para ser aprovado.
 🏫 Escola: *{escola}*
 🖥️ Quadro: *{quadro}* | Lista: *{lista}*
 🔗 Origem: *#{origem_id} "{origem_nome}"* em *{data}*
+👤 Pego/Solicitado por: *{solicitado_por}*
 
 📦 *{quantidade} máquina(s):*
 {maquinas}

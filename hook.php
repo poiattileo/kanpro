@@ -137,6 +137,7 @@ function plugin_kanpro_install(): bool {
                 `chamado_source_id`           INT {$sign} NOT NULL DEFAULT '0' COMMENT 'card origem da solicitacao de chamado (0=normal)',
                 `chamado_machines`            TEXT         DEFAULT NULL COMMENT 'JSON ids das maquinas da origem',
                 `chamado_status`              VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'pendente,liberado',
+                `chamado_by`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem solicitou/pegou (users_id)',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 `date_mod`                    DATETIME     DEFAULT NULL,
@@ -200,6 +201,9 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_status` VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'pendente,liberado' AFTER `chamado_machines`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_by` INT NOT NULL DEFAULT '0' COMMENT 'quem solicitou/pegou (users_id)' AFTER `chamado_status`");
         }
     }
 

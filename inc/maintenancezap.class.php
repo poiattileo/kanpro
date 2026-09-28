@@ -19,6 +19,8 @@ if (!defined('GLPI_ROOT')) {
  *   cancelado revert_maintenance
  *   pendencia request_chamado / pegar_pending_card — 1 msg por card novo em Pendência Chamado
  *             (destinatário fixo: fone do usuário cristian.sawata@educacao.sp.gov.br)
+ *   liberado  confirm_chamado_created + 25s — 1 msg por técnico membro da origem
+ *             (avisa chamado criado + máquinas liberadas, com nº/nome do chamado)
  *
  * Anti-duplicado: tabela glpi_plugin_kanpro_maintenance_zaplog (milestone por card).
  * Falha de envio NUNCA quebra o fluxo principal (tudo em try/catch + log).
@@ -31,7 +33,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado'];
     }
 
     /** Login/e-mail do aprovador fixo da Pendência Chamado */
@@ -359,6 +361,15 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 } catch (Throwable $e) {}
             }
             $cardNome = (string)($pc->fields['name'] ?? '');
+            $solNome = '';
+            $solId = (int)($pc->fields['chamado_by'] ?? 0);
+            if ($solId > 0) {
+                try {
+                    $su = new User();
+                    if ($su->getFromDB($solId)) $solNome = $su->getFriendlyName();
+                    else $solNome = 'Usuário #' . $solId;
+                } catch (Throwable $e) { $solNome = 'Usuário #' . $solId; }
+            }
             $data = [
                 'card_id'     => (string)$pendenciaId,
                 'card_nome'   => $cardNome,
@@ -370,6 +381,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 'quantidade'  => (string)count($mids),
                 'maquinas'    => $lines ? implode("\n", $lines) : '(sem máquinas vinculadas)',
                 'data'        => date('d/m/Y H:i'),
+                'solicitado_por' => $solNome !== '' ? $solNome : '—',
             ];
             $phone = self::resolveApproverPhone();
             $phone = self::normalizeBRPhone((string)$phone);
@@ -389,6 +401,132 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 ? "WhatsApp pendencia enviado para {$phone} (aprovador)"
                 : "WhatsApp pendencia FALHOU para {$phone}: " . ($res['error'] ?? ''));
             return $res + ['phone' => $phone];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Aviso de liberado: 1 msg por técnico membro da origem, 25s após Chamado criado.
+     * Anti-duplicado por técnico (milestone liberado_<uid>). Nunca joga exceção.
+     */
+    static function sendLiberado(int $pendenciaId): array {
+        global $DB;
+        try {
+            if ($pendenciaId <= 0) return ['ok' => false, 'error' => 'Card inválido'];
+            $pc = new PluginKanproCard();
+            if (!$pc->getFromDB($pendenciaId)) return ['ok' => false, 'error' => 'duplicate'];
+            $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+            if ($srcId <= 0) return ['ok' => false, 'error' => 'Sem origem'];
+            if (($pc->fields['chamado_status'] ?? '') !== 'liberado') return ['ok' => false, 'error' => 'Ainda não liberado'];
+            $src = new PluginKanproCard();
+            $srcName = '';
+            $srcTid = 0;
+            if ($src->getFromDB($srcId)) {
+                $srcName = (string)($src->fields['name'] ?? '');
+                $srcTid = (int)($src->fields['tickets_id'] ?? 0);
+            }
+            // técnicos = membros do card origem (fallback: quem solicitou/pegou)
+            $uids = [];
+            try {
+                if ($DB->tableExists('glpi_plugin_kanpro_cards_members')) {
+                    foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => $srcId]]) as $r) {
+                        $uid = (int)($r['users_id'] ?? 0);
+                        if ($uid > 0) $uids[$uid] = true;
+                    }
+                }
+            } catch (Throwable $e) {}
+            if (empty($uids) && (int)($pc->fields['chamado_by'] ?? 0) > 0) $uids[(int)$pc->fields['chamado_by']] = true;
+            if (empty($uids)) {
+                self::logCard($pendenciaId, 'WhatsApp liberado NÃO enviado: origem sem técnico atribuído');
+                return ['ok' => false, 'error' => 'sem tecnico'];
+            }
+            // chamado (nº + nome)
+            $chId = $srcTid > 0 ? (string)$srcTid : '—';
+            $chNome = '';
+            if ($srcTid > 0 && class_exists('Ticket')) {
+                try {
+                    $tk = new Ticket();
+                    if ($tk->getFromDB($srcTid)) $chNome = (string)($tk->fields['name'] ?? '');
+                } catch (Throwable $e) {}
+            }
+            $boardName = '';
+            $b = new PluginKanproBoard();
+            if ($b->getFromDB((int)($pc->fields['plugin_kanpro_boards_id'] ?? 0))) $boardName = (string)($b->fields['name'] ?? '');
+            $cardNome = (string)($pc->fields['name'] ?? '');
+            $solNome = '';
+            $solId = (int)($pc->fields['chamado_by'] ?? 0);
+            if ($solId > 0) {
+                try {
+                    $su = new User();
+                    if ($su->getFromDB($solId)) $solNome = $su->getFriendlyName();
+                    else $solNome = 'Usuário #' . $solId;
+                } catch (Throwable $e) { $solNome = 'Usuário #' . $solId; }
+            }
+            // máquinas liberadas (as da solicitação)
+            $mids = [];
+            try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
+            $mids = array_values(array_filter(array_map('intval', (array)$mids)));
+            $lines = [];
+            if (!empty($mids) && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+                try {
+                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['id' => $mids], 'ORDER' => 'seq ASC']) as $m) {
+                        $lines[] = '#' . (int)($m['seq'] ?? 0) . ' — ' . trim((string)($m['model'] ?? '')) . ' (' . self::statusLabel($m['status'] ?? '') . ')';
+                    }
+                } catch (Throwable $e) {}
+            }
+            $sent = 0; $skipped = 0; $errors = [];
+            foreach (array_keys($uids) as $uid) {
+                $ms = 'liberado_' . (int)$uid;
+                if (self::alreadySent($pendenciaId, $ms)) { $skipped++; continue; }
+                $tecNome = 'Técnico';
+                $phone = '';
+                try {
+                    $u = new User();
+                    if ($u->getFromDB((int)$uid)) {
+                        $tecNome = $u->getFriendlyName();
+                        $p = trim((string)($u->fields['phone'] ?? ''));
+                        if ($p === '') $p = trim((string)($u->fields['mobile'] ?? ''));
+                        $phone = self::normalizeBRPhone($p);
+                    } else { $tecNome = 'Usuário #' . (int)$uid; }
+                } catch (Throwable $e) {}
+                if ($phone === '') {
+                    self::markSent($pendenciaId, $ms, '', false, 'tecnico sem telefone');
+                    $errors[] = 'sem telefone (' . $tecNome . ')';
+                    continue;
+                }
+                $data = [
+                    'tecnico'        => $tecNome,
+                    'card_id'        => (string)$pendenciaId,
+                    'card_nome'      => $cardNome,
+                    'escola'         => $cardNome !== '' ? $cardNome : $srcName,
+                    'quadro'         => $boardName,
+                    'origem_id'      => (string)$srcId,
+                    'origem_nome'    => $srcName,
+                    'chamado_id'     => $chId,
+                    'chamado_nome'   => $chNome !== '' ? $chNome : '—',
+                    'quantidade'     => (string)count($mids),
+                    'maquinas'       => $lines ? implode("\n", $lines) : '(sem máquinas vinculadas)',
+                    'solicitado_por' => $solNome !== '' ? $solNome : '—',
+                    'data'           => date('d/m/Y H:i'),
+                ];
+                $txt = self::renderTxt('liberado', $data);
+                if ($txt === null || $txt === '') {
+                    self::markSent($pendenciaId, $ms, $phone, false, 'template vazio');
+                    $errors[] = 'template vazio';
+                    continue;
+                }
+                $res = self::evoSend($phone, $txt, 20);
+                self::markSent($pendenciaId, $ms, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+                if (!empty($res['ok'])) $sent++;
+                else $errors[] = (string)($res['error'] ?? 'falha');
+            }
+            if ($sent > 0) {
+                self::logCard($pendenciaId, "WhatsApp liberado enviado para {$sent} técnico(s)");
+                return ['ok' => true, 'sent' => $sent, 'skipped' => $skipped];
+            }
+            if ($skipped > 0 && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
+            return ['ok' => false, 'error' => implode(' | ', array_slice($errors, 0, 3)) ?: 'falha'];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
