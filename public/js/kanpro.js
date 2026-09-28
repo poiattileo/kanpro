@@ -761,9 +761,11 @@
         if (mProgUrgent && mProgUrgent.urgent > 0) {
           badges.push(`<span class="kp-badge" style="background:#eb5a46;color:#fff;font-weight:700;border:1px solid #eb5a46"><i class="ti ti-alert-triangle"></i> URGÊNCIA ${mProgUrgent.urgent}</span>`);
         }
-        // Anotações badge (ícone quando há anotações nas máquinas do card)
-        if (mProg && parseInt(mProg.notes||0) > 0) {
-          badges.push(`<span class="kp-badge" title="Este card possui anotações nas máquinas" style="background:#e6f4ff;color:#0050b3;font-weight:700;border:1px solid #91d5ff"><i class="ti ti-notes"></i></span>`);
+        // Anotações badge (contagem quando há anotações nas máquinas do card)
+        const mProgNotes = this.maintenanceProgress && this.maintenanceProgress[card.id];
+        const notesCount = mProgNotes ? parseInt(mProgNotes.notes||0) : 0;
+        if (notesCount > 0) {
+          badges.push(`<span class="kp-badge" title="${notesCount} ${notesCount===1?'anotação':'anotações'} nas máquinas (clique para ver)" style="background:#e6f4ff;color:#0050b3;font-weight:700;border:1px solid #91d5ff;cursor:pointer" onclick="event.stopPropagation();Kanpro.openCard(${card.id})"><i class="ti ti-notes"></i> ${notesCount}</span>`);
         }
       }
       // borda vermelha se tem urgência dentro do card (destaque na lista)
@@ -2930,6 +2932,15 @@
         setTimeout(()=>{ const ta=document.getElementById('machine-note-input'); if(ta) ta.focus(); }, 100);
       });
     },
+    bumpCardNotes(delta){
+      // reflete no minimizado na hora (o polling converge o resto via selo)
+      const cid = this.currentCardId;
+      if(!cid || !this.maintenanceProgress) return;
+      const mp = this.maintenanceProgress[cid];
+      if(!mp) return;
+      mp.notes = Math.max(0, (parseInt(mp.notes||0) || 0) + delta);
+      this.renderBoard();
+    },
     addMachineNote(mid){
       const ta = document.getElementById('machine-note-input');
       const text = (ta ? ta.value : '').trim();
@@ -2937,6 +2948,7 @@
       this.ajax("add_machine_note", {machine_id: mid, note: text}).then(res=>{
         if(res.success){
           this.showToast("Anotação adicionada");
+          this.bumpCardNotes(1);
           this.openMachineNotes(mid); // recarrega lista
           this.refreshCardModal();
         } else alert(res.msg||"Erro");
@@ -2947,6 +2959,7 @@
         if(!ok) return;
         this.ajax("delete_machine_note", {id: noteId}).then(res=>{
           if(res.success){
+            this.bumpCardNotes(-1);
             this.openMachineNotes(mid); // recarrega lista
             this.refreshCardModal();
           } else alert(res.msg||"Erro");

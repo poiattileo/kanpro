@@ -1848,6 +1848,11 @@ switch ($action) {
             // comentários editados (date_mod) e anexos removidos (count/max)
             $coBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m, COALESCE(MAX(date_mod), '') AS d", "`glpi_plugin_kanpro_comments`", "`plugin_kanpro_cards_id` IN ({$cardIdsIn})");
             $attBit = $ag("COUNT(*) AS c, COALESCE(MAX(id), 0) AS m", "`glpi_plugin_kanpro_attachments`", "`plugin_kanpro_cards_id` IN ({$cardIdsIn})");
+            // anotações das máquinas (adicionar/excluir não toca em nenhuma data do selo)
+            $notesBit = '';
+            if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes') && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+                $notesBit = $ag("COUNT(*) AS c, COALESCE(MAX(n.id), 0) AS m", "`glpi_plugin_kanpro_maintenance_notes` AS n INNER JOIN `glpi_plugin_kanpro_maintenance_machines` AS mm ON mm.id = n.machine_id INNER JOIN `glpi_plugin_kanpro_cards` AS c ON c.id = mm.plugin_kanpro_cards_id", "c.plugin_kanpro_boards_id = {$bidInt}");
+            }
             // assinatura acontece noutra tabela/plugin (assetmgrstatus) sem tocar nas datas do kanpro —
             // sem isso o selo nunca muda ao assinar e o badge não vira "Concluído" sozinho
             $tstat = '';
@@ -1861,7 +1866,7 @@ switch ($action) {
                 }
                 $tstat = implode(',', $tbits);
             }
-            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax, $tstat, $listsBit, $cardsBit, $labelsBit, $clBit, $cmBit, $chkBit, $chitBit, $machBit, $bmBit, $bpBit, $coBit, $attBit]));
+            $stamp = sha1(implode('|', [$bmod, $lmax, $lcnt, $cmax, $ccnt, $amax, $comax, $atmax, $tstat, $listsBit, $cardsBit, $labelsBit, $clBit, $cmBit, $chkBit, $chitBit, $machBit, $bmBit, $bpBit, $coBit, $attBit, $notesBit]));
             // viewers junto (barato) p/ avatares continuarem vivos sem snapshot pesado
             $viewers = [];
             $cutoff = date('Y-m-d H:i:s', time() - 15);
