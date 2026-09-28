@@ -7,7 +7,7 @@
 
 ✅ *CHAMADO CRIADO — MÁQUINAS LIBERADAS*
 
-Olá *{tecnico}*! O chamado foi criado e as máquinas foram liberadas para você realizar a manutenção.
+Olá *{tecnico}*! Confirmação que o chamado foi criado e maquinas liberadas para os Técnicos realizarem a manutenção.
 
 🎫 Chamado *#{chamado_id} "{chamado_nome}"*
 📋 Pendência *#{card_id} "{card_nome}"* | Origem *#{origem_id} "{origem_nome}"*
