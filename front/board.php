@@ -397,15 +397,10 @@ window.KanproBoards = (function(){
     body.innerHTML = html;
     if (d.can_manage) { renderResults(''); var s = document.getElementById('kpb-search'); if (s) s.focus(); }
   }
-  function renderResults(q){
-    var d = state.data;
-    if (!d) return;
-    q = (q || '').toLowerCase().trim();
-    var list = d.available || [];
-    if (q) list = list.filter(function(u){ return u.name.toLowerCase().indexOf(q) !== -1 || u.login.toLowerCase().indexOf(q) !== -1; });
+  function renderRows(list){
     var box = document.getElementById('kpb-results');
     if (!box) return;
-    if (!list.length) { box.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhuma pessoa encontrada</div>'; return; }
+    if (!list.length) { box.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhuma pessoa encontrada — refine a busca (vale nome, sobrenome ou login, sem acento)</div>'; return; }
     box.innerHTML = list.slice(0, 60).map(function(u){
       return '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px 10px;gap:8px">'
         + '<span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:28px;height:28px;border-radius:50%;background:#dfe1e6;color:#172b4d;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(u.initials) + '</span>'
@@ -413,6 +408,43 @@ window.KanproBoards = (function(){
         + '<span style="display:block;font-size:11px;color:#5e6c84">@' + esc(u.login) + '</span></span></span>'
         + '<button onclick="KanproBoards.add(' + u.id + ', this)" style="background:#0079bf;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;flex-shrink:0">Adicionar</button></div>';
     }).join('') + (list.length > 60 ? '<div style="text-align:center;font-size:11px;color:#5e6c84">+' + (list.length - 60) + ' — refine a busca</div>' : '');
+  }
+  function norm(s){
+    s = String(s || '').toLowerCase();
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch(e){}
+    return s;
+  }
+  function renderResults(q){
+    var d = state.data;
+    if (!d) return;
+    q = (q || '').trim();
+    // busca curta: filtra na hora a lista inicial (rápido, sem request)
+    if (q.length < 2) {
+      var nq = norm(q);
+      var list = d.available || [];
+      if (nq) list = list.filter(function(u){ return norm(u.name).indexOf(nq) !== -1 || norm(u.login).indexOf(nq) !== -1; });
+      renderRows(list);
+      return;
+    }
+    // busca longa: server-side (a inicial traz só 300 — com milhares some)
+    var box = document.getElementById('kpb-results');
+    if (box) box.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Buscando...</div>';
+    if (state._searchTimer) clearTimeout(state._searchTimer);
+    state._searchQ = q;
+    state._searchTimer = setTimeout(function(){
+      if (state._searchQ !== q) return;
+      post('search_board_users', {boards_id: state.boardId, q: q}).then(function(res){
+        if (state._searchQ !== q) return;
+        if (!res || !res.success) {
+          // fallback: filtro local
+          var nq2 = norm(q);
+          var list2 = (state.data.available || []).filter(function(u){ return norm(u.name).indexOf(nq2) !== -1 || norm(u.login).indexOf(nq2) !== -1; });
+          renderRows(list2);
+          return;
+        }
+        renderRows(res.results || []);
+      });
+    }, 300);
   }
   function reload(){
     post('get_board_members', {boards_id: state.boardId}).then(function(res){
@@ -424,6 +456,7 @@ window.KanproBoards = (function(){
   return {
     open: function(boardId){
       state.boardId = boardId; state.dirty = false; state.data = null;
+      state._searchQ = ''; if (state._searchTimer) { clearTimeout(state._searchTimer); state._searchTimer = null; }
       document.getElementById('kpb-body').innerHTML = '<div style="text-align:center;color:#5e6c84;padding:20px">Carregando...</div>';
       var ov = document.getElementById('kpb-overlay');
       ov.style.display = 'flex';

@@ -1714,6 +1714,80 @@ switch ($action) {
             'my_role'=>kanpro_my_board_role($bid), 'is_creator'=>($me === $creatorId),
             'can_manage'=>kanpro_can_manage_members($bid), 'available'=>$available]);
 
+    case 'search_board_users':
+        // Busca server-side (a lista inicial traz só 300; com milhares de usuários a pessoa some).
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $q = trim($_POST['q'] ?? '');
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $bchk = new PluginKanproBoard();
+        if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        if (!kanpro_can_view_board($bid)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        if (mb_strlen($q) < 2) jexit(['success'=>true,'results'=>[]]);
+        $memberIds = [];
+        try {
+            foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid]]) as $mr) {
+                $memberIds[(int)$mr['users_id']] = true;
+            }
+            $creatorId = (int)($bchk->fields['users_id'] ?? 0);
+            if ($creatorId > 0) $memberIds[$creatorId] = true;
+        } catch (Throwable $e) {}
+        $results = [];
+        try {
+            $like = "%{$q}%";
+            $uiter = $DB->request([
+                'SELECT' => ['id', 'name', 'realname', 'firstname'],
+                'FROM'   => 'glpi_users',
+                'WHERE'  => [
+                    'is_deleted' => 0, 'is_active' => 1,
+                    'OR' => [
+                        'name'     => ['LIKE', $like],
+                        'realname' => ['LIKE', $like],
+                        'firstname'=> ['LIKE', $like],
+                    ],
+                ],
+                'ORDER'  => 'realname ASC, firstname ASC',
+                'LIMIT'  => 60,
+            ]);
+            foreach ($uiter as $u) {
+                if (isset($memberIds[(int)$u['id']])) continue;
+                $display = trim(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? ''));
+                if ($display === '') $display = $u['name'];
+                $initials = strtoupper(substr($u['firstname'] ?? $u['name'] ?? '?', 0, 1) . substr($u['realname'] ?? '', 0, 1));
+                if (trim($initials) === '') $initials = strtoupper(substr($display, 0, 2));
+                $results[] = ['id' => (int)$u['id'], 'name' => $display . ' (' . $u['name'] . ')', 'login' => $u['name'], 'initials' => $initials];
+                if (count($results) >= 60) break;
+            }
+        } catch (Throwable $e) {}
+        // fallback sem acento em PHP (LIKE depende do collation)
+        if (count($results) < 60) {
+            try {
+                $nq = kanpro_norm_text($q);
+                if ($nq !== '') {
+                    $seen = [];
+                    foreach ($results as $r) $seen[$r['id']] = true;
+                    $uiter2 = $DB->request([
+                        'SELECT' => ['id', 'name', 'realname', 'firstname'],
+                        'FROM'   => 'glpi_users',
+                        'WHERE'  => ['is_deleted' => 0, 'is_active' => 1],
+                        'ORDER'  => 'realname ASC, firstname ASC',
+                        'LIMIT'  => 800,
+                    ]);
+                    foreach ($uiter2 as $u) {
+                        if (count($results) >= 60) break;
+                        if (isset($memberIds[(int)$u['id']]) || isset($seen[(int)$u['id']])) continue;
+                        $hay = kanpro_norm_text(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? '') . ' ' . ($u['name'] ?? ''));
+                        if (mb_strpos($hay, $nq) === false) continue;
+                        $display = trim(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? ''));
+                        if ($display === '') $display = $u['name'];
+                        $initials = strtoupper(substr($u['firstname'] ?? $u['name'] ?? '?', 0, 1) . substr($u['realname'] ?? '', 0, 1));
+                        if (trim($initials) === '') $initials = strtoupper(substr($display, 0, 2));
+                        $results[] = ['id' => (int)$u['id'], 'name' => $display . ' (' . $u['name'] . ')', 'login' => $u['name'], 'initials' => $initials];
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+        jexit(['success'=>true,'results'=>$results]);
+
     // --- LABELS ---
     case 'add_label':
         needEdit();
