@@ -496,13 +496,7 @@
     renderBoard(){
       const board = $('#kanpro-board');
       if(!board) return;
-      // preserva scroll de cada lista (evita pulo pro topo a cada render/polling)
-      const scrolls = {};
-      board.querySelectorAll('.kp-list-cards').forEach(el=>{
-        const lid = el.dataset.listId || (el.closest('.kp-list')?.dataset.listId);
-        if(lid) scrolls[lid] = el.scrollTop;
-      });
-      board.innerHTML = '';
+      this._listEls = this._listEls || {};
       // ordena listas por rank
       this.lists.sort((a,b)=> parseFloat(a.rank)-parseFloat(b.rank));
       // ordem dos cartões: urgência primeiro (A-Z), depois fixados, depois rank
@@ -518,52 +512,147 @@
         return ((b.is_pinned||0)-(a.is_pinned||0)) || (parseFloat(a.rank)-parseFloat(b.rank));
       });
 
+      // reconciliação granular (sem piscar): só cria/move/atualiza o que mudou
+      const seenLists = new Set();
+      // composer de nova lista persistente (não perde o digitado a cada polling)
+      if(!this._addListWrap || !this._addListWrap.isConnected){
+        const addListWrap = document.createElement('div');
+        addListWrap.className = 'kp-add-list';
+        addListWrap.innerHTML = `
+          <button class="kp-add-list-btn" onclick="Kanpro.showAddList()"><i class="ti ti-plus"></i> Adicionar outra lista</button>
+          <div class="kp-list-composer" style="display:none">
+            <input type="text" placeholder="Digite o título da lista..." maxlength="100">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5e6c84;margin-top:8px;cursor:pointer">
+              <input type="checkbox" class="kp-list-type-check" onchange="Kanpro.toggleListTypePicker(this)"> É lista de ajuste?
+            </label>
+            <select class="kp-list-type-select" style="display:none;width:100%;margin-top:6px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;background:#fff">
+              <option value="backlog">🟣 Pautas futuras</option>
+              <option value="awaiting">🟠 Aguardando Chegada</option>
+              <option value="pending">🔴 Pendente</option>
+              <option value="todo" selected>🟡 A Fazer</option>
+              <option value="andamento">🔷 Em Andamento</option>
+              <option value="doing">🔵 Em Progresso</option>
+              <option value="retirada">📦 Retirada</option>
+              <option value="done">🟢 Concluído</option>
+            </select>
+            <div class="kp-composer-actions">
+              <button class="kp-btn-primary" onclick="Kanpro.confirmAddList(this)">Adicionar lista</button>
+              <button class="kp-btn-ghost" onclick="Kanpro.hideAddList()">✕</button>
+            </div>
+          </div>`;
+        this._addListWrap = addListWrap;
+      }
+      const addWrap = this._addListWrap;
+      if(!addWrap.isConnected) board.appendChild(addWrap);
+
       this.lists.forEach(list=>{
         if(list.is_archived==1) return;
         const cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c));
-        const el = this.createListEl(list, cardsInList);
-        board.appendChild(el);
-      });
-
-      // botão adicionar lista
-      const addListWrap = document.createElement('div');
-      addListWrap.className = 'kp-add-list';
-      addListWrap.innerHTML = `
-        <button class="kp-add-list-btn" onclick="Kanpro.showAddList()"><i class="ti ti-plus"></i> Adicionar outra lista</button>
-        <div class="kp-list-composer" style="display:none">
-          <input type="text" placeholder="Digite o título da lista..." maxlength="100">
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5e6c84;margin-top:8px;cursor:pointer">
-            <input type="checkbox" class="kp-list-type-check" onchange="Kanpro.toggleListTypePicker(this)"> É lista de ajuste?
-          </label>
-          <select class="kp-list-type-select" style="display:none;width:100%;margin-top:6px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;background:#fff">
-            <option value="backlog">🟣 Pautas futuras</option>
-            <option value="awaiting">🟠 Aguardando Chegada</option>
-            <option value="pending">🔴 Pendente</option>
-            <option value="todo" selected>🟡 A Fazer</option>
-            <option value="andamento">🔷 Em Andamento</option>
-            <option value="doing">🔵 Em Progresso</option>
-            <option value="retirada">📦 Retirada</option>
-            <option value="done">🟢 Concluído</option>
-          </select>
-          <div class="kp-composer-actions">
-            <button class="kp-btn-primary" onclick="Kanpro.confirmAddList(this)">Adicionar lista</button>
-            <button class="kp-btn-ghost" onclick="Kanpro.hideAddList()">✕</button>
-          </div>
-        </div>`;
-      board.appendChild(addListWrap);
-
-      // restaura scroll das listas
-      board.querySelectorAll('.kp-list').forEach(listEl=>{
-        const lid = listEl.dataset.listId;
-        if(lid && scrolls[lid] !== undefined){
-          const box = listEl.querySelector('.kp-list-cards');
-          if(box) box.scrollTop = scrolls[lid];
+        seenLists.add(String(list.id));
+        let el = this._listEls[list.id];
+        if(!el || !el.isConnected){
+          el = this.createListEl(list, cardsInList);
+          this._listEls[list.id] = el;
+        } else {
+          this.updateListHead(el, list, cardsInList.length);
+          this.reconcileListCards(el, cardsInList);
         }
       });
+      // remove listas sumidas/arquivadas
+      Object.keys(this._listEls).forEach(id=>{
+        if(!seenLists.has(String(id))){
+          const el = this._listEls[id];
+          if(el && el.remove) el.remove();
+          delete this._listEls[id];
+        }
+      });
+      // ordena as colunas no DOM (âncora: composer de nova lista sempre por último).
+      // insertBefore também INSERE nós novos (desconectados) — por isso lista nova aparece
+      let anchor = addWrap;
+      const ordered = this.lists.filter(l=> l.is_archived!=1);
+      for(let i=ordered.length-1;i>=0;i--){
+        const el = this._listEls[ordered[i].id];
+        if(!el) continue;
+        if(el.nextElementSibling !== anchor) board.insertBefore(el, anchor);
+        anchor = el;
+      }
 
       this.enableDragAndDrop();
       this.updateAssinaturaButton();
       this.updateStats();
+    },
+    // impressão digital do cartão p/ detectar mudança (só re-renderiza o que mudou)
+    cardFP(card){
+      try{
+        return JSON.stringify([card, {
+          labels: this.cardLabels[card.id]||[],
+          members: this.cardMembers[card.id]||[],
+          prog: this.checkProgress[card.id]||null,
+          mprog: this.maintenanceProgress[card.id]||null,
+          comments: this.commentCounts[card.id]||0,
+          atts: this.attCounts[card.id]||0,
+          ticket: (this.ticketMap && this.ticketMap[card.id])||null,
+          transfer: (this.transferStatus && this.transferStatus[card.id])||null
+        }]);
+      }catch(e){ return 'fp:' + (card && card.id); }
+    },
+    // atualiza cabeçalho da lista no lugar (título/contador/categoria)
+    updateListHead(listEl, list, count){
+      const input = listEl.querySelector('.kp-list-title-input');
+      if(input && input.style.display !== 'none') return; // renomeando: não mexe
+      const title = listEl.querySelector('.kp-list-title');
+      if(title && title.textContent !== list.name) title.textContent = list.name;
+      const countEl = listEl.querySelector('.kp-list-count');
+      if(countEl && countEl.textContent !== String(count)) countEl.textContent = String(count);
+      const slot = listEl.querySelector('.kp-ltype-slot');
+      if(slot){
+        const sig = (list.list_type || '') + '|' + (list.name || '');
+        if(listEl._typeSig !== sig){
+          listEl._typeSig = sig;
+          slot.innerHTML = this.listTypeChip(list, false, true);
+        }
+      }
+    },
+    // reconcilia os cartões da lista: cria/move/atualiza/remove só o necessário
+    reconcileListCards(listEl, cardsInList){
+      const box = listEl.querySelector('.kp-list-cards');
+      if(!box) return;
+      const existing = new Map();
+      Array.from(box.children).forEach(el=>{
+        if(el.classList && el.classList.contains('kp-card')) existing.set(String(el.dataset.cardId), el);
+      });
+      const seen = new Set();
+      const ordered = [];
+      cardsInList.forEach(card=>{
+        const id = String(card.id);
+        seen.add(id);
+        let el = existing.get(id);
+        const fp = this.cardFP(card);
+        if(!el){
+          el = this.createCardEl(card);
+          el.dataset.fp = fp;
+        } else if(el.dataset.fp !== fp && !el.classList.contains('dragging')){
+          // conteúdo mudou: atualiza no lugar (listeners do nó são preservados)
+          const fresh = this.createCardEl(card);
+          el.innerHTML = fresh.innerHTML;
+          el.className = fresh.className;
+          el.style.cssText = fresh.style.cssText;
+          if(fresh.dataset.urgent) el.dataset.urgent = fresh.dataset.urgent;
+          else delete el.dataset.urgent;
+          el.dataset.fp = fp;
+        }
+        ordered.push(el);
+      });
+      existing.forEach((el,id)=>{
+        if(!seen.has(id) && !el.classList.contains('dragging')) el.remove();
+      });
+      // ordena sem piscar: só move quem está fora do lugar (insertBefore insere os novos)
+      let anchor = null;
+      for(let i=ordered.length-1;i>=0;i--){
+        const el = ordered[i];
+        if(!el.isConnected || el.nextElementSibling !== anchor) box.insertBefore(el, anchor);
+        anchor = el;
+      }
     },
 
     createListEl(list, cardsInList){
@@ -578,7 +667,7 @@
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
-          ${this.listTypeChip(list, false, true)}
+          <span class="kp-ltype-slot" style="display:inline-flex;min-width:0">${this.listTypeChip(list, false, true)}</span>
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
@@ -597,6 +686,7 @@
       const cardsContainer = div.querySelector('.kp-list-cards');
       cardsInList.forEach(card=>{
         const cardEl = this.createCardEl(card);
+        cardEl.dataset.fp = this.cardFP(card);
         cardsContainer.appendChild(cardEl);
       });
       // drag handle só no header: no dragstart o e.target é a própria lista,
@@ -821,8 +911,10 @@
     },
 
     enableDragAndDrop(){
-      // Cartões
+      // Cartões (listeners ligados uma única vez por coluna — renderBoard agora preserva os nós)
       $$('.kp-list-cards').forEach(container=>{
+        if(container._kpDndBound) return;
+        container._kpDndBound = true;
         container.addEventListener('dragover', e=>{
           e.preventDefault();
           container.classList.add('drag-over');
@@ -1218,6 +1310,7 @@
       this.ajax('add_card', {lists_id: listId, name}).then(res=>{
         btn.disabled=false;
         if(res.success){
+          ta.value=''; // limpa (o composer agora persiste entre renders)
           const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name, rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0};
           this.cards.push(newCard);
           this.cardLabels[newCard.id]=[];
