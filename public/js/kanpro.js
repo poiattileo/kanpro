@@ -1918,7 +1918,88 @@
       const cid = cardId || this.currentCardId;
       if(!cid) return;
       if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode pegar.'); return; }
-      if(!confirm('Pegar este card? Ele vai para Em Andamento e será atribuído a você.')) return;
+      // autenticação por palavra — mesmas palavras da conversão p/ manutenção
+      let challenge;
+      if (Math.random() < 0.10) {
+        const specials = ["PAIVA","MASSON","FERRARI","MORANGO","SAWATA"];
+        challenge = specials[Math.floor(Math.random()*specials.length)];
+      } else {
+        const others = MAINT_CHALLENGE_WORDS.filter(w=> !["PAIVA","MASSON","FERRARI","MORANGO","SAWATA"].includes(w));
+        challenge = others[Math.floor(Math.random()*others.length)];
+      }
+      this._pegarChallenge = challenge;
+      this._pegarCardId = cid;
+      const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
+      const cardName = c ? c.name : ('#' + cid);
+      this.showPicker({
+        title: 'Pegar card — confirmação',
+        html: `
+        <style>
+          .pg-grid{display:grid;gap:14px;min-width:min(440px,84vw)}
+          .pg-banner{background:linear-gradient(135deg,#0052cc 0%,#00aecc 100%);border-radius:10px;padding:14px 16px;color:#fff;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .pg-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#0052cc;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:2px}
+          .pg-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .pg-field{width:100%;padding:9px 12px;border:2px solid #0052cc;border-radius:8px;box-sizing:border-box;font-size:15px;outline:none;background:#fff;text-transform:uppercase;letter-spacing:.06em;text-align:center;font-weight:700}
+          .pg-field:focus{box-shadow:0 0 0 3px #0052cc33}
+          .pg-confirm{background:#0052cc;color:#fff;border:none;padding:12px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2);flex:1}
+          .pg-confirm:hover{filter:brightness(1.08)}
+          .pg-cancel{background:#fff;border:1px solid #dfe1e6;padding:12px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d;flex:0 0 110px}
+        </style>
+        <div class="pg-grid">
+          <div class="pg-banner">
+            <span style="font-size:26px">✋</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Pegar card</div>
+            <div style="font-size:12px;opacity:.92;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px">${this.escape(cardName)}</div>
+            <div style="font-size:11px;opacity:.9;margin-top:2px">Vai para <strong>Em Andamento</strong> e fica atribuído a você</div></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <span class="pg-num">1</span>
+            <div style="flex:1;min-width:0"><div class="pg-label">DIGITE A PALAVRA ABAIXO</div>
+            <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
+              <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
+            </div>
+            <input id="pegar-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" class="pg-field" style="margin-top:8px">
+            <div id="pegar-step-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px;margin-top:4px"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" class="pg-cancel">Cancelar</button>
+            <button id="pegar-confirm-btn" onclick="Kanpro.confirmPegarChallenge()" class="pg-confirm">✋ Pegar</button>
+          </div>
+          <div style="text-align:center"><a href="#" onclick="Kanpro.pegarPendingCard(${cid});return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+        </div>`
+      });
+      const pk = document.getElementById('kanpro-picker');
+      if(pk){ pk.style.maxWidth = '500px'; pk.style.width = 'min(500px, 94vw)'; }
+      const pb = document.getElementById('picker-body');
+      if(pb){ pb.style.maxHeight = 'calc(100vh - 100px)'; pb.style.overflowY = 'auto'; }
+      setTimeout(()=>{
+        const inp = document.getElementById('pegar-confirm-input');
+        if(inp){
+          inp.focus();
+          inp.addEventListener('keydown', e=>{ if(e.key === 'Enter') Kanpro.confirmPegarChallenge(); });
+        }
+      }, 30);
+    },
+    confirmPegarChallenge(){
+      const cid = this._pegarCardId || this.currentCardId;
+      if(!cid) return;
+      const inp = document.getElementById('pegar-confirm-input');
+      const err = document.getElementById('pegar-step-error');
+      const btn = document.getElementById('pegar-confirm-btn');
+      const val = (inp?.value || '').trim().toUpperCase();
+      const challenge = (this._pegarChallenge || '').toUpperCase();
+      const norm = (s)=> s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : s;
+      if(!val || norm(val) !== norm(challenge)){
+        if(err){ err.textContent = `Digite exatamente "${challenge}" para continuar.`; err.style.display = 'block'; }
+        if(inp){ inp.style.borderColor = '#eb5a46'; inp.focus(); inp.select(); }
+        return;
+      }
+      if(err) err.style.display = 'none';
+      if(btn){ btn.disabled = true; btn.textContent = 'Pegando...'; }
+      this.doPegarPendingCard(cid);
+    },
+    doPegarPendingCard(cid){
       this.ajax('pegar_pending_card', {cards_id: cid}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
         this.closePicker();
