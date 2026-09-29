@@ -411,6 +411,35 @@
       ov.querySelector('#kp-alert-ok').addEventListener('click', close);
       document.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown', esc); } });
     },
+    // Confirmação customizada no mesmo visual do showAlert (substitui confirm() nativo) — retorna Promise<boolean>
+    showConfirm(message, title, okLabel){
+      return new Promise(resolve=>{
+        document.getElementById('kp-confirm-overlay')?.remove();
+        const ov = document.createElement('div');
+        ov.id = 'kp-confirm-overlay';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+        ov.innerHTML = `
+          <div style="background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.35);max-width:480px;width:100%;overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #dfe1e6;font-weight:800;font-size:14px;display:flex;align-items:center;gap:8px">
+              <span style="font-size:18px">⚠️</span>
+              <span>${this.escape(title||'Atenção')}</span>
+            </div>
+            <div style="padding:16px;font-size:13px;color:#172b4d;white-space:pre-line;line-height:1.6">${this.escape(message||'')}</div>
+            <div style="padding:12px 16px;background:#f4f5f7;display:flex;gap:8px;justify-content:flex-end">
+              <button id="kp-confirm-no" style="background:#fff;color:#172b4d;border:1px solid #dfe1e6;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700">Cancelar</button>
+              <button id="kp-confirm-yes" style="background:#0052cc;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700">${this.escape(okLabel||'Confirmar')}</button>
+            </div>
+          </div>`;
+        document.body.appendChild(ov);
+        const done = v=>{ ov.remove(); document.removeEventListener('keydown', esc); resolve(v); };
+        ov.addEventListener('click', e=>{ if(e.target===ov) done(false); });
+        ov.querySelector('#kp-confirm-no').addEventListener('click', ()=> done(false));
+        ov.querySelector('#kp-confirm-yes').addEventListener('click', ()=> done(true));
+        function esc(e){ if(e.key==='Escape'){ e.stopPropagation(); done(false); } }
+        document.addEventListener('keydown', esc);
+        setTimeout(()=> ov.querySelector('#kp-confirm-yes')?.focus(), 30);
+      });
+    },
 
     /* ---------- BUSCA RÁPIDA (Ctrl+K) ---------- */
     openQuickFind(){
@@ -4105,34 +4134,12 @@
       };
       if(!checkAndPrompt()) return;
       const prog = this.maintenanceProgress[cardId];
-      let force = 0;
-      // pendentes não precisam estar 100% — apenas não-pendentes
-      const pendingCountLocal = document.querySelectorAll(".kp-maint-machine select option[value='pendente']:checked").length;
-      if(prog && prog.total>0 && prog.done!==prog.total){
-        // verifica se há pendentes — pendentes justificam não estar 100% Feito (ficam em novo card)
-        const wrap = document.getElementById("card-modal-maintenance");
-        const pendingCount = wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
-        if(pendingCount>0){
-          const ok = confirm(`Atenção: ${prog.done}/${prog.total} concluídas como 'Feito', mas ${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD. As demais (Garantia/Ok/Inservível) irão para o termo.\nDeseja continuar?`);
-          if(!ok) return;
-          force = 1;
-        } else {
-          const ok = confirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`);
-          if(!ok) return;
-          force = 1;
-        }
-      } else {
-        // mesmo se 100% Feito, confirma pendentes
-        const wrap = document.getElementById("card-modal-maintenance");
-        const pendingCount = wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
-        if(pendingCount>0){
-          const ok = confirm(`${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD e não irão para o termo. As demais (Garantia/Ok/Inservível) serão enviadas para Assinatura. Continuar?`);
-          if(!ok) return;
-        }
-      }
-      const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
-      if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
-      this.ajax("finalize_maintenance", {cards_id: cardId, force}).then(res=>{
+      const wrap = document.getElementById("card-modal-maintenance");
+      const countPending = ()=> wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
+      const proceed = (force)=>{
+        const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
+        if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
+        this.ajax("finalize_maintenance", {cards_id: cardId, force}).then(res=>{
         if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
         if(!res.success){
           if(res.need_status){
@@ -4143,8 +4150,7 @@
             return;
           }
           if(res.need_100){
-            const goLocal = confirm((res.msg||"Conclua 100%") + "\nDeseja gerar termo local (fallback) em vez de enviar para Assinatura?");
-            if(goLocal) this.generateMaintenanceTerm();
+            this.showConfirm((res.msg||"Conclua 100%") + "\nDeseja gerar termo local (fallback) em vez de enviar para Assinatura?", 'Atenção', 'Gerar termo').then(goLocal=>{ if(goLocal) this.generateMaintenanceTerm(); });
             return;
           }
           if(res.all_pending){
@@ -4188,10 +4194,27 @@
           setTimeout(()=> alert(`✅ Pendentes (${res.pending_count}) movidos para novo card #${res.pending_card_id}. O novo card ficou na mesma lista para atenção posterior.`), 900);
         }
         this.closeCardModal();
-      }).catch(e=>{
-        if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
-        alert("Erro: "+(e.message||e));
-      });
+        }).catch(e=>{
+          if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
+          alert("Erro: "+(e.message||e));
+        });
+      };
+      // pendentes não precisam estar 100% — apenas não-pendentes
+      if(prog && prog.total>0 && prog.done!==prog.total){
+        // pendentes justificam não estar 100% Feito (ficam em novo card)
+        const pendingCount = countPending();
+        if(pendingCount>0){
+          this.showConfirm(`Atenção: ${prog.done}/${prog.total} concluídas como 'Feito', mas ${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD. As demais (Garantia/Ok/Inservível) irão para o termo.\nDeseja continuar?`, 'Atenção', 'Finalizar').then(ok=>{ if(ok) proceed(1); });
+        } else {
+          this.showConfirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`, 'Atenção', 'Finalizar').then(ok=>{ if(ok) proceed(1); });
+        }
+      } else {
+        // mesmo se 100% Feito, confirma pendentes
+        const pendingCount = countPending();
+        if(pendingCount>0){
+          this.showConfirm(`${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD e não irão para o termo. As demais (Garantia/Ok/Inservível) serão enviadas para Assinatura. Continuar?`, 'Atenção', 'Continuar').then(ok=>{ if(ok) proceed(0); });
+        } else proceed(0);
+      }
     },
     buildTermHtml(card, machines, boardName, listName){
       const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR");
