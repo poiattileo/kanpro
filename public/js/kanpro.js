@@ -1690,6 +1690,36 @@
       this.showToast('🔒 Cartão da lista Pendente é travado — nada pode ser alterado dentro dele');
       return true;
     },
+    // Card finalizado = já foi para Assinatura (transferStatus retirada/concluído ou lista Retirada/Concluído).
+    // Depois do Finalizar: sem editar/adicionar/remover máquinas — só visualizar.
+    isCardFinalized(cardOrData){
+      try {
+        const ref = (cardOrData && typeof cardOrData === 'object')
+          ? cardOrData
+          : ((this._lastModalData && String(this._lastModalData.id) === String(cardOrData)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(cardOrData)));
+        const cid = ref ? (ref.id || cardOrData) : (cardOrData == null ? this.currentCardId : cardOrData);
+        const ts = this.transferStatus && this.transferStatus[cid || this.currentCardId];
+        if(ts && (ts.status === 'retirada' || ts.status === 'concluido')) return true;
+        const probe = ref || ((this._lastModalData && String(this._lastModalData.id)===String(cid)) ? this._lastModalData : null);
+        if(probe){
+          if(this.isCardInListType(probe, 'done')) return true;
+          if(this.isCardInListType(probe, 'retirada')) return true;
+        } else {
+          const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
+          if(c){
+            if(this.isCardInListType(c, 'done')) return true;
+            if(this.isCardInListType(c, 'retirada')) return true;
+          }
+        }
+        return false;
+      } catch(e){ return false; }
+    },
+    finalizedGuard(cardId){
+      if(!this.isCardFinalized(cardId == null ? this.currentCardId : cardId)) return false;
+      try { this.showAlert('Manutenção finalizada — já foi enviada para Assinatura.\n\nNão é mais possível editar, adicionar ou remover máquinas. Somente visualização.', 'Somente visualização'); }
+      catch(e){ alert('Manutenção finalizada — somente visualização.'); }
+      return true;
+    },
     // ---------- PENDÊNCIA CHAMADO ----------
     isCardInListType(cardOrId, code){
       try {
@@ -1842,6 +1872,7 @@
     openSolicitarChamado(){
       const cid = this.currentCardId;
       if(!cid) return;
+      if(this.finalizedGuard()) return;
       const data = this._lastModalData;
       const machines = (data && data.maintenance_machines) || [];
       if(!machines.length){ alert('Este card não tem máquinas para solicitar.'); return; }
@@ -3125,18 +3156,21 @@
       const needsCount = machines.filter(m=> String(m.needs_inventory)==="1" || m.needs_inventory===1).length;
       const allNeed = total>0 && needsCount===total;
       // seleção em massa
-      const selectMode = !!this._maintSelectMode && !cardPending;
+      const isFinalized = this.isCardFinalized(data);
+      const selectMode = !!this._maintSelectMode && !cardPending && !isFinalized;
       if(!this._maintSelected) this._maintSelected = new Set();
       const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status (some se o card ainda não foi pego)
-      // card Concluído (lista Concluído ou termo já assinado): no lugar do Finalizar, abre o termo
+      // card finalizado (foi p/ Assinatura) ou Concluído: no lugar do Finalizar, abre o termo — só visualização
       const termCid = data.id || this.currentCardId || 0;
       const isDoneList = this.isCardInListType(data, 'done');
       const termStat = this.transferStatus && this.transferStatus[termCid];
       const isSigned = !!(termStat && termStat.status === 'concluido');
+      const isRetirada = !!(termStat && termStat.status === 'retirada') || this.isCardInListType(data, 'retirada');
+      const lockedFinal = !!(isFinalized || isDoneList || isSigned || isRetirada);
       let finalizeBtnHtml = "";
-      if (isDoneList || isSigned) {
-        finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Abrir o termo gerado pelo Assinatura (após assinado)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
+      if (lockedFinal) {
+        finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
       } else if (cardPending) {
         finalizeBtnHtml = `<span title="O card ainda está na lista Pendente — clique em Pegar (admin do quadro) para liberar o atendimento" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-lock" style="font-size:11px"></i> FINALIZAR bloqueado</span>`;
       } else if (hasMissing) {
@@ -3152,14 +3186,18 @@
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:10px 12px;justify-content:space-between;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span id="maint-progress-label" style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              <button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>
-              ${total && !cardPending ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
-              ${total && !cardPending ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
+              ${lockedFinal ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
+              ${total && !cardPending && !lockedFinal ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
+              ${total && !cardPending && !lockedFinal ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
               ${finalizeBtnHtml}
             </div>
           </div>
+          ${lockedFinal? `
+          <div style="padding:10px 16px;background:#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <i class="ti ti-lock"></i> 🔒 Finalizado — enviado para Assinatura. Somente visualização: não é mais possível editar, adicionar ou remover máquinas.
+          </div>` : ""}
           ${cardPending? `
           <div style="padding:10px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <i class="ti ti-lock"></i> Atendimento bloqueado: este card ainda está na lista <strong>Pendente</strong>. Ninguém pegou ele ainda.
@@ -3212,8 +3250,8 @@
       html += `<div style="display:grid;gap:10px">`;
       machines.forEach(m=>{
         const isLocked = !!(m.is_locked && Number(m.is_locked) == 1);
-        // trava do card (lista Pendente) soma com a trava do chamado: mesma regra visual
-        const workLocked = isLocked || cardPending;
+        // trava do card (lista Pendente) + trava do chamado + finalizado (Assinatura): mesma regra visual
+        const workLocked = isLocked || cardPending || lockedFinal;
         const dis = workLocked ? 'disabled' : '';
         const isDone = m.is_done==1;
         const rawStatus = (m.status||"").toString().trim().toLowerCase();
@@ -3239,11 +3277,13 @@
         const statusSelectBg = !status ? "#fff" : statusColor;
         const statusSelectColor = !status ? "#bf2600" : statusTextColor;
         const invBtns = this.maintInvBtnsHTML(m);
-        const lockTxt = cardPending
-          ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (admin do quadro) para liberar o atendimento.'
-          : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`;
-        const lockBanner = workLocked ? `<div style="background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> ${lockTxt}</div>` : '';
-        const lockHint = cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado';
+        const lockTxt = lockedFinal
+          ? '🔒 Finalizado — enviado para Assinatura. Somente visualização.'
+          : (cardPending
+            ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (admin do quadro) para liberar o atendimento.'
+            : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`);
+        const lockBanner = workLocked ? `<div style="background:${lockedFinal ? '#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc' : '#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600'};font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> ${lockTxt}</div>` : '';
+        const lockHint = lockedFinal ? 'Finalizado' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado');
         html += `
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${workLocked ? '#fafafa' : (isUrgent?"#fff1f0":"#fff")};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${workLocked ? '#eb5a46' : borderColor};overflow:hidden;${workLocked ? 'opacity:.95' : ''}">
             ${lockBanner}
@@ -3292,10 +3332,10 @@
         `;
       });
       html += `</div>`;
-      html += `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      html += (lockedFinal ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
         ${cardPending ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
-      </div>`;
+      </div>`);
       wrap.innerHTML = html;
       // inicializa cache de autosave para evitar save desnecessário logo ao abrir
       machines.forEach(m=>{ this._lastDiarySaved[m.id] = m.diary||""; });
@@ -3870,6 +3910,7 @@
       if(btn) btn.disabled = total===0;
     },
     openMaintenanceSetup(isAppend=false){
+      if(this.finalizedGuard()) return;
       const isAppendMode = !!isAppend;
       const title = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas — Manutenção";
       const models = this.getMaintModels();
@@ -3936,6 +3977,7 @@
       }, 30);
     },
     submitMaintenanceSetup(isAppend){
+      if(this.finalizedGuard()) return;
       const err=document.getElementById("maint-setup-error");
       const btn=document.getElementById("maint-setup-btn");
       const rows=document.querySelectorAll("#maint-rows .maint-row");
@@ -3999,6 +4041,7 @@
       });
     },
     toggleMaintenanceDone(mid, checked){
+      if(this.finalizedGuard()){ this.refreshCardModal(); return; }
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); this.refreshCardModal(); return; }
       // Pendente nunca pode ser Feito — barra na origem (o checkbox já vem disabled, isto é rede de segurança)
       const row = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
@@ -4030,6 +4073,7 @@
       });
     },
     updateMaintenanceStatus(mid, status){
+      if(this.finalizedGuard()){ this.refreshCardModal(); return; }
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); this.refreshCardModal(); return; }
       const data = {id: mid, status};
       // Ao virar Pendente, desmarca Feito na hora (Pendente nunca é Feito)
@@ -4120,6 +4164,7 @@
     },
     /* ---------- seleção em massa (manutenção) ---------- */
     toggleMaintSelectMode(){
+      if(this.finalizedGuard()) return;
       this._maintSelectMode = !this._maintSelectMode;
       if(!this._maintSelected) this._maintSelected = new Set();
       this._maintSelected.clear(); // seleção sempre começa zerada ao (re)abrir o modo
@@ -4154,6 +4199,7 @@
       this.refreshCardModal();
     },
     bulkApplyStatus(){
+      if(this.finalizedGuard()) return;
       const sel = document.getElementById('maint-bulk-status');
       const st = sel ? sel.value : '';
       if(!st){ this.showToast('Escolha um Status Final'); return; }
@@ -4165,6 +4211,7 @@
       });
     },
     bulkSetDone(val){
+      if(this.finalizedGuard()) return;
       const ids = this.maintSelectedIds();
       if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_done: val}).then(res=>{
@@ -4173,6 +4220,7 @@
       });
     },
     bulkSetNeeds(val){
+      if(this.finalizedGuard()) return;
       const ids = this.maintSelectedIds();
       if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), needs_inventory: val}).then(res=>{
@@ -4181,6 +4229,7 @@
       });
     },
     bulkSetInventoried(val){
+      if(this.finalizedGuard()) return;
       const ids = this.maintSelectedIds();
       if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_inventoried: val}).then(res=>{
@@ -4189,6 +4238,7 @@
       });
     },
     setAllNeedsInventory(val){
+      if(this.finalizedGuard()) return;
       if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
       this.ajax('set_all_needs_inventory', {cards_id: this.currentCardId, needs_inventory: val}).then(res=>{
         if(res.success){
@@ -4205,22 +4255,26 @@
       });
     },
     // Bloqueio do atendimento: (a) máquina travada pela Pendência Chamado ou
-    // (b) card ainda na lista Pendente (ninguém clicou em Pegar).
+    // (b) card ainda na lista Pendente (ninguém clicou em Pegar) ou
+    // (c) card finalizado (foi p/ Assinatura — só visualização).
     isCardWorkLocked(){
       return this.isCardLocked(this.currentCardId);
     },
     isMachineLocked(mid){
       try {
+        if(this.isCardFinalized()) return true;
         if(this.isCardWorkLocked()) return true;
         const m = this.maintMachineById(mid);
         return !!(m && m.is_locked && Number(m.is_locked) == 1);
       } catch(e){ return false; }
     },
     maintLockAlert(){
+      try { if(this.isCardFinalized()){ this.finalizedGuard(); return; } } catch(e){}
       if(this.isCardWorkLocked()) alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (admin do quadro) para mover para Em Andamento e liberar o atendimento.');
       else alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.');
     },
     toggleMaintenanceNeeds(mid){
+      if(this.finalizedGuard()) return;
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); return; }
       const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
       const current = data ? Number(data.needs_inventory)||0 : 0;
@@ -4237,6 +4291,7 @@
       }).catch(()=>{ if(data){ data.needs_inventory = current; this.patchMaintUI(mid); } });
     },
     toggleMaintenanceInventoried(mid){
+      if(this.finalizedGuard()) return;
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); return; }
       // busca estado atual para inverter
       const wrap = document.querySelector(`.kp-maint-machine[data-mid="${mid}"]`);
@@ -4269,6 +4324,7 @@
       });
     },
     toggleUrgent(mid){
+      if(this.finalizedGuard()) return;
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); return; }
       const data = this._lastModalData && this._lastModalData.maintenance_machines ? this._lastModalData.maintenance_machines.find(m=> String(m.id)===String(mid)) : null;
       const current = data ? Number(data.is_urgent)||0 : 0;
@@ -4285,6 +4341,7 @@
       }).catch(()=>{ if(data){ data.is_urgent = current; this.patchMaintUI(mid); } });
     },
     retiradaMachine(mid){
+      if(this.finalizedGuard()) return;
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); return; }
       if(!confirm("Criar card de Retirada para esta máquina (urgência)? O card atual perderá esta máquina e um novo card será criado com as mesmas informações, indo para Assinatura.")) return;
       this.ajax("retirada_machine", {id: mid}).then(res=>{
@@ -4315,6 +4372,7 @@
       this._diaryTimers[mid]=setTimeout(()=> this.autoSaveDiary(mid), delay);
     },
     autoSaveDiary(mid){
+      if(this.isCardFinalized()){ const ta0=document.getElementById("maint-diary-"+mid); if(ta0) ta0.value = this._lastDiarySaved[mid] || ta0.value; return; }
       if(this.isMachineLocked(mid)){ const ta0=document.getElementById("maint-diary-"+mid); if(ta0) ta0.value = this._lastDiarySaved[mid] || ta0.value; return; }
       const ta=document.getElementById("maint-diary-"+mid);
       const status=document.getElementById("maint-save-status-"+mid);
@@ -4343,6 +4401,7 @@
       });
     },
     deleteMaintenanceMachine(mid){
+      if(this.finalizedGuard()) return;
       if(this.isMachineLocked(mid)){ this.maintLockAlert(); return; }
       this.kpConfirm("Remover esta máquina? A numeração será re-sequenciada (1…N).").then(ok=>{
         if(!ok) return;
@@ -4396,6 +4455,7 @@
       this.renderBoard();
     },
     addMachineNote(mid){
+      if(this.finalizedGuard()) return;
       const ta = document.getElementById('machine-note-input');
       const text = (ta ? ta.value : '').trim();
       if(!text){ if(ta) ta.focus(); return; }
@@ -4409,6 +4469,7 @@
       });
     },
     deleteMachineNote(noteId, mid){
+      if(this.finalizedGuard()) return;
       this.kpConfirm("Excluir esta anotação?").then(ok=>{
         if(!ok) return;
         this.ajax("delete_machine_note", {id: noteId}).then(res=>{
@@ -4421,6 +4482,7 @@
       });
     },
     revertMaintenance(){
+      if(this.finalizedGuard()) return;
       if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
       this.kpConfirm("Reverter este card para modo normal? O histórico de máquinas será mantido, mas o modo manutenção será desativado.").then(async ok=>{
         if(!ok) return;
@@ -4492,6 +4554,7 @@
     finalizeMaintenance(){
       const cardId=this.currentCardId;
       if(!cardId) return;
+      if(this.finalizedGuard()) return;
       if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
       // valida status obrigatório local antes de chamar backend
       const checkAndPrompt = ()=>{
