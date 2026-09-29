@@ -4112,7 +4112,9 @@ switch ($action) {
         if ($card->getFromDB($row['plugin_kanpro_cards_id'])) {
             $cidM = (int)$card->getID();
             if (!empty($chg)) {
-                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cidM, $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', "Máquina #{$row['seq']} atualizada");
+                $modelBit = trim((string)($row['model'] ?? '')) !== '' ? " '" . mb_substr(trim((string)$row['model']), 0, 60) . "'" : '';
+                $detailUp = "Máquina #{$row['seq']}{$modelBit}: " . implode(' | ', $chg);
+                PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cidM, $card->fields['plugin_kanpro_lists_id'], 'maintenance_update', mb_substr($detailUp, 0, 500));
             } elseif (array_key_exists('diary', $updates) && (string)($updates['diary'] ?? '') !== (string)($row['diary'] ?? '')) {
                 $dlabel = "Relatório da Máquina #{$row['seq']} atualizado";
                 $DB->delete('glpi_plugin_kanpro_activities', ['plugin_kanpro_cards_id'=>$cidM, 'action'=>'maintenance_diary', 'details'=>$dlabel]);
