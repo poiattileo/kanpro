@@ -4136,10 +4136,10 @@
       const prog = this.maintenanceProgress[cardId];
       const wrap = document.getElementById("card-modal-maintenance");
       const countPending = ()=> wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
-      const proceed = (force)=>{
+      const proceed = (force, word)=>{
         const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
         if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
-        this.ajax("finalize_maintenance", {cards_id: cardId, force}).then(res=>{
+        this.ajax("finalize_maintenance", {cards_id: cardId, force, confirm_text: word||''}).then(res=>{
         if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
         if(!res.success){
           if(res.need_status){
@@ -4199,22 +4199,101 @@
           alert("Erro: "+(e.message||e));
         });
       };
+      // guarda o passo final p/ a etapa da palavra-desafio
+      this._finalizeProceed = proceed;
       // pendentes não precisam estar 100% — apenas não-pendentes
       if(prog && prog.total>0 && prog.done!==prog.total){
         // pendentes justificam não estar 100% Feito (ficam em novo card)
         const pendingCount = countPending();
         if(pendingCount>0){
-          this.showConfirm(`Atenção: ${prog.done}/${prog.total} concluídas como 'Feito', mas ${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD. As demais (Garantia/Ok/Inservível) irão para o termo.\nDeseja continuar?`, 'Atenção', 'Finalizar').then(ok=>{ if(ok) proceed(1); });
+          this.showConfirm(`Atenção: ${prog.done}/${prog.total} concluídas como 'Feito', mas ${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD. As demais (Garantia/Ok/Inservível) irão para o termo.\nDeseja continuar?`, 'Atenção', 'Finalizar').then(ok=>{ if(ok) this.askFinalizeWord(1); });
         } else {
-          this.showConfirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`, 'Atenção', 'Finalizar').then(ok=>{ if(ok) proceed(1); });
+          this.showConfirm(`Atenção: ${prog.done}/${prog.total} concluídas. Deseja FINALIZAR mesmo assim e enviar para Assinatura?`, 'Atenção', 'Finalizar').then(ok=>{ if(ok) this.askFinalizeWord(1); });
         }
       } else {
         // mesmo se 100% Feito, confirma pendentes
         const pendingCount = countPending();
         if(pendingCount>0){
-          this.showConfirm(`${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD e não irão para o termo. As demais (Garantia/Ok/Inservível) serão enviadas para Assinatura. Continuar?`, 'Atenção', 'Continuar').then(ok=>{ if(ok) proceed(0); });
-        } else proceed(0);
+          this.showConfirm(`${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD e não irão para o termo. As demais (Garantia/Ok/Inservível) serão enviadas para Assinatura. Continuar?`, 'Atenção', 'Continuar').then(ok=>{ if(ok) this.askFinalizeWord(0); });
+        } else this.askFinalizeWord(0);
       }
+    },
+    // Autenticação por palavra no finalizar — mesmas palavras da conversão p/ manutenção e do Pegar
+    askFinalizeWord(force){
+      let challenge;
+      if (Math.random() < 0.10) {
+        const specials = ["PAIVA","MASSON","FERRARI","MORANGO","SAWATA"];
+        challenge = specials[Math.floor(Math.random()*specials.length)];
+      } else {
+        const others = MAINT_CHALLENGE_WORDS.filter(w=> !["PAIVA","MASSON","FERRARI","MORANGO","SAWATA"].includes(w));
+        challenge = others[Math.floor(Math.random()*others.length)];
+      }
+      this._finalizeChallenge = challenge;
+      this._finalizeForce = force ? 1 : 0;
+      this.showPicker({
+        title: 'Finalizar — confirmação',
+        html: `
+        <style>
+          .fz-grid{display:grid;gap:14px;min-width:min(440px,84vw)}
+          .fz-banner{background:linear-gradient(135deg,#00b8d9 0%,#0052cc 100%);border-radius:10px;padding:14px 16px;color:#fff;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .fz-num{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#0052cc;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:2px}
+          .fz-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .fz-field{width:100%;padding:9px 12px;border:2px solid #00b8d9;border-radius:8px;box-sizing:border-box;font-size:15px;outline:none;background:#fff;text-transform:uppercase;letter-spacing:.06em;text-align:center;font-weight:700}
+          .fz-field:focus{box-shadow:0 0 0 3px #00b8d933}
+          .fz-confirm{background:#00b8d9;color:#fff;border:none;padding:12px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2);flex:1}
+          .fz-confirm:hover{filter:brightness(1.08)}
+          .fz-cancel{background:#fff;border:1px solid #dfe1e6;padding:12px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d;flex:0 0 110px}
+        </style>
+        <div class="fz-grid">
+          <div class="fz-banner">
+            <span style="font-size:26px">✅</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Finalizar manutenção</div>
+            <div style="font-size:11px;opacity:.9;margin-top:2px">Envia para <strong>Assinatura</strong> — esta ação não pode ser desfeita</div></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <span class="fz-num">1</span>
+            <div style="flex:1;min-width:0"><div class="fz-label">DIGITE A PALAVRA ABAIXO</div>
+            <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
+              <div style="font-size:22px;font-weight:800;margin-top:2px">${challenge}</div>
+            </div>
+            <input id="finalize-confirm-input" type="text" placeholder="${challenge}" autocomplete="off" autocapitalize="characters" class="fz-field" style="margin-top:8px">
+            <div id="finalize-step-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px;margin-top:4px"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" class="fz-cancel">Cancelar</button>
+            <button id="finalize-confirm-btn" onclick="Kanpro.confirmFinalizeChallenge()" class="fz-confirm">✅ Finalizar</button>
+          </div>
+          <div style="text-align:center"><a href="#" onclick="Kanpro.askFinalizeWord(Kanpro._finalizeForce||0);return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+        </div>`
+      });
+      const pk = document.getElementById('kanpro-picker');
+      if(pk){ pk.style.maxWidth = '500px'; pk.style.width = 'min(500px, 94vw)'; }
+      setTimeout(()=>{
+        const inp = document.getElementById('finalize-confirm-input');
+        if(inp){
+          inp.focus();
+          inp.addEventListener('keydown', e=>{ if(e.key === 'Enter') Kanpro.confirmFinalizeChallenge(); });
+        }
+      }, 30);
+    },
+    confirmFinalizeChallenge(){
+      const inp = document.getElementById('finalize-confirm-input');
+      const err = document.getElementById('finalize-step-error');
+      const btn = document.getElementById('finalize-confirm-btn');
+      const val = (inp?.value || '').trim().toUpperCase();
+      const challenge = (this._finalizeChallenge || '').toUpperCase();
+      const norm = (s)=> s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : s;
+      if(!val || norm(val) !== norm(challenge)){
+        if(err){ err.textContent = `Digite exatamente "${challenge}" para continuar.`; err.style.display = 'block'; }
+        if(inp){ inp.style.borderColor = '#eb5a46'; inp.focus(); inp.select(); }
+        return;
+      }
+      if(err) err.style.display = 'none';
+      if(btn){ btn.disabled = true; btn.textContent = 'Finalizando...'; }
+      this.closePicker();
+      const go = this._finalizeProceed;
+      if(typeof go === 'function') go(this._finalizeForce ? 1 : 0, challenge);
     },
     buildTermHtml(card, machines, boardName, listName){
       const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR");

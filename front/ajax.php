@@ -4559,6 +4559,11 @@ switch ($action) {
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão não é de manutenção']);
         // card na lista Pendente = atendimento nem começou; o caminho é Pegar
         kanpro_need_card_editable($cid);
+        // autenticação por palavra (mesmo desafio da conversão p/ manutenção e do Pegar)
+        $confirm = $_POST['confirm_text'] ?? $_POST['confirm'] ?? '';
+        if (!kanpro_maint_challenge_ok((string)$confirm)) {
+            jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida (sem acento).','need_confirm'=>true]);
+        }
         $machines = [];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
