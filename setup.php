@@ -1,5 +1,5 @@
 <?php
-define('PLUGIN_KANPRO_VERSION', '1.1.3');
+define('PLUGIN_KANPRO_VERSION', '1.1.4');
 define('PLUGIN_KANPRO_MIN_GLPI', '11.0.0');
 
 function plugin_init_kanpro() {
@@ -14,8 +14,8 @@ function plugin_init_kanpro() {
         $PLUGIN_HOOKS['menu_toadd']['kanpro'] = ['tools' => 'PluginKanproBoard'];
     }
 
-    $PLUGIN_HOOKS['add_css']['kanpro']        = ['public/css/kanpro.css?v=1.1.3'];
-    $PLUGIN_HOOKS['add_javascript']['kanpro'] = ['public/js/kanpro.js?v=1.1.3', 'public/js/history.js?v=1.1.3'];
+    $PLUGIN_HOOKS['add_css']['kanpro']        = ['public/css/kanpro.css?v=1.1.4'];
+    $PLUGIN_HOOKS['add_javascript']['kanpro'] = ['public/js/kanpro.js?v=1.1.4', 'public/js/history.js?v=1.1.4'];
 
     // Hook para mudança de perfil
     $PLUGIN_HOOKS['change_profile']['kanpro'] = ['PluginKanproProfile', 'changeProfile'];

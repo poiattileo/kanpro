@@ -558,6 +558,7 @@ echo <<<HTML
         </div>
       </div>
     </div>
+    </div>
     <!-- Visão exclusiva da Pendência Chamado: card totalmente diferente, só informações + Chamado criado (sem sidebar) -->
     <div id="kp-pendencia-content" style="display:none"></div>
   </div>
