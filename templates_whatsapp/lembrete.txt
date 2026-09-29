@@ -8,7 +8,7 @@
 
 Olá! Você tem *{total} card(s)* em *{data}*:
 
-📞 Pendência Chamado: *{pend_chamado}*
+📞 Aguardando aprovação: *{pend_chamado}*
 🔴 Pendente: *{pendentes}*
 🔷 Em Andamento: *{andamento}*
 

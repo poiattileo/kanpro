@@ -616,7 +616,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             if ($total <= 0) return ['ok' => false, 'error' => 'nada pendente (0 cards nas 3 listas)'];
             foreach ($perBoard as $bid => $c) {
                 $bn = $boards[$bid] ?? ('Quadro #' . $bid);
-                $lines[] = '• ' . $bn . ' — Pend.Chamado: ' . ($c['c'] ?? 0) . ' | Pendente: ' . $c['p'] . ' | Andamento: ' . $c['a'];
+                $lines[] = '• ' . $bn . ' — Aguardando aprovação: ' . ($c['c'] ?? 0) . ' | Pendente: ' . $c['p'] . ' | Andamento: ' . $c['a'];
             }
             $phone = self::resolveApproverPhone();
             $phone = self::normalizeBRPhone((string)$phone);
@@ -710,7 +710,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             if (!empty($cfg)) { $out['evo_server'] = (string)($cfg['server_url'] ?? ''); $out['evo_instance'] = (string)($cfg['instance_name'] ?? ''); }
             else $out['evo_hint'] = 'Configure o plugin whatsappsimples (server_url/api_token/instance_name)';
             // template
-            $txt = self::renderTxt('lembrete', ['total' => '1', 'pendentes' => '1', 'andamento' => '1', 'pend_chamado' => '1', 'pendencia_chamado' => '1', 'detalhes' => '• Quadro X — Pend.Chamado: 1 | Pendente: 1 | Andamento: 1', 'data' => date('d/m/Y H:i')]);
+            $txt = self::renderTxt('lembrete', ['total' => '1', 'pendentes' => '1', 'andamento' => '1', 'pend_chamado' => '1', 'pendencia_chamado' => '1', 'detalhes' => '• Quadro X — Aguardando aprovação: 1 | Pendente: 1 | Andamento: 1', 'data' => date('d/m/Y H:i')]);
             $out['template_ok'] = ($txt !== null && $txt !== '');
             if (!$out['template_ok']) $out['template_hint'] = 'Arquivo templates_whatsapp/lembrete.txt ausente ou vazio';
             // milestones de hoje
