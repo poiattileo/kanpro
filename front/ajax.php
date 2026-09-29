@@ -2852,6 +2852,10 @@ switch ($action) {
             $fl0 = new PluginKanproList();
             if ($fl0->getFromDB($from_list)) $from_name = $fl0->fields['name'];
         }
+        // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (admin).
+        if ($from_list && kanpro_list_category($from_list) === 'pending') {
+            jexit(['success'=>false,'msg'=>'Card da lista Pendente é travado — ninguém pode arrastar. Use o botão Pegar (admin do quadro) para mover para Em Andamento.']);
+        }
         $pos = (isset($_POST['position']) && $_POST['position'] !== '') ? (int)$_POST['position'] : null;
         // Se position dado, calcula rank; senão joga pro fim
         $moveOk = true;

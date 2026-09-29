@@ -808,6 +808,8 @@
           el.innerHTML = fresh.innerHTML;
           el.className = fresh.className;
           el.style.cssText = fresh.style.cssText;
+          el.draggable = fresh.draggable;
+          if(fresh.title) el.title = fresh.title;
           if(fresh.dataset.urgent) el.dataset.urgent = fresh.dataset.urgent;
           else delete el.dataset.urgent;
           el.dataset.fp = fp;
@@ -899,7 +901,20 @@
       const div = document.createElement('div');
       div.className = 'kp-card';
       div.dataset.cardId = card.id;
-      div.draggable = true;
+      // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (admin).
+      // Calcula antes do draggable (listTypeOf + fallback de nome p/ lista legada).
+      let _isPendingDrag = false;
+      try {
+        const _lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
+        const _t = this.listTypeOf(_lst);
+        if(_t && _t.code === 'pending') _isPendingDrag = true;
+        else if(this.isCardLocked(card)) _isPendingDrag = true;
+      } catch(e){}
+      div.draggable = !_isPendingDrag;
+      if(_isPendingDrag){
+        div.style.cursor = 'not-allowed';
+        div.title = 'Card da lista Pendente é travado — use o botão Pegar (admin do quadro)';
+      }
 
       // aplica filtro
       if (this.isCardFilteredOut(card)) div.classList.add('filtered-out');
@@ -1283,9 +1298,18 @@
     },
 
     moveCardTo(cardId, targetListId, position){
-      // otimista: atualiza local
       const card = this.cards.find(c=> c.id==cardId);
       if(!card) return;
+      // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (admin).
+      try {
+        if(this.isCardLocked(card)){
+          this.renderBoard();
+          alert('Card da lista Pendente é travado — ninguém pode arrastar.\n\nUse o botão Pegar (admin do quadro) para mover para Em Andamento.');
+          this.forceSync();
+          return;
+        }
+      } catch(e){}
+      // otimista: atualiza local
       const oldList = card.plugin_kanpro_lists_id;
       card.plugin_kanpro_lists_id = targetListId;
       // reordena local array para refletir posição
@@ -1690,27 +1714,18 @@
       this.showToast('🔒 Cartão da lista Pendente é travado — nada pode ser alterado dentro dele');
       return true;
     },
-    // Card finalizado = já foi para Assinatura (transferStatus retirada/concluído ou lista Retirada/Concluído).
-    // Depois do Finalizar: sem editar/adicionar/remover máquinas — só visualizar.
+    // Card finalizado = já foi para Assinatura (existe transferência no banco = transferStatus).
+    // Só transferStatus trava — lista Retirada/Concluído SOZINHA não trava (permite retry do Finalizar
+    // quando a assinatura não foi criada). Backend (kanpro_card_is_finalized) usa o mesmo critério.
     isCardFinalized(cardOrData){
       try {
         const ref = (cardOrData && typeof cardOrData === 'object')
           ? cardOrData
           : ((this._lastModalData && String(this._lastModalData.id) === String(cardOrData)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(cardOrData)));
         const cid = ref ? (ref.id || cardOrData) : (cardOrData == null ? this.currentCardId : cardOrData);
-        const ts = this.transferStatus && this.transferStatus[cid || this.currentCardId];
+        const key = cid || this.currentCardId;
+        const ts = this.transferStatus && this.transferStatus[key];
         if(ts && (ts.status === 'retirada' || ts.status === 'concluido')) return true;
-        const probe = ref || ((this._lastModalData && String(this._lastModalData.id)===String(cid)) ? this._lastModalData : null);
-        if(probe){
-          if(this.isCardInListType(probe, 'done')) return true;
-          if(this.isCardInListType(probe, 'retirada')) return true;
-        } else {
-          const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
-          if(c){
-            if(this.isCardInListType(c, 'done')) return true;
-            if(this.isCardInListType(c, 'retirada')) return true;
-          }
-        }
         return false;
       } catch(e){ return false; }
     },
@@ -3161,13 +3176,11 @@
       if(!this._maintSelected) this._maintSelected = new Set();
       const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status (some se o card ainda não foi pego)
-      // card finalizado (foi p/ Assinatura) ou Concluído: no lugar do Finalizar, abre o termo — só visualização
+      // Só trava de verdade quando há transferência (isFinalized). Lista Retirada/Concluído SOZINHA
+      // não trava — permite retry do Finalizar quando a assinatura não foi criada.
       const termCid = data.id || this.currentCardId || 0;
-      const isDoneList = this.isCardInListType(data, 'done');
       const termStat = this.transferStatus && this.transferStatus[termCid];
-      const isSigned = !!(termStat && termStat.status === 'concluido');
-      const isRetirada = !!(termStat && termStat.status === 'retirada') || this.isCardInListType(data, 'retirada');
-      const lockedFinal = !!(isFinalized || isDoneList || isSigned || isRetirada);
+      const lockedFinal = !!isFinalized;
       let finalizeBtnHtml = "";
       if (lockedFinal) {
         finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
@@ -4547,14 +4560,21 @@
       if(!cid) return;
       this.showToast('Buscando termo...');
       this.ajax('get_card_term', {cards_id: cid}).then(res=>{
-        if(!res || !res.success){ this.showAlert(res.msg || 'Nenhum termo encontrado para este card.', 'Termo'); return; }
+        if(!res || !res.success){
+          // Sem termo no banco: limpa selo local obsoleto e orienta retry do Finalizar
+          try { if(this.transferStatus && this.transferStatus[cid]){ delete this.transferStatus[cid]; this.renderBoard(); } } catch(e){}
+          this.showAlert((res.msg || 'Nenhum termo encontrado para este card.') + '\n\nSe a assinatura não foi criada, clique em FINALIZAR novamente para gerar.', 'Termo');
+          try { this.refreshCardModal(); } catch(e){}
+          return;
+        }
         window.open(res.pdf_url, '_blank');
       });
     },
     finalizeMaintenance(){
       const cardId=this.currentCardId;
       if(!cardId) return;
-      if(this.finalizedGuard()) return;
+      // Sem finalizedGuard aqui de propósito: se já existe transferência, o backend devolve
+      // o termo existente (retry abre a assinatura). Trava de edição é separada.
       if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
       // valida status obrigatório local antes de chamar backend
       const checkAndPrompt = ()=>{
@@ -4613,9 +4633,12 @@
         let msg = "Enviado para Assinatura!";
         if(res.pending_card_id) msg += ` Pendentes → card #${res.pending_card_id} (${res.pending_count})`;
         this.showToast(msg);
-        // marca local como Retirada imediatamente (sem esperar polling) — Concluído vem após assinatura via polling
-        this.transferStatus[cardId] = {label:'Retirada', status:'retirada'};
-        this.renderBoard();
+        // marca local como Retirada SOMENTE se há transfer_id real (sem isso, retry ficaria travado
+        // como "finalizado" sem assinatura criada). Concluído vem após assinatura via polling.
+        if(res.transfer_id){
+          this.transferStatus[cardId] = {label:'Retirada', status:'retirada'};
+          this.renderBoard();
+        }
         this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
         // abre apenas a aba de Assinaturas — não abre mais o termo sem assinar
         let assinaturaUrl = res.assinatura_url;
