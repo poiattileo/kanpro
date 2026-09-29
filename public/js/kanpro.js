@@ -1103,8 +1103,8 @@
         createdHtml = `<span title="Criado em ${this.formatDate(card.date_creation)}" style="font-size:10px;color:#97a0af;white-space:nowrap;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-clock" style="font-size:11px"></i>${this.formatDateTiny(card.date_creation)}</span>`;
       }
 
-      // Pendência Chamado: mini-card simplificado — só informações + botão Chamado criado.
-      // Visual rosa distinto, sem edição rápida: o fluxo é só confirmar o chamado.
+      // Pendência Chamado: mini-card simplificado — só informações (sem ação direta).
+      // O botão "Chamado criado" só aparece abrindo o card (decisão: sem botão na lista).
       try {
         const isPendMini = this.isPendenciaCard(card);
         if(isPendMini){
@@ -1127,7 +1127,7 @@
           const btnMini = isLibMini
             ? `<div style="margin-top:8px;background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:8px;padding:8px;text-align:center;font-size:12px;font-weight:800">✓ Liberado — excluindo em 30s ⏳</div>`
             : (amAdminMini
-              ? `<button onclick="event.stopPropagation();Kanpro.confirmChamadoCriadoById(${card.id}, event)" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcMini)}" style="margin-top:8px;width:100%;background:#61bd4f;color:#fff;border:1px solid #61bd4f;padding:9px 8px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 6px rgba(97,189,79,.4)"><i class="ti ti-phone-check"></i> 📞 Chamado criado</button>`
+              ? `<div onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="Abrir para confirmar o chamado criado" style="margin-top:8px;background:#fff;border:1px dashed #e1316f;color:#ad1457;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700;cursor:pointer">👆 Abra o card para confirmar<br>“Chamado criado”</div>`
               : `<div style="margin-top:8px;background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700">⏳ Aguardando admin confirmar<br>“Chamado criado”</div>`);
           div.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px">${statusPill}${createdHtml||''}</div>
@@ -2017,49 +2017,38 @@
         this.forceSync();
       });
     },
-    confirmChamadoCriado(){
+    async confirmChamadoCriado(){
       const cid = this.currentCardId;
       if(!cid) return;
-      if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode confirmar.'); return; }
-      if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem? O card se auto-exclui em 30s.')) return;
+      if(!this.isBoardAdmin()){ this.showAlert('Somente admin do quadro pode confirmar o chamado criado.', 'Sem permissão'); return; }
+      // detalha pendência/origem/máquinas no popup (sem abrir outro painel)
+      let d = (this._lastModalData && String(this._lastModalData.id)===String(cid)) ? this._lastModalData : null;
+      if(!d) d = (this.cards||[]).find(x=> String(x.id)===String(cid)) || null;
+      const pName = (d && d.name) || ('#' + cid);
+      const srcId = (d && d.chamado_source_id) || '';
+      const srcName = (d && (d.chamado_source_name || d.name)) || (srcId ? ('#' + srcId) : '—');
+      let nMach = 0;
+      try {
+        const cls = (d && d.checklists) || [];
+        cls.forEach(cl=>{ nMach += ((cl.items||[]).length); });
+        if(!nMach && d && d.description){
+          const m = String(d.description).match(/(\d+)\s*máquina/i);
+          if(m) nMach = parseInt(m[1], 10) || 0;
+        }
+      } catch(e){}
+      const ok = await this.showConfirm(
+        `Confirmar que o chamado foi criado?\n\n📋 Pendência #${cid} "${String(pName).slice(0,60)}"\n🔗 Origem ${srcId ? '#' + srcId + ' "' + String(srcName).slice(0,60) + '"' : srcName}${nMach ? `\n🔧 ${nMach} máquina(s) serão liberadas` : ''}\n\n• Zap para os técnicos em 25s\n• Este card se auto-exclui em 30s`,
+        '📞 Chamado criado?',
+        'Liberar origem'
+      );
+      if(!ok) return;
       this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
-        if(!res || !res.success){ alert((res&&res.msg)||'Erro'); return; }
+        if(!res || !res.success){ this.showAlert((res&&res.msg)||'Erro ao confirmar', 'Erro'); return; }
         this.showToast('Origem liberada ✓ — zap em 25s, excluindo em 30s ⏳');
         this.refreshCardModal();
         this.forceSync();
         this.scheduleLiberadoZap(cid, 25);
         this.schedulePendenciaAutoDelete(cid, 30);
-      });
-    },
-    // Chamado criado direto do mini-card (sem abrir o modal) — mesmo efeito do botão do modal
-    confirmChamadoCriadoById(cardId, ev){
-      if(ev && ev.stopPropagation) ev.stopPropagation();
-      const cid = parseInt(cardId, 10) || this.currentCardId;
-      if(!cid) return;
-      if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode confirmar.'); return; }
-      if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem? O card se auto-exclui em 30s.')) return;
-      // feedback otimista no próprio mini-card
-      try {
-        const el = document.querySelector(`.kp-card[data-card-id="${cid}"]`);
-        if(el){
-          const b = el.querySelector('button');
-          if(b){ b.disabled = true; b.style.opacity = '.6'; b.innerHTML = '⏳ Liberando...'; }
-        }
-      } catch(e){}
-      this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
-        if(!res || !res.success){
-          alert((res&&res.msg)||'Erro');
-          this.renderBoard();
-          return;
-        }
-        this.showToast('Origem liberada ✓ — zap em 25s, excluindo em 30s ⏳');
-        const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
-        if(c){ c.chamado_status = 'liberado'; c.date_mod = new Date().toISOString().slice(0,19).replace('T',' '); }
-        this.renderBoard();
-        this.forceSync();
-        this.scheduleLiberadoZap(cid, 25);
-        this.schedulePendenciaAutoDelete(cid, 30);
-        if(this.currentCardId == cid) this.refreshCardModal();
       });
     },
     scheduleLiberadoZap(pid, seconds){
