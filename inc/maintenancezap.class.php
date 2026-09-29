@@ -587,7 +587,9 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $allIds = array_merge(array_keys($pendLists), array_keys($andLists), array_keys($pchamLists));
                 if (!empty($allIds)) {
                     foreach ($DB->request(['SELECT' => ['plugin_kanpro_lists_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $allIds, 'is_archived' => 0], 'GROUPBY' => ['plugin_kanpro_lists_id']]) as $r) {
-                        $countByList[(int)$r['plugin_kanpro_lists_id']] = (int)$r['total'];
+                        $n = (int)($r['total'] ?? 0);
+                        if ($n === 0) { foreach ($r as $k => $v) { if (is_string($k) && (stripos($k, 'total') !== false || $k === 'COUNT_id')) { $n = (int)$v; break; } } }
+                        $countByList[(int)$r['plugin_kanpro_lists_id']] = $n;
                     }
                 }
             } catch (Throwable $e) {}
@@ -599,7 +601,9 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             } catch (Throwable $e) {}
             $totP = 0; $totA = 0; $totC = 0; $lines = [];
             $perBoard = [];
-            foreach (array_merge($pendLists, $andLists, $pchamLists) as $lid => $l) {
+            // ATENÇÃO: array_merge renumera chaves inteiras (IDs virariam 0,1,2) — usar união que preserva.
+            $allLists = $pendLists + $andLists + $pchamLists;
+            foreach ($allLists as $lid => $l) {
                 $n = $countByList[$lid] ?? 0;
                 if ($n <= 0) continue;
                 $bid = (int)($l['plugin_kanpro_boards_id'] ?? 0);
