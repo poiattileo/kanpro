@@ -553,13 +553,14 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      * Destinatário fixo = aprovador (cristian.sawata@educacao.sp.gov.br).
      * Nunca joga exceção.
      */
-    static function sendLembrete(?int $slot = null): array {
+    static function sendLembrete(?int $slot = null, array $opts = []): array {
         global $DB;
         try {
             $hour = (int)date('H');
             if ($slot === null || !in_array($slot, [8, 13], true)) $slot = ($hour < 12) ? 8 : 13;
+            $forceResend = !empty($opts['forceResend']);
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
-            if (self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate'];
+            if (!$forceResend && self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
             // classifica listas (tipo ou nome legado, sem acento)
             $norm = function ($s) {
                 $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
@@ -608,7 +609,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 else { $perBoard[$bid]['c'] += $n; $totC += $n; }
             }
             $total = $totP + $totA + $totC;
-            if ($total <= 0) return ['ok' => false, 'error' => 'nada pendente'];
+            if ($total <= 0) return ['ok' => false, 'error' => 'nada pendente (0 cards nas 3 listas)'];
             foreach ($perBoard as $bid => $c) {
                 $bn = $boards[$bid] ?? ('Quadro #' . $bid);
                 $lines[] = '• ' . $bn . ' — Pend.Chamado: ' . ($c['c'] ?? 0) . ' | Pendente: ' . $c['p'] . ' | Andamento: ' . $c['a'];
@@ -617,7 +618,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $phone = self::normalizeBRPhone((string)$phone);
             if ($phone === '') {
                 self::markSent(0, $milestone, '', false, 'sem telefone do aprovador');
-                return ['ok' => false, 'error' => 'sem telefone'];
+                return ['ok' => false, 'error' => 'sem telefone do aprovador (' . self::pendenciaApprover() . ' sem phone/mobile válido no GLPI)'];
             }
             $txt = self::renderTxt('lembrete', [
                 'total'            => (string)$total,
@@ -640,6 +641,89 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         }
     }
 
+    /**
+     * Diagnóstico sem enviar: listas encontradas, contagens, telefone (mascarado),
+     * Evolution configurada?, template ok?, milestones de hoje. P/ o teste manual.
+     * Nunca envia nada, nunca grava zaplog.
+     */
+    static function diagnoseLembrete(): array {
+        global $DB;
+        $out = ['now' => date('d/m/Y H:i:s'), 'approver' => self::pendenciaApprover()];
+        try {
+            $norm = function ($s) {
+                $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
+                return strtr($s, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+            };
+            $lists = [];
+            try {
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['is_archived' => 0]]) as $l) {
+                    $lt = trim(strtolower((string)($l['list_type'] ?? '')));
+                    $raw = $lt;
+                    if ($lt === '' || $lt === 'none') {
+                        $nm = $norm($l['name'] ?? '');
+                        if ($nm === 'pendente') $lt = 'pending';
+                        elseif ($nm === 'em andamento') $lt = 'andamento';
+                        elseif (strpos($nm, 'pendencia') !== false && strpos($nm, 'chamado') !== false) $lt = 'pend_chamado';
+                    }
+                    if (in_array($lt, ['pending', 'andamento', 'pend_chamado'], true)) {
+                        $lists[] = ['id' => (int)$l['id'], 'board' => (int)($l['plugin_kanpro_boards_id'] ?? 0),
+                            'name' => (string)($l['name'] ?? ''), 'type_raw' => $raw, 'type' => $lt];
+                    }
+                }
+            } catch (Throwable $e) { $out['lists_error'] = $e->getMessage(); }
+            $out['lists'] = $lists;
+            $counts = []; $totP = 0; $totA = 0; $totC = 0;
+            try {
+                $ids = array_column($lists, 'id');
+                if (!empty($ids)) {
+                    foreach ($DB->request(['SELECT' => ['plugin_kanpro_lists_id', 'COUNT' => 'id AS total'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $ids, 'is_archived' => 0], 'GROUPBY' => ['plugin_kanpro_lists_id']]) as $r) {
+                        $lid = (int)$r['plugin_kanpro_lists_id'];
+                        $n = (int)($r['total'] ?? $r['COUNT_id'] ?? 0);
+                        // fallback: GLPI pode devolver a contagem em outra chave
+                        if ($n === 0) { foreach ($r as $k => $v) { if (stripos((string)$k, 'total') !== false || $k === 'COUNT_id') { $n = (int)$v; break; } } }
+                        $counts[$lid] = $n;
+                    }
+                }
+            } catch (Throwable $e) { $out['count_error'] = $e->getMessage(); }
+            foreach ($lists as &$l) {
+                $n = $counts[$l['id']] ?? 0;
+                $l['cards'] = $n;
+                if ($l['type'] === 'pending') $totP += $n;
+                elseif ($l['type'] === 'andamento') $totA += $n;
+                else $totC += $n;
+            }
+            unset($l);
+            $out['lists'] = $lists;
+            $out['totals'] = ['pend_chamado' => $totC, 'pendente' => $totP, 'andamento' => $totA, 'total' => $totC + $totP + $totA];
+            // telefone do aprovador (mascarado)
+            $phone = self::resolveApproverPhone();
+            $out['phone_found'] = ($phone !== '');
+            $out['phone_masked'] = ($phone !== '') ? (substr($phone, 0, 4) . '****' . substr($phone, -2)) : '';
+            if ($phone === '') $out['phone_hint'] = 'Cadastre phone/mobile no usuário ' . self::pendenciaApprover() . ' (Administração > Usuários) ou no e-mail correspondente em glpi_useremails';
+            // evolution
+            $cfg = self::evoConfig();
+            $out['evo_ok'] = !empty($cfg);
+            if (!empty($cfg)) { $out['evo_server'] = (string)($cfg['server_url'] ?? ''); $out['evo_instance'] = (string)($cfg['instance_name'] ?? ''); }
+            else $out['evo_hint'] = 'Configure o plugin whatsappsimples (server_url/api_token/instance_name)';
+            // template
+            $txt = self::renderTxt('lembrete', ['total' => '1', 'pendentes' => '1', 'andamento' => '1', 'pend_chamado' => '1', 'pendencia_chamado' => '1', 'detalhes' => '• Quadro X — Pend.Chamado: 1 | Pendente: 1 | Andamento: 1', 'data' => date('d/m/Y H:i')]);
+            $out['template_ok'] = ($txt !== null && $txt !== '');
+            if (!$out['template_ok']) $out['template_hint'] = 'Arquivo templates_whatsapp/lembrete.txt ausente ou vazio';
+            // milestones de hoje
+            foreach ([8, 13] as $s) {
+                $ms = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$s, 2, '0', STR_PAD_LEFT);
+                $out['milestone_' . $s] = ['name' => $ms, 'already_sent' => self::alreadySent(0, $ms)];
+            }
+            // crontasks
+            try {
+                foreach ($DB->request(['SELECT' => ['name', 'state', 'mode', 'frequency', 'hourmin', 'hourmax', 'lastrun'], 'FROM' => 'glpi_crontasks', 'WHERE' => ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zaplembrete8', 'zaplembrete13']]]) as $t) {
+                    $out['cron_' . $t['name']] = $t;
+                }
+            } catch (Throwable $e) {}
+        } catch (Throwable $e) { $out['error'] = $e->getMessage(); }
+        return $out;
+    }
+
     public static function cronZaplembrete8($task = null): int {
         try {
             // Slot das 08:30: GLPI só tem janela por hora, então segura o envio até 08:30.
@@ -652,7 +736,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             }
             $r = self::sendLembrete(8);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 08:30: ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+                $task->log('KanPro lembrete 08:30 p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
@@ -662,7 +746,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         try {
             $r = self::sendLembrete(13);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 13h: ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+                $task->log('KanPro lembrete 13h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
