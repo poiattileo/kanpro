@@ -1103,6 +1103,59 @@
         createdHtml = `<span title="Criado em ${this.formatDate(card.date_creation)}" style="font-size:10px;color:#97a0af;white-space:nowrap;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-clock" style="font-size:11px"></i>${this.formatDateTiny(card.date_creation)}</span>`;
       }
 
+      // Pendência Chamado: mini-card simplificado — só informações + botão Chamado criado.
+      // Visual rosa distinto, sem edição rápida: o fluxo é só confirmar o chamado.
+      try {
+        const isPendMini = this.isPendenciaCard(card);
+        if(isPendMini){
+          const chStMini = String(card.chamado_status || '');
+          const isLibMini = (chStMini === 'liberado');
+          const amAdminMini = this.isBoardAdmin();
+          const srcMini = card.chamado_source_id ? ('#' + card.chamado_source_id) : '';
+          const machMini = (prog && prog.total > 0) ? `${prog.done||0}/${prog.total} máquina(s)` : ((card.description||'').match(/(\d+)\s*máquina/i)?.[0] || '');
+          div.style.border = '2px solid #e1316f';
+          div.style.borderLeft = '6px solid #e1316f';
+          div.style.background = '#fff0f4';
+          div.style.boxShadow = '0 1px 4px rgba(225,49,111,.25)';
+          const statusPill = isLibMini
+            ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Chamado criado ✓</span>`
+            : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`;
+          const infoLine = [
+            srcMini ? `Origem <strong>${this.escape(srcMini)}</strong>` : '',
+            machMini ? `🔧 ${this.escape(machMini)}` : '',
+          ].filter(Boolean).join(' • ');
+          const btnMini = isLibMini
+            ? `<div style="margin-top:8px;background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:8px;padding:8px;text-align:center;font-size:12px;font-weight:800">✓ Liberado — excluindo em 30s ⏳</div>`
+            : (amAdminMini
+              ? `<button onclick="event.stopPropagation();Kanpro.confirmChamadoCriadoById(${card.id}, event)" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcMini)}" style="margin-top:8px;width:100%;background:#61bd4f;color:#fff;border:1px solid #61bd4f;padding:9px 8px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 6px rgba(97,189,79,.4)"><i class="ti ti-phone-check"></i> 📞 Chamado criado</button>`
+              : `<div style="margin-top:8px;background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700">⏳ Aguardando admin confirmar<br>“Chamado criado”</div>`);
+          div.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px">${statusPill}${createdHtml||''}</div>
+            <div class="kp-card-title" style="font-size:13px"><span style="color:#e1316f;font-weight:800;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
+            ${infoLine ? `<div style="margin-top:6px;font-size:11px;color:#5e6c84;line-height:1.5">${infoLine}</div>` : ''}
+            ${checkBarHtml}
+            ${btnMini}
+            <button onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="Ver informações" style="margin-top:6px;width:100%;background:#fff;border:1px solid #dfe1e6;color:#5e6c84;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700">👁️ Ver informações</button>
+          `;
+          div.addEventListener('click', ()=> this.openCard(card.id));
+          div.addEventListener('dragstart', e=>{
+            e.stopPropagation();
+            this.dragCard = div;
+            div.classList.add('dragging');
+            e.dataTransfer.effectAllowed='move';
+            e.dataTransfer.setData('text/plain', 'kp-card:'+card.id);
+          });
+          div.addEventListener('dragend', e=>{
+            e.stopPropagation();
+            div.classList.remove('dragging');
+            div.style.display='';
+            this.dragCard=null;
+            $$('.kp-list-cards').forEach(c=>c.classList.remove('drag-over'));
+          });
+          return div;
+        }
+      } catch(e){}
+
       div.innerHTML = `
         ${coverHtml}
         ${labelsHtml}
@@ -1645,7 +1698,31 @@
         if(!c) return false;
         const lst = (this.lists||[]).find(l=> l.id==c.plugin_kanpro_lists_id);
         const t = this.listTypeOf(lst);
-        return !!(t && t.code === code);
+        if(t && t.code === code) return true;
+        // fallback: lista pode não estar no cache (restrita/oculta) — usa list_name do modal
+        if(c.list_name !== undefined || (this._lastModalData && String(this._lastModalData.id)===String(c.id||cid) && this._lastModalData.list_name)){
+          const src = (c.list_name !== undefined) ? c : this._lastModalData;
+          const nm = this.normText(String((src && src.list_name) || '')).trim();
+          if(code === 'pend_chamado' && nm.indexOf('pendencia') !== -1 && nm.indexOf('chamado') !== -1) return true;
+          if(code === 'pending' && nm === 'pendente') return true;
+          if(code === 'retirada' && nm === 'retirada') return true;
+          if(code === 'andamento' && nm === 'em andamento') return true;
+        }
+        return false;
+      } catch(e){ return false; }
+    },
+    // Detecção central da Pendência Chamado: vale chamado_source_id OU categoria OU nome da lista.
+    // Usada no mini-card e no modal para não depender de um único sinal.
+    isPendenciaCard(cardOrData){
+      try {
+        const c = (cardOrData && typeof cardOrData === 'object') ? cardOrData : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
+        if(!c) return false;
+        if(c.chamado_source_id && Number(c.chamado_source_id) > 0) return true;
+        if(this.isCardInListType(c, 'pend_chamado')) return true;
+        const src = (c.list_name !== undefined) ? c : ((this._lastModalData && String(this._lastModalData.id)===String(c.id)) ? this._lastModalData : null);
+        const nm = this.normText(String((src && src.list_name) || '')).trim();
+        if(nm.indexOf('pendencia') !== -1 && nm.indexOf('chamado') !== -1) return true;
+        return false;
       } catch(e){ return false; }
     },
     renderChamadoInModal(data){
@@ -1694,7 +1771,7 @@
       if(btnSol) btnSol.style.display = 'none';
       if(btnPegar) btnPegar.style.display = 'none';
       const isMaint = !!(data.is_maintenance && data.is_maintenance == 1);
-      const isPendChamado = (data.chamado_source_id && Number(data.chamado_source_id) > 0) || this.isCardInListType(data, 'pend_chamado');
+      const isPendChamado = this.isPendenciaCard(data);
       const isPending = this.isCardInListType(data, 'pending');
       const amAdmin = this.isBoardAdmin();
       // Solicitar Chamado: só manutenção (lado direito em Ações)
@@ -1703,6 +1780,8 @@
       if(isPending && amAdmin){
         if(btnPegar) btnPegar.style.display = '';
         if(act) act.innerHTML += `<button onclick="Kanpro.pegarPendingCard()" title="Pegar: mover para Em Andamento e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+        // BUGFIX: renderNotifiedInModal esconde o box quando não é Retirada — se enchemos o act aqui, precisa reexibir
+        if(box && act && act.innerHTML.trim()) box.style.display = 'flex';
       }
       // Pendência Chamado: botão Chamado criado (só admin libera)
       if(isPendChamado){
@@ -1725,6 +1804,9 @@
           } else {
             act.innerHTML += `<button onclick="Kanpro.confirmChamadoCriado()" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcName)} (só admin)" style="background:${amAdmin ? '#61bd4f' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-phone-check"></i> 📞 Chamado criado${amAdmin ? '' : ' (só admin)'}</button>`;
           }
+          // BUGFIX pendência: o box vem escondido do renderNotified (só Retirada mostra Notificado).
+          // Sem isso o botão existe no DOM mas fica invisível (display:none).
+          if(box && act.innerHTML.trim()) box.style.display = 'flex';
         }
         // aviso de origem no modal
         const descEl = document.getElementById('card-modal-desc');
@@ -1947,6 +2029,37 @@
         this.forceSync();
         this.scheduleLiberadoZap(cid, 25);
         this.schedulePendenciaAutoDelete(cid, 30);
+      });
+    },
+    // Chamado criado direto do mini-card (sem abrir o modal) — mesmo efeito do botão do modal
+    confirmChamadoCriadoById(cardId, ev){
+      if(ev && ev.stopPropagation) ev.stopPropagation();
+      const cid = parseInt(cardId, 10) || this.currentCardId;
+      if(!cid) return;
+      if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode confirmar.'); return; }
+      if(!confirm('Confirmar Chamado criado e liberar as máquinas na origem? O card se auto-exclui em 30s.')) return;
+      // feedback otimista no próprio mini-card
+      try {
+        const el = document.querySelector(`.kp-card[data-card-id="${cid}"]`);
+        if(el){
+          const b = el.querySelector('button');
+          if(b){ b.disabled = true; b.style.opacity = '.6'; b.innerHTML = '⏳ Liberando...'; }
+        }
+      } catch(e){}
+      this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
+        if(!res || !res.success){
+          alert((res&&res.msg)||'Erro');
+          this.renderBoard();
+          return;
+        }
+        this.showToast('Origem liberada ✓ — zap em 25s, excluindo em 30s ⏳');
+        const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
+        if(c){ c.chamado_status = 'liberado'; c.date_mod = new Date().toISOString().slice(0,19).replace('T',' '); }
+        this.renderBoard();
+        this.forceSync();
+        this.scheduleLiberadoZap(cid, 25);
+        this.schedulePendenciaAutoDelete(cid, 30);
+        if(this.currentCardId == cid) this.refreshCardModal();
       });
     },
     scheduleLiberadoZap(pid, seconds){
@@ -2651,8 +2764,112 @@
             </div>`;
         } else apprBox.innerHTML = '';
       }
+      // Pendência Chamado: modo só-informações + destaque (banner rosa + botão grande)
+      try { this.applyPendenciaSimplified(data); } catch(e){ console.error(e); }
       // re-render board silencioso (mantém modal)
       this.renderBoardQuick();
+    },
+    // Modal da Pendência Chamado: só informações + botão Chamado criado em destaque.
+    // Esconde edição (sidebar, título, descrição, checklist) e mostra painel rosa.
+    // Quando não é pendência, restaura tudo e remove o painel (modal é reutilizado).
+    applyPendenciaSimplified(data){
+      const panelId = 'kp-pendencia-panel';
+      const isPend = this.isPendenciaCard(data);
+      const sideBtns = [...document.querySelectorAll('#kanpro-card-modal .kp-sidebar-btn')];
+      let panel = document.getElementById(panelId);
+      if(!isPend){
+        if(panel) panel.remove();
+        // restaura botões estáticos (Solicitar/Pegar são gerenciados pelo renderChamado — não mexe)
+        sideBtns.forEach(b=>{
+          if(b.id === 'kp-solicitar-chamado-btn' || b.id === 'kp-pegar-btn') return;
+          if(b.style.display === 'none' && b.id !== 'kp-delete-btn'){
+            // só restaura se foi escondido pelo modo pendência (evita mostrar Excluir p/ não-admin de Pendente)
+            const wasPendHide = b.dataset.pendHide === '1';
+            if(wasPendHide){ b.style.display = ''; delete b.dataset.pendHide; }
+          }
+        });
+        const de = document.getElementById('card-modal-desc-edit-btn');
+        if(de && de.dataset.pendHide === '1'){ de.style.display = ''; delete de.dataset.pendHide; }
+        const ac = document.getElementById('card-modal-add-checklist');
+        if(ac && ac.dataset.pendHide === '1'){ ac.style.display = ''; delete ac.dataset.pendHide; }
+        const dl = document.getElementById('kp-delete-btn');
+        if(dl && dl.dataset.pendHide === '1'){ dl.style.display = ''; delete dl.dataset.pendHide; }
+        return;
+      }
+      const amAdmin = this.isBoardAdmin();
+      const st = String(data.chamado_status || '');
+      const isLib = (st === 'liberado');
+      const srcId = data.chamado_source_id || '';
+      const srcName = data.chamado_source_name || (srcId ? ('#' + srcId) : '');
+      const cl = (data.checklists||[])[0];
+      const machTotal = cl ? (cl.items||[]).length : 0;
+      const created = data.date_creation ? this.formatDate(data.date_creation) : '';
+      // esconde sidebar de edição (marca p/ restaurar depois). Excluir fica p/ admin limpar.
+      sideBtns.forEach(b=>{
+        if(b.id === 'kp-solicitar-chamado-btn' || b.id === 'kp-pegar-btn'){ b.style.display = 'none'; return; }
+        if(b.id === 'kp-delete-btn'){
+          // Excluir: só admin vê (limpeza). Não-admin não precisa.
+          if(!amAdmin){ b.style.display = 'none'; b.dataset.pendHide = '1'; }
+          else { b.style.display = ''; delete b.dataset.pendHide; }
+          return;
+        }
+        const txt = (b.textContent || '');
+        if(txt.includes('Excluir')){
+          if(!amAdmin){ b.style.display = 'none'; b.dataset.pendHide = '1'; }
+          return;
+        }
+        if(b.style.display !== 'none'){ b.dataset.pendHide = '1'; }
+        b.style.display = 'none';
+      });
+      const descEditBtn = document.getElementById('card-modal-desc-edit-btn');
+      if(descEditBtn && descEditBtn.style.display !== 'none'){ descEditBtn.dataset.pendHide = '1'; descEditBtn.style.display = 'none'; }
+      const addClBtn = document.getElementById('card-modal-add-checklist');
+      if(addClBtn && addClBtn.style.display !== 'none'){ addClBtn.dataset.pendHide = '1'; addClBtn.style.display = 'none'; }
+      // título e descrição viram só leitura (sem abrir edição)
+      try {
+        const t = document.getElementById('card-modal-title');
+        if(t){ t.style.cursor = 'default'; t.onclick = (e)=>{ if(e) e.stopPropagation(); }; }
+        const d = document.getElementById('card-modal-desc');
+        if(d){ d.style.cursor = 'default'; d.title = 'Somente leitura — pendência de chamado'; }
+      } catch(e){}
+      // checklist da pendência vira só leitura (espelho das máquinas)
+      try {
+        document.querySelectorAll('#card-modal-checklists input').forEach(i=>{ i.disabled = true; });
+        document.querySelectorAll('#card-modal-checklists button').forEach(b=>{ b.style.display = 'none'; });
+      } catch(e){}
+      // painel rosa de destaque (cria 1x, atualiza sempre)
+      const bigBtn = isLib
+        ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:10px;padding:12px;text-align:center;font-weight:800;font-size:14px">✓ Liberado — origem desbloqueada<br><span style="font-size:12px;font-weight:600">auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:8px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
+        : (amAdmin
+          ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#61bd4f,#2e9e4f);color:#fff;border:none;padding:14px;border-radius:10px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 3px 10px rgba(46,158,79,.4);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:18px"></i> 📞 Chamado criado — Liberar origem</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:6px">Libera as máquinas na origem • zap em 25s • auto-exclui em 30s</div>`
+          : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:10px;padding:12px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`);
+      const html = `
+        <div style="background:linear-gradient(135deg,#e1316f,#ff78cb);border-radius:12px;padding:14px 16px;color:#fff;box-shadow:0 3px 10px rgba(225,49,111,.35)">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:26px">📞</span>
+            <div style="min-width:0">
+              <div style="font-size:15px;font-weight:800">Pendência Chamado</div>
+              <div style="font-size:12px;opacity:.95">Origem <strong>#${srcId} ${this.escape(srcName)}</strong>${machTotal ? ` • 🔧 ${machTotal} máquina(s)` : ''}</div>
+              ${created ? `<div style="font-size:11px;opacity:.85">🕐 Solicitado em ${this.escape(created)}</div>` : ''}
+            </div>
+            <span style="margin-left:auto;background:${isLib ? '#006644' : '#fff'};color:${isLib ? '#fff' : '#e1316f'};padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">${isLib ? '✓ Liberado' : '⏳ Aguardando'}</span>
+          </div>
+        </div>
+        <div style="margin-top:10px">${bigBtn}</div>
+        <div style="margin-top:8px;font-size:11px;color:#5e6c84;text-align:center">Somente leitura — checklist abaixo é o espelho das máquinas • detalhes no botão “Ver informações” do card abrem este painel</div>`;
+      if(!panel){
+        panel = document.createElement('div');
+        panel.id = panelId;
+        panel.style.cssText = 'margin:0 16px 16px 16px';
+        const lockBox = document.getElementById('card-modal-lock');
+        if(lockBox && lockBox.parentElement) lockBox.after(panel);
+        else {
+          const descWrap = document.getElementById('card-modal-desc');
+          if(descWrap && descWrap.parentElement) descWrap.parentElement.prepend(panel);
+        }
+      }
+      panel.innerHTML = html;
+      panel.style.display = 'block';
     },
 
     // ==================== MANUTENÇÃO ====================
@@ -4412,6 +4629,8 @@
     async editCardTitle(){
       // cartão travado (lista Pendente): nem título nem entidade mudam
       if(this.cardLockedGuard()) return;
+      // Pendência Chamado: somente leitura — título não muda (só Chamado criado)
+      try { if(this.isPendenciaCard(this.currentCardId) || (this._lastModalData && this.isPendenciaCard(this._lastModalData))){ this.showToast('📞 Pendência Chamado é somente leitura — use “Chamado criado”'); return; } } catch(e){}
       const cur = this.cards.find(c=> c.id==this.currentCardId);
       const data = this._lastModalData;
       const isMaint = data && data.is_maintenance==1;
@@ -4679,6 +4898,7 @@
     },
     editDescription(){
       if(this.cardLockedGuard()) return;
+      try { if(this.isPendenciaCard(this.currentCardId) || (this._lastModalData && this.isPendenciaCard(this._lastModalData))){ this.showToast('📞 Pendência Chamado é somente leitura'); return; } } catch(e){}
       const ta = $('#card-desc-edit');
       if(!ta || ta.style.display !== 'none') return; // já editando
       this._descOrig = ta.value;
