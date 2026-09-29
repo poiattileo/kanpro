@@ -3180,6 +3180,10 @@
             <button onclick="Kanpro.bulkApplyStatus()" style="background:#0079bf;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">Aplicar status</button>
             <button onclick="Kanpro.bulkSetDone(1)" style="background:#61bd4f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">✓ Feito</button>
             <button onclick="Kanpro.bulkSetDone(0)" style="background:#fff;border:1px solid #dfe1e6;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px">○ Desmarcar</button>
+            <span style="width:1px;height:20px;background:#b3f0ff;display:inline-block"></span>
+            <button onclick="Kanpro.bulkSetNeeds(1)" title="Marca as selecionadas como 'precisa inventariar'" style="background:#ede9fe;border:1px solid #6554c0;color:#5e35b1;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">📋 Precisa inventariar</button>
+            <button onclick="Kanpro.bulkSetInventoried(1)" title="Marca as selecionadas como inventariadas (já marca 'precisa' junto)" style="background:#61bd4f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">✓ Inventariado</button>
+            <button onclick="Kanpro.bulkSetInventoried(0)" title="Desmarca inventariado das selecionadas" style="background:#fff;border:1px solid #dfe1e6;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px">○ Desmarcar inv.</button>
           </div>`:""}
           ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
           ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
@@ -4145,8 +4149,8 @@
       return [...new Set([...fromSet, ...fromDom])];
     },
     bulkAfterSuccess(msg){
-      if(this._maintSelected) this._maintSelected.clear();
-      this.showToast(msg);
+      // Mantém seleção — usuário pode encadear status + feito + inventário sem remarcar tudo
+      this.showToast(msg + ' (seleção mantida)');
       this.refreshCardModal();
     },
     bulkApplyStatus(){
@@ -4165,6 +4169,22 @@
       if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_done: val}).then(res=>{
         if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas atualizadas`);
+        else this.showToast(res.msg||'Erro');
+      });
+    },
+    bulkSetNeeds(val){
+      const ids = this.maintSelectedIds();
+      if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
+      this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), needs_inventory: val}).then(res=>{
+        if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas: precisa inventariar`);
+        else this.showToast(res.msg||'Erro');
+      });
+    },
+    bulkSetInventoried(val){
+      const ids = this.maintSelectedIds();
+      if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
+      this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_inventoried: val}).then(res=>{
+        if(res.success) this.bulkAfterSuccess(val ? `${res.updated||0} máquinas: inventariadas ✓` : `${res.updated||0} máquinas: inventário desmarcado`);
         else this.showToast(res.msg||'Erro');
       });
     },

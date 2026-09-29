@@ -4146,7 +4146,14 @@ switch ($action) {
         }
         $applyDone = array_key_exists('is_done', $_POST);
         $doneVal = $applyDone ? ((int)$_POST['is_done'] ? 1 : 0) : null;
-        if (!$applyStatus && !$applyDone) jexit(['success'=>false,'msg'=>'Nada para aplicar']);
+        // inventário em massa (modo Selecionar): precisa + inventariado
+        $applyNeeds = array_key_exists('needs_inventory', $_POST);
+        $needsVal = $applyNeeds ? ((int)$_POST['needs_inventory'] ? 1 : 0) : null;
+        $applyInv = array_key_exists('is_inventoried', $_POST) || array_key_exists('inventoried', $_POST);
+        if (array_key_exists('is_inventoried', $_POST)) $invVal = ((int)$_POST['is_inventoried'] ? 1 : 0);
+        elseif (array_key_exists('inventoried', $_POST)) $invVal = ((int)$_POST['inventoried'] ? 1 : 0);
+        else $invVal = null;
+        if (!$applyStatus && !$applyDone && !$applyNeeds && !$applyInv) jexit(['success'=>false,'msg'=>'Nada para aplicar']);
         $rows = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$ids,'plugin_kanpro_cards_id'=>$cid]]);
         $n = 0; $skippedLocked = 0;
         foreach ($rows as $r) {
@@ -4158,14 +4165,30 @@ switch ($action) {
             }
             $effStatus = $applyStatus ? $st : ($r['status'] ?? '');
             if ($applyDone) $u['is_done'] = ($effStatus === 'pendente') ? 0 : $doneVal;
+            if ($applyNeeds) {
+                $u['needs_inventory'] = $needsVal;
+                if (!$needsVal) $u['is_inventoried'] = 0;
+            }
+            if ($applyInv) {
+                if ($invVal) {
+                    // inventariado exige "precisa inventariar"
+                    $u['needs_inventory'] = 1;
+                    $u['is_inventoried'] = 1;
+                } else {
+                    $u['is_inventoried'] = 0;
+                }
+            }
             $DB->update('glpi_plugin_kanpro_maintenance_machines', $u, ['id'=>$r['id']]);
             $n++;
         }
         if ($n) {
             kanpro_touch_member($cid);
+            if ($applyNeeds || $applyInv) kanpro_sync_inventory_label($cid);
             $bits = [];
             if ($applyStatus) $bits[] = "status → " . kanpro_machine_status_label($st);
             if ($applyDone) $bits[] = $doneVal ? "marcadas como FEITAS" : "desmarcadas (não feitas)";
+            if ($applyNeeds) $bits[] = $needsVal ? "marcadas como PRECISA INVENTARIAR" : "marcadas como NÃO precisa inventariar";
+            if ($applyInv) $bits[] = $invVal ? "marcadas como INVENTARIADAS" : "inventário desmarcado";
             $tid = kanpro_card_ticket_id($cid);
             if ($tid) {
                 $msg = "⚙ [KanPro] Atualização em massa\n\n{$n} máquina(s): " . implode(' | ', $bits);
