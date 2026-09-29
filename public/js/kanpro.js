@@ -2857,9 +2857,12 @@
             </div>
           </div>
           <div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
               <strong style="font-size:13px;color:#172b4d">🔧 Máquinas (${machTotal})</strong>
-              <span style="font-size:11px;color:#5e6c84">somente leitura</span>
+              <span style="display:flex;gap:8px;align-items:center">
+                <span style="font-size:11px;color:#5e6c84">somente leitura</span>
+                ${machTotal ? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap">📋 Copiar p/ WhatsApp</button>` : ``}
+              </span>
             </div>
             <div style="display:grid;gap:8px;max-height:260px;overflow-y:auto">${machHtml}</div>
           </div>
@@ -3153,6 +3156,7 @@
               ${total && !cardPending ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
               ${total && !cardPending ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
+              ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
               ${finalizeBtnHtml}
             </div>
           </div>
@@ -5542,6 +5546,88 @@
       this.ajax('copy_card', {cards_id: this.currentCardId, target_lists_id: targetList}).then(res=>{
         if(res.success){ alert('Cartão copiado!'); this.closeCardModal(); location.reload(); }
       });
+    },
+    // ---------- Copiar resumo p/ WhatsApp (Nx Modelo) ----------
+    // Gera "12x Notebook Multilaser" agrupando por modelo (case-insensitive).
+    // Fonte: maintenance_machines (card manutenção) ou checklist (card Pendência Chamado).
+    cleanMachineModel(raw){
+      let s = String(raw == null ? '' : raw).replace(/\[mid:\d+\]/gi, '').trim();
+      // remove prefixo "#12 — " / "#12 " herdado da pendência
+      s = s.replace(/^#\s*\d+\s*[—\-–:.]?\s*/, '').trim();
+      s = s.replace(/\s+/g, ' ').trim();
+      return s;
+    },
+    groupModelsForWhatsapp(models){
+      const order = [];
+      const map = new Map();
+      (models || []).forEach(raw=>{
+        const display = String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ');
+        if(!display) return;
+        const key = display.toLowerCase();
+        if(!map.has(key)){ map.set(key, {qty: 0, display}); order.push(key); }
+        map.get(key).qty++;
+      });
+      return order.map(k=>{
+        const e = map.get(k);
+        return `${e.qty}x ${e.display}`;
+      }).join('\n');
+    },
+    buildWhatsappUnitsText(){
+      const data = this._lastModalData;
+      if(!data) return '';
+      let models = [];
+      if(Array.isArray(data.maintenance_machines) && data.maintenance_machines.length){
+        models = data.maintenance_machines.map(m=> (m && m.model) || '');
+      } else if(Array.isArray(data.checklists)){
+        data.checklists.forEach(cl=>{
+          (cl.items || []).forEach(it=> models.push(this.cleanMachineModel((it && it.name) || '')));
+        });
+      }
+      models = models.map(s=> String(s || '').trim()).filter(Boolean);
+      if(!models.length) return '';
+      return this.groupModelsForWhatsapp(models);
+    },
+    copyWhatsappUnits(btn){
+      const txt = this.buildWhatsappUnitsText();
+      if(!txt){
+        try { this.showAlert('Nenhuma máquina para copiar neste card.', 'Copiar p/ WhatsApp'); }
+        catch(e){ alert('Nenhuma máquina para copiar neste card.'); }
+        return;
+      }
+      const okFeedback = ()=>{
+        try { this.showToast('Copiado! Cole no WhatsApp 📋'); } catch(e){}
+        if(btn){
+          try {
+            const orig = btn.innerHTML;
+            btn.innerHTML = '✅ Copiado!';
+            setTimeout(()=>{ try { btn.innerHTML = orig; } catch(e){} }, 1800);
+          } catch(e){}
+        }
+      };
+      const fallbackCopy = ()=>{
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = txt;
+          ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          let copied = false;
+          try { copied = document.execCommand('copy'); } catch(e){ copied = false; }
+          ta.remove();
+          if(copied){ okFeedback(); return; }
+        } catch(e){}
+        // último recurso: mostra o texto p/ cópia manual (sempre acima do modal)
+        try { this.showAlert(txt, 'Copie manualmente (Ctrl+C)'); }
+        catch(e){ prompt('Copie (Ctrl+C):', txt); }
+      };
+      try {
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(txt).then(okFeedback).catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+      } catch(e){ fallbackCopy(); }
     },
     async archiveCard(){
       if(this.cardLockedGuard()) return;
