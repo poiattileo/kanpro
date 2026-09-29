@@ -6206,9 +6206,14 @@
     },
     showPicker({title, html, x, y}){
       const p = $('#kanpro-picker');
+      const bd = $('#picker-body');
+      if(!p || !bd) return;
       $('#picker-title').textContent = title||'';
-      $('#picker-body').innerHTML = html||'';
-      p.style.display='block';
+      bd.innerHTML = html||'';
+      // reset geométrico total: fluxos diferentes (manutenção/pegar/tarefa) mexem em
+      // width/maxWidth/maxHeight/flexDirection inline e o acúmulo colapsava o picker pra 0x0
+      p.style.cssText = 'display:block;position:fixed;z-index:20000;background:#fff;border-radius:8px;box-shadow:0 8px 16px rgba(0,0,0,.2);min-width:300px;max-width:360px;overflow:hidden;visibility:visible;opacity:1;';
+      bd.style.cssText = 'padding:12px;max-height:400px;overflow-y:auto;';
       const hasPos = (x !== null && x !== undefined && y !== null && y !== undefined);
       if(hasPos){
         p.style.left = Math.max(12, Math.min(x, window.innerWidth-360)) + 'px';
