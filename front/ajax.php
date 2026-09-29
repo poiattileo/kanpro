@@ -3166,13 +3166,14 @@ switch ($action) {
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
 
     case 'zap_lembrete_send':
-        // Envio manual do lembrete (ignora a trava de horário, útil p/ testar às 14h o slot das 8h).
-        // params: slot=8|13 (padrão: pelo horário), force=1 reenvia mesmo se já enviado hoje.
+        // Envio manual do lembrete (ignora a trava de horário, útil p/ testar às 14h o slot das 9h).
+        // params: slot=9|13 (8 aceito como apelido de 9; padrão: pelo horário), force=1 reenvia mesmo se já enviado hoje.
         try {
             if (!Session::haveRight('plugin_kanpro', UPDATE)) jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro)']);
             if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
             $slot = (int)($_POST['slot'] ?? $_GET['slot'] ?? 0);
-            if (!in_array($slot, [8, 13], true)) $slot = ((int)date('H') < 12) ? 8 : 13;
+            if ($slot === 8) $slot = 9;
+            if (!in_array($slot, [9, 13], true)) $slot = ((int)date('H') < 12) ? 9 : 13;
             $force = !empty($_POST['force']) || !empty($_GET['force']);
             $r = PluginKanproMaintenanceZap::sendLembrete($slot, $force ? ['forceResend' => true] : []);
             if (!empty($r['ok'])) jexit(['success'=>true,'slot'=>$slot,'total'=>($r['total'] ?? 0),'phone'=>($r['phone'] ?? '')]);

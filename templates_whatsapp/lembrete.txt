@@ -1,5 +1,5 @@
 # KanPro • WhatsApp de LEMBRETE (texto puro, sem HTML)
-# Gatilho: cron 08:30 e 13h (zaplembrete8/zaplembrete13) — só envia se houver cards
+# Gatilho: cron 9h e 13h (zaplembrete9/zaplembrete13) — só envia se houver cards
 # Destinatário fixo: cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
 # Placeholders: {total} {pend_chamado} {pendentes} {andamento} {detalhes} {data}
 # (pendencia_chamado é apelido de pend_chamado)
