@@ -2792,8 +2792,15 @@
       if(!this._maintSelected) this._maintSelected = new Set();
       const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status (some se o card ainda não foi pego)
+      // card Concluído (lista Concluído ou termo já assinado): no lugar do Finalizar, abre o termo
+      const termCid = data.id || this.currentCardId || 0;
+      const isDoneList = this.isCardInListType(data, 'done');
+      const termStat = this.transferStatus && this.transferStatus[termCid];
+      const isSigned = !!(termStat && termStat.status === 'concluido');
       let finalizeBtnHtml = "";
-      if (cardPending) {
+      if (isDoneList || isSigned) {
+        finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Abrir o termo gerado pelo Assinatura (após assinado)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
+      } else if (cardPending) {
         finalizeBtnHtml = `<span title="O card ainda está na lista Pendente — clique em Pegar (admin do quadro) para liberar o atendimento" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-lock" style="font-size:11px"></i> FINALIZAR bloqueado</span>`;
       } else if (hasMissing) {
         finalizeBtnHtml = `<button disabled title="Selecione o Status Final de todas as máquinas (${missingStatus}/${total})" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
@@ -4111,6 +4118,15 @@
         w.document.write(html);
         w.document.close();
         this.showToast("Termo gerado");
+      });
+    },
+    viewCardTerm(cardId){
+      const cid = cardId || this.currentCardId;
+      if(!cid) return;
+      this.showToast('Buscando termo...');
+      this.ajax('get_card_term', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){ this.showAlert(res.msg || 'Nenhum termo encontrado para este card.', 'Termo'); return; }
+        window.open(res.pdf_url, '_blank');
       });
     },
     finalizeMaintenance(){

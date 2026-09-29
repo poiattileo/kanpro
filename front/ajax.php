@@ -3205,6 +3205,30 @@ switch ($action) {
         if (($r['error'] ?? '') === 'duplicate') jexit(['success'=>true,'already'=>true]);
         jexit(['success'=>false,'msg'=>($r['error'] ?? 'Falha ao enviar')]);
 
+    case 'get_card_term':
+        // Termo do assetmgrstatus gerado para o card (transferência [KanPro #id]).
+        // Devolve pdf_url (termo assinado/pronto) + assinatura_url + se já está assinado.
+        try {
+            $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+            if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+            $card = new PluginKanproCard();
+            if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+            $tr = null;
+            if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
+                $like = "%[KanPro #{$cid}]%";
+                $trIter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
+                if ($trIter->count() > 0) $tr = $trIter->current();
+            }
+            if (!$tr) jexit(['success'=>false,'msg'=>'Nenhum termo gerado para este card ainda.','need_term'=>true]);
+            $tid = (int)$tr['id'];
+            try { $base = Plugin::getWebDir('assetmgrstatus'); } catch (Throwable $e) { $base = ''; }
+            if (!$base) $base = '/plugins/assetmgrstatus';
+            $signed = !empty($tr['assinatura_image']) && !empty($tr['assinatura_tecnico_image']);
+            jexit(['success'=>true,'transfer_id'=>$tid,'signed'=>$signed,
+                'pdf_url'=>$base.'/front/transfer_pdf.php?id='.$tid.'&stage=pronto',
+                'assinatura_url'=>$base.'/front/assinatura.php?f=pendente&highlight='.$tid]);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
+
     case 'zap_lembrete_diagnose':
         // Diagnóstico do lembrete 08:30/13h sem enviar (listas, contagens, fone mascarado, evo, cron).
         try {
