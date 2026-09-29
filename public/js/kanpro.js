@@ -2255,6 +2255,7 @@
     // ---------- CARD OPERATIONS ----------
     showAddCard(eOrListId, listId){
       // o handler global fecha o picker no clique fora: este clique não pode borbulhar (o modal de tarefa usa picker)
+      try {
       let e = null;
       if(typeof eOrListId === 'number'){ listId = eOrListId; }
       else { e = eOrListId; }
@@ -2267,12 +2268,20 @@
         this.showToast('🚫 A lista "' + lt.label + '" não aceita cartão novo');
         return;
       }
-      // Pendente: o cartão nasce direto como Manutenção (nome vem da entidade)
-      if(lt && lt.code === 'pending'){ this.showMaintenanceStep1(listId); return; }
+      // Pendente: o cartão nasce direto como Manutenção (nome vem da entidade).
+      // Vale categoria OU nome (lista legada sem categoria também cai no fluxo).
+      let isPendingList = !!(lt && lt.code === 'pending');
+      if(!isPendingList && list){
+        try { isPendingList = this.normText(list.name||'').trim() === 'pendente'; } catch(e2){}
+      }
+      if(isPendingList){ this.showMaintenanceStep1(listId); return; }
       if(lt && (lt.code === 'todo' || lt.code === 'backlog')){ this.openTaskCardModal(listId); return; }
       const listEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
-      listEl.querySelector('.kp-add-card').style.display='none';
+      if(!listEl){ this.showToast('Lista não renderizada — sincronizando…'); this.forceSync(); return; }
+      const addBtn = listEl.querySelector('.kp-add-card');
+      if(addBtn) addBtn.style.display='none';
       const comp = listEl.querySelector('.kp-card-composer');
+      if(!comp){ this.showToast('Criação indisponível nesta lista'); return; }
       comp.style.display='block';
       listEl.classList.add('composer-open');
       comp.querySelector('textarea').focus();
@@ -2281,6 +2290,7 @@
       ta.onkeydown = (e)=>{
         if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); this.confirmAddCard(listId, comp.querySelector('button'))}
       };
+      } catch(err){ console.error('[KanPro] showAddCard', err); try{ this.showToast('Não foi possível abrir a criação'); }catch(e2){} }
     },
     hideAddCard(listId){
       const listEl = document.querySelector(`.kp-list[data-list-id="${listId}"]`);
@@ -3346,7 +3356,9 @@
         regen:   isCreate ? 'Gerar outra palavra' : 'Gerar outra palavra',
       };
       // Busca entidades GLPI antes de mostrar desafio — nome do Card virará nome da Entidade
-      this.showPicker({title:P.title, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>'+P.loading+'</div>'});
+      try {
+        this.showPicker({title:P.title, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>'+P.loading+'</div>'});
+      } catch(e){ console.error('[KanPro] showMaintenanceStep1 picker', e); alert('Não foi possível abrir a criação de Manutenção'); return; }
       this.ajax("list_entities", {}).then(res=>{
         let entities = (res && res.success && Array.isArray(res.entities)) ? res.entities : [];
         // fallback se listagem vazia
