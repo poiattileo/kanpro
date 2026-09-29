@@ -658,6 +658,55 @@ function kanpro_find_list_by_type(int $boards_id, string $type): ?array {
     return null;
 }
 
+// Cria a Pendência Chamado para um card de manutenção: card na lista Pendência
+// Chamado + trava as máquinas + zap p/ o aprovador (mesmo fluxo do Pegar).
+// Nunca joga exceção. Retorna ['pendencia_id'=>int,'locked'=>int,'zap_ok'=>bool,
+// 'zap_error'=>string] ou ['pendencia_id'=>0,...,'warning'=>string] sem falhar.
+function kanpro_create_pendencia_chamado(int $boards_id, int $src_cards_id, array $machine_ids, int $who, string $origin_label): array {
+    global $DB;
+    $fail = function (string $warning) { return ['pendencia_id'=>0,'locked'=>0,'zap_ok'=>false,'zap_error'=>'','warning'=>$warning]; };
+    try {
+        $mids = array_values(array_unique(array_filter(array_map('intval', $machine_ids), function ($v) { return $v > 0; })));
+        if ($boards_id <= 0 || $src_cards_id <= 0 || empty($mids)) return $fail('Sem máquinas para pendência');
+        $src = new PluginKanproCard();
+        if (!$src->getFromDB($src_cards_id)) return $fail('Card origem não encontrado');
+        $target = kanpro_find_list_by_type($boards_id, 'pend_chamado');
+        if (!$target) return $fail('Crie uma lista com categoria "Pendência Chamado" neste quadro');
+        $machines = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mids,'plugin_kanpro_cards_id'=>$src_cards_id]]) as $m) $machines[(int)$m['id']] = $m;
+        }
+        if (empty($machines)) return $fail('Nenhuma máquina válida para pendência');
+        $mids = array_keys($machines);
+        $targetLid = (int)$target['id'];
+        $nc = new PluginKanproCard();
+        $nm = mb_substr(trim($src->fields['name'] ?? ('Card #' . $src_cards_id)), 0, 255);
+        $pendId = (int)$nc->add(['plugin_kanpro_boards_id'=>$boards_id,'plugin_kanpro_lists_id'=>$targetLid,'name'=>$nm,
+            'description'=>"{$origin_label}: card #{$src_cards_id} ('" . ($src->fields['name'] ?? '') . "'). Todas as máquinas travadas até 'Chamado criado'."]);
+        if (!$pendId) return $fail('Falha ao criar card na Pendência Chamado');
+        $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$src_cards_id,'chamado_machines'=>json_encode(array_values($mids), JSON_UNESCAPED_UNICODE),
+            'chamado_status'=>'pendente','chamado_by'=>$who,'entities_id'=>(int)($src->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pendId]);
+        $cl = new PluginKanproChecklist();
+        $clId = (int)$cl->add(['plugin_kanpro_cards_id'=>$pendId,'name'=>'Máquinas para chamado']);
+        if ($clId) {
+            $rk = 1024;
+            foreach (array_values($machines) as $m) {
+                $it = new PluginKanproChecklistItem();
+                $it->add(['plugin_kanpro_checklists_id'=>$clId,'name'=>'#' . (int)$m['seq'] . ' ' . ($m['label'] ?: $m['model']) . ' [mid:' . (int)$m['id'] . ']','rank'=>$rk]);
+                $rk += 1024;
+            }
+        }
+        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked'=>1,'locked_chamado_card_id'=>$pendId,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$mids]);
+        kanpro_touch_card($pendId);
+        PluginKanproBoard::logActivity($boards_id, $pendId, $targetLid, 'chamado_created', "Pendência Chamado criada via {$origin_label} de #{$src_cards_id} (" . count($mids) . " máquina(s))");
+        $zapOk = false; $zapErr = '';
+        try { if (class_exists('PluginKanproMaintenanceZap')) { $zr = PluginKanproMaintenanceZap::sendPendencia($pendId); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
+        return ['pendencia_id'=>$pendId,'locked'=>count($mids),'zap_ok'=>$zapOk,'zap_error'=>$zapErr];
+    } catch (Throwable $e) {
+        return $fail('Erro: ' . $e->getMessage());
+    }
+}
+
 // Categorias de lista que NÃO aceitam cartão novo: são de ajuste (entram sozinhas
 // pelo Solicitar Chamado / Pegar / Notificado / Finalizar).
 function kanpro_list_blocked_for_create(string $cat): ?string {
@@ -4595,7 +4644,15 @@ switch ($action) {
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Máquinas pendentes movidas para #{$newId} ({$pendingCount}) — card original ficou vazio");
             $splitTid = kanpro_card_ticket_id($cid);
             if ($splitTid) kanpro_ticket_followup($splitTid, "⚙ [KanPro] Máquinas pendentes\n\nTodas as máquinas estavam com status Pendente e foram movidas para o cartão #{$newId} ({$pendingCount} máquinas).\n\nNenhum termo foi gerado.");
-            jexit(['success'=>true,'pending_only'=>true,'pending_card_id'=>$newId,'pending_count'=>$pendingCount,'msg'=>"Todas as máquinas estavam como Pendente. Novo card #{$newId} criado com {$pendingCount} pendentes. Nenhum termo gerado para levar.",'progress'=>['total'=>$total,'pending'=>$pendingCount]]);
+            // Admin do quadro: novo card de pendentes já entra no fluxo Pendência Chamado (trava + zap)
+            $splitPend = ['pendencia_id'=>0,'locked'=>0,'zap_ok'=>false,'zap_error'=>'','warning'=>''];
+            if (function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) {
+                $splitPend = kanpro_create_pendencia_chamado((int)$card->fields['plugin_kanpro_boards_id'], (int)$newId, array_column($pendingMachines, 'id'), kanpro_acting_user_id(), 'Finalizar');
+            }
+            $splitResp = ['success'=>true,'pending_only'=>true,'pending_card_id'=>$newId,'pending_count'=>$pendingCount,'msg'=>"Todas as máquinas estavam como Pendente. Novo card #{$newId} criado com {$pendingCount} pendentes. Nenhum termo gerado para levar.",'progress'=>['total'=>$total,'pending'=>$pendingCount]];
+            if (!empty($splitPend['pendencia_id'])) { $splitResp['pendencia_id'] = $splitPend['pendencia_id']; $splitResp['pendencia_locked'] = $splitPend['locked']; $splitResp['zap_ok'] = $splitPend['zap_ok']; $splitResp['zap_error'] = $splitPend['zap_error']; }
+            elseif (!empty($splitPend['warning']) && function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) { $splitResp['pendencia_warning'] = $splitPend['warning']; }
+            jexit($splitResp);
         }
         // Valida progresso 100% apenas para itens que vão para o termo (não pendentes)
         if ($nonCount>0 && !$force && $doneNon!==$nonCount) {
@@ -4634,6 +4691,7 @@ switch ($action) {
         }
         // Se há pendentes, cria novo card com pendentes ANTES de gerar termo (nome igual, campos zerados)
         $pendingCardId = null;
+        $pendenciaSplit = ['pendencia_id'=>0,'locked'=>0,'zap_ok'=>false,'zap_error'=>'','warning'=>''];
         if ($pendingCount>0) {
             $origName = trim($card->fields['name']);
             $newName = mb_substr($origName, 0, 255);
@@ -4664,6 +4722,10 @@ switch ($action) {
                 }
                 $pendingCardId = $newId;
                 PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes #{$newId} criado com {$pendingCount} máquinas de #{$cid}");
+                // Admin do quadro: novo card de pendentes já entra no fluxo Pendência Chamado (trava + zap)
+                if (function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) {
+                    $pendenciaSplit = kanpro_create_pendencia_chamado((int)$card->fields['plugin_kanpro_boards_id'], (int)$newId, array_column($pendingMachines, 'id'), kanpro_acting_user_id(), 'Finalizar');
+                }
             }
             // re-sequencia card original (não pendentes) 1..N
             $remaining = $nonPending;
@@ -4686,9 +4748,8 @@ switch ($action) {
             if ($splitTid2) kanpro_ticket_followup($splitTid2, "⚙ [KanPro] Máquinas pendentes\n\nOs itens pendentes foram movidos para o cartão #{$pendingCardId} ({$pendingCount} máquinas).\n\nNenhum termo foi gerado.");
             jexit(['success'=>true,'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'msg'=>"Pendentes movidos para card #{$pendingCardId}. Nenhum termo gerado.","pending_only"=>true]);
         }
-        // se há pendentes, cria novo card com eles antes de finalizar o atual
-        $pendingCardId = null;
-        if ($pendingCount > 0) {
+        // Bloco legado: só roda se o split acima não gerou card (evita duplicar o novo card)
+        if ($pendingCount > 0 && $pendingCardId === null) {
             $newCard = new PluginKanproCard();
             $newName = $card->fields['name'] . ' - Pendentes ('.$pendingCount.')';
             $newName = mb_substr($newName, 0, 255);
@@ -4744,12 +4805,21 @@ switch ($action) {
                         $s++;
                     }
                 }
+                // Admin do quadro: novo card de pendentes já entra no fluxo Pendência Chamado (trava + zap)
+                if (function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) {
+                    $newMids = [];
+                    foreach ($DB->request(['SELECT'=>['id'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$pendingCardId]]) as $nmr) $newMids[] = (int)$nmr['id'];
+                    $pendenciaSplit = kanpro_create_pendencia_chamado((int)$card->fields['plugin_kanpro_boards_id'], (int)$pendingCardId, $newMids, kanpro_acting_user_id(), 'Finalizar');
+                }
                 // atualiza variáveis para transferência: apenas não-pendentes
-                $machines = $nonPendingMachines;
+                $machines = $nonPending;
                 $total = count($machines);
                 if ($total===0) {
                     // todos eram pendentes — não gera transferência, apenas informa novo card
-                    jexit(['success'=>true,'msg'=>"Todos os itens estavam como Pendente. Criado novo card #{$pendingCardId} com {$pendingCount} máquina(s). Nenhum termo gerado para o card atual.",'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'all_pending'=>true]);
+                    $allPendResp = ['success'=>true,'msg'=>"Todos os itens estavam como Pendente. Criado novo card #{$pendingCardId} com {$pendingCount} máquina(s). Nenhum termo gerado para o card atual.",'pending_card_id'=>$pendingCardId,'pending_count'=>$pendingCount,'all_pending'=>true];
+                    if (!empty($pendenciaSplit['pendencia_id'])) { $allPendResp['pendencia_id'] = $pendenciaSplit['pendencia_id']; $allPendResp['pendencia_locked'] = $pendenciaSplit['locked']; $allPendResp['zap_ok'] = $pendenciaSplit['zap_ok']; $allPendResp['zap_error'] = $pendenciaSplit['zap_error']; }
+                    elseif (!empty($pendenciaSplit['warning']) && function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) { $allPendResp['pendencia_warning'] = $pendenciaSplit['warning']; }
+                    jexit($allPendResp);
                 }
                 // recalcula done/ok para não-pendentes
                 $done=0; $okCount=0;
@@ -4856,6 +4926,8 @@ switch ($action) {
         $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
         $resp = ['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$doneTerm,'percent'=>$total?round($doneTerm/$total*100):0,'garantia'=>$cntGarantiaTerm,'ok'=>$cntOkTerm,'inservivel'=>$cntInservivelTerm]];
         if ($pendingCardId) { $resp['pending_card_id']=$pendingCardId; $resp['pending_count']=$pendingCount; $resp['msg_pending']="Pendentes ({$pendingCount}) movidos para novo card #{$pendingCardId}"; }
+        if (!empty($pendenciaSplit['pendencia_id'])) { $resp['pendencia_id']=$pendenciaSplit['pendencia_id']; $resp['pendencia_locked']=$pendenciaSplit['locked']; $resp['zap_ok']=$pendenciaSplit['zap_ok']; $resp['zap_error']=$pendenciaSplit['zap_error']; }
+        elseif (!empty($pendenciaSplit['warning']) && $pendingCardId && function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) { $resp['pendencia_warning']=$pendenciaSplit['warning']; }
         // WhatsApp RETIRADA (máquinas prontas — transferência criada)
         if (class_exists('PluginKanproMaintenanceZap')) {
             try { PluginKanproMaintenanceZap::sendOnce('retirada', $cid); } catch (Throwable $e) {}
