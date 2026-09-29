@@ -442,8 +442,9 @@ echo <<<HTML
 
 <!-- Modal do cartão (Trello style) -->
 <div id="kanpro-card-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.64);z-index:9999;overflow-y:auto;padding:40px 0">
-  <div style="background:#f4f5f7;max-width:768px;margin:0 auto;border-radius:8px;overflow:hidden;position:relative;min-height:400px">
+  <div id="kp-modal-box" style="background:#f4f5f7;max-width:768px;margin:0 auto;border-radius:8px;overflow:hidden;position:relative;min-height:400px">
     <button onclick="Kanpro.closeCardModal()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2"><i class="ti ti-x" style="font-size:18px"></i></button>
+    <div id="kp-normal-content">
     <div id="card-modal-cover" style="height:0"></div>
     <div style="padding:16px 16px 16px 56px;position:relative">
       <i class="ti ti-credit-card" style="position:absolute;left:16px;top:18px;font-size:22px;color:#172b4d"></i>
@@ -557,6 +558,8 @@ echo <<<HTML
         </div>
       </div>
     </div>
+    <!-- Visão exclusiva da Pendência Chamado: card totalmente diferente, só informações + Chamado criado (sem sidebar) -->
+    <div id="kp-pendencia-content" style="display:none"></div>
   </div>
 </div>
 

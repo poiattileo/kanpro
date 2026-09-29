@@ -2455,6 +2455,20 @@
       const modal = $('#kanpro-card-modal');
       modal.style.display='block';
       document.body.style.overflow='hidden';
+      // reseta visões: normal de volta, pendência escondida (o render decide)
+      try {
+        const nc = document.getElementById('kp-normal-content');
+        const pc = document.getElementById('kp-pendencia-content');
+        let prePend = false;
+        try { prePend = lc ? this.isPendenciaCard(lc) : false; } catch(e){}
+        if(prePend){
+          if(nc) nc.style.display = 'none';
+          if(pc){ pc.style.display = 'block'; pc.innerHTML = '<div style="padding:40px;text-align:center;color:#ad1457;font-weight:700">📞 Carregando pendência…</div>'; }
+        } else {
+          if(nc) nc.style.display = '';
+          if(pc){ pc.style.display = 'none'; pc.innerHTML = '<div style="padding:40px;text-align:center;color:#5e6c84">Carregando pendência…</div>'; }
+        }
+      } catch(e){}
       // loading
       $('#card-modal-title').textContent='Carregando...';
       $('#card-modal-desc').textContent='';
@@ -2482,9 +2496,27 @@
       $('#kanpro-card-modal').style.display='none';
       document.body.style.overflow='';
       this.currentCardId=null;
+      // reseta visões p/ a próxima abertura não herdar a pendência
+      try {
+        const nc = document.getElementById('kp-normal-content');
+        const pc = document.getElementById('kp-pendencia-content');
+        if(nc) nc.style.display = '';
+        if(pc){ pc.style.display = 'none'; pc.innerHTML = ''; }
+        document.getElementById('kp-pendencia-panel')?.remove();
+      } catch(e){}
       this.closePicker();
     },
     renderCardModal(data){
+      // Pendência Chamado tem card próprio, totalmente diferente (sem sidebar/edição)
+      try {
+        if(this.isPendenciaCard(data)){ this.renderPendenciaModal(data); return; }
+        // card normal: garante visão normal visível
+        const nc = document.getElementById('kp-normal-content');
+        const pc = document.getElementById('kp-pendencia-content');
+        if(nc) nc.style.display = '';
+        if(pc){ pc.style.display = 'none'; pc.innerHTML = ''; }
+        document.getElementById('kp-pendencia-panel')?.remove();
+      } catch(e){}
       $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${data.id}</span>${this.escape(data.name)}`;
       $('#card-modal-listname').textContent = data.list_name||'Lista';
       const createdEl = $('#card-modal-created');
@@ -2764,14 +2796,100 @@
             </div>`;
         } else apprBox.innerHTML = '';
       }
-      // Pendência Chamado: modo só-informações + destaque (banner rosa + botão grande)
-      try { this.applyPendenciaSimplified(data); } catch(e){ console.error(e); }
       // re-render board silencioso (mantém modal)
       this.renderBoardQuick();
     },
-    // Modal da Pendência Chamado: só informações + botão Chamado criado em destaque.
-    // Esconde edição (sidebar, título, descrição, checklist) e mostra painel rosa.
-    // Quando não é pendência, restaura tudo e remove o painel (modal é reutilizado).
+    // Card exclusivo da Pendência Chamado: layout próprio, só informações + Chamado criado.
+    // Sem sidebar, sem edição — substitui o modal normal (kp-normal-content <-> kp-pendencia-content).
+    renderPendenciaModal(data){
+      try { this._lastModalData = data; } catch(e){}
+      const nc = document.getElementById('kp-normal-content');
+      const pc = document.getElementById('kp-pendencia-content');
+      if(nc) nc.style.display = 'none';
+      if(!pc) return;
+      pc.style.display = 'block';
+      const amAdmin = this.isBoardAdmin();
+      const st = String(data.chamado_status || '');
+      const isLib = (st === 'liberado');
+      const srcId = data.chamado_source_id || '';
+      const srcName = data.chamado_source_name || (srcId ? ('#' + srcId) : '—');
+      const escola = data.name || srcName || ('Pendência #' + data.id);
+      const byName = data.chamado_by_name || '';
+      const created = data.date_creation ? this.formatDate(data.date_creation) : '';
+      const boardName = data.board_name || '';
+      const items = [];
+      try { ((data.checklists||[]).forEach(cl=> (cl.items||[]).forEach(it=> items.push(it)))); } catch(e){}
+      const machTotal = items.length;
+      const machHtml = machTotal ? items.map((it, i)=>{
+        const nm = String(it.name || '').replace(/\[mid:\d+\]/g, '').trim() || ('Item ' + (i+1));
+        return `<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #f0b6cd;border-radius:10px;padding:9px 12px">
+          <span style="background:#e1316f;color:#fff;min-width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">${i+1}</span>
+          <span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${this.escape(nm)}">${this.escape(nm)}</span>
+        </div>`;
+      }).join('') : '<div style="color:#5e6c84;font-size:13px">Sem máquinas vinculadas.</div>';
+      const statusPill = isLib
+        ? '<span style="background:#006644;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberado</span>'
+        : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>';
+      const actionHtml = isLib
+        ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem desbloqueada — chamado criado<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
+        : (amAdmin
+          ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#22b573,#0d8a4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(34,181,115,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:20px"></i> Chamado criado</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Libera a origem • zap em 25s • auto-exclui em 30s</div>`
+          : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`);
+      pc.innerHTML = `
+        <div style="background:linear-gradient(135deg,#d81b60,#ff5fa2);padding:20px 20px 16px;color:#fff">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">📞</span>
+            <div style="min-width:0;flex:1">
+              <div style="font-size:17px;font-weight:800;letter-spacing:.01em">Pendência Chamado</div>
+              <div style="font-size:12px;opacity:.92;margin-top:2px">#${data.id} • ${this.escape(boardName || data.list_name || '')}</div>
+            </div>
+            ${statusPill}
+          </div>
+        </div>
+        <div style="padding:18px 20px 20px;display:grid;gap:14px;background:#fff">
+          <div style="display:grid;gap:10px">
+            <div style="display:flex;gap:10px;align-items:flex-start;background:#fdf2f7;border:1px solid #f6c9dc;border-radius:12px;padding:12px 14px">
+              <span style="font-size:18px">🏫</span>
+              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#ad1457;letter-spacing:.05em">ESCOLA</div><div style="font-size:14px;font-weight:700;color:#172b4d">${this.escape(escola)}</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">ORIGEM</div><div style="font-size:13px;font-weight:700;color:#172b4d;margin-top:2px">#${srcId} ${this.escape(srcName)}</div></div>
+              <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">SOLICITADO</div><div style="font-size:13px;font-weight:600;color:#172b4d;margin-top:2px">${this.escape(byName || '—')}${created ? `<div style="font-size:11px;color:#5e6c84;font-weight:400">${this.escape(created)}</div>` : ''}</div></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <strong style="font-size:13px;color:#172b4d">🔧 Máquinas (${machTotal})</strong>
+              <span style="font-size:11px;color:#5e6c84">somente leitura</span>
+            </div>
+            <div style="display:grid;gap:8px;max-height:260px;overflow-y:auto">${machHtml}</div>
+          </div>
+          ${actionHtml}
+          <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:2px">
+            <button onclick="Kanpro.closeCardModal()" style="background:#f4f5f7;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d">Fechar</button>
+            ${amAdmin ? `<button onclick="if(confirm('Excluir esta pendência sem liberar a origem? As máquinas continuam travadas.')) Kanpro.deleteCard()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#eb5a46;font-weight:600">Excluir pendência</button>` : `<span style="font-size:11px;color:#97a0af">Somente leitura</span>`}
+          </div>
+        </div>`;
+      // cache local mínimo + agenda zap/delete quando liberado
+      try {
+        const idx = (this.cards||[]).findIndex(x=> String(x.id)===String(data.id));
+        if(idx>=0){ this.cards[idx].name=data.name; this.cards[idx].description=data.description; this.cards[idx].chamado_status=data.chamado_status; }
+        this.cardLabels[data.id] = data.labels||[];
+      } catch(e){}
+      if(isLib){
+        try {
+          let elapsed = 0;
+          if(data.date_mod){
+            const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
+            if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+          }
+          this.scheduleLiberadoZap(data.id, Math.max(2, 25 - elapsed));
+          this.schedulePendenciaAutoDelete(data.id, Math.max(2, 30 - elapsed));
+        } catch(e){ this.scheduleLiberadoZap(data.id, 25); this.schedulePendenciaAutoDelete(data.id, 30); }
+      }
+      try { this.renderBoardQuick(); } catch(e){}
+    },
+    // LEGADO: painel rosa da primeira versão simplificada — mantido só p/ limpar resto antigo.
     applyPendenciaSimplified(data){
       const panelId = 'kp-pendencia-panel';
       const isPend = this.isPendenciaCard(data);

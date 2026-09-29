@@ -390,6 +390,16 @@ class PluginKanproCard extends CommonDBTM {
             $sc = new self();
             if ($sc->getFromDB($data['chamado_source_id'])) $data['chamado_source_name'] = $sc->fields['name'] ?? ('#' . $data['chamado_source_id']);
         }
+        // quem solicitou/pegou (p/ o card exclusivo da pendência mostrar sem query extra)
+        $data['chamado_by'] = (int)($data['chamado_by'] ?? 0);
+        $data['chamado_by_name'] = '';
+        if ($data['chamado_by'] > 0) {
+            try {
+                $su = new User();
+                if ($su->getFromDB($data['chamado_by'])) $data['chamado_by_name'] = $su->getFriendlyName();
+                else $data['chamado_by_name'] = 'Usuário #' . $data['chamado_by'];
+            } catch (\Throwable $e) { $data['chamado_by_name'] = 'Usuário #' . $data['chamado_by']; }
+        }
         $data['chamado_pendencias'] = [];
         try {
             foreach ($DB->request(['SELECT' => ['id','name','chamado_status'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $cards_id]]) as $pr) {
