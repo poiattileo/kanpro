@@ -336,6 +336,7 @@ window.KanproBoards = (function(){
     document.getElementById('kpb-title').textContent = 'Acesso — ' + (d.board_name || ('Quadro #' + state.boardId));
     var html = '<div style="font-size:12px;color:#5e6c84">Quem pode visualizar este quadro. O <strong>criador</strong> e os <strong>admins</strong> podem adicionar pessoas e trocar papéis. Membro comum só visualiza.</div>';
     var membersHtml = (d.members && d.members.length ? d.members.map(function(m){
+      try {
       var ctrl;
       if (m.is_creator) {
         ctrl = '<small style="color:#5e6c84;font-size:12px">acesso total</small>';
@@ -355,14 +356,15 @@ window.KanproBoards = (function(){
         + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">' + esc(m.initials) + '</span>'
         + '<span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</span> ' + roleBadge(m) + '</span>'
         + ctrl + '</div>';
+      } catch(e){ return ''; }
     }).join('') : '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px;background:#f9fafb;border:1px dashed #dfe1e6;border-radius:8px">Nenhum membro ainda — adicione abaixo.</div>');
     html += '<div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:2px">👥 Pessoas com acesso (' + ((d.members||[]).length) + ')</div>';
-    html += '<div style="display:grid;gap:6px;max-height:min(32vh,280px);overflow-y:auto;align-content:start;padding-right:2px">' + membersHtml + '</div>';
+    html += '<div id="kpb-members-list" style="display:grid;gap:6px;align-content:start;min-height:40px">' + membersHtml + '</div>';
     if (d.can_manage) {
       html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
-        + '<div style="font-size:13px;font-weight:700;color:#172b4d">🎭 Perfis do GLPI com acesso</div>'
+        + '<div style="font-size:13px;font-weight:700;color:#172b4d">🎭 Perfis do GLPI com acesso (' + ((d.profiles||[]).length) + ')</div>'
         + '<div style="font-size:11px;color:#5e6c84">Todos os usuários vinculados ao perfil passam a ver este quadro.</div>'
-        + '<div style="display:grid;gap:6px;max-height:min(24vh,200px);overflow-y:auto;align-content:start;padding-right:2px">' + (d.profiles || []).map(function(p){
+        + '<div style="display:grid;gap:6px;align-content:start;min-height:20px">' + (d.profiles || []).map(function(p){
           var ctrl = '<span style="display:flex;gap:6px;align-items:center">'
             + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff">'
             + '<option value="admin"' + (p.role==='admin'?' selected':'') + '>⭐ Admin</option>'

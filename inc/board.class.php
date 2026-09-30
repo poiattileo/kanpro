@@ -58,12 +58,30 @@ class PluginKanproBoard extends CommonDBTM {
         if (!isset($input['entities_id'])) {
             $input['entities_id'] = $_SESSION['glpiactive_entity'] ?? 0;
         }
+        // checkbox "Notificação WhatsApp" do form de criar quadro (ausente = desligado;
+        // se a coluna ainda não existe (git update sem migrate), descarta p/ não quebrar o add)
+        global $DB;
+        if (isset($DB) && method_exists($DB, 'fieldExists') && $DB->tableExists('glpi_plugin_kanpro_boards') && $DB->fieldExists('glpi_plugin_kanpro_boards', 'whatsapp_notify')) {
+            $input['whatsapp_notify'] = !empty($input['whatsapp_notify']) ? 1 : 0;
+        } else {
+            unset($input['whatsapp_notify']);
+        }
         return $input;
     }
 
     function prepareInputForUpdate($input) {
         $input['date_mod'] = $_SESSION['glpi_currenttime'] ?? date('Y-m-d H:i:s');
         if (isset($input['color']) && strlen($input['color']) > 255) $input['color'] = substr($input['color'], 0, 255);
+        // só mexe no whatsapp se o form enviou o campo (hidden 0 + checkbox 1 garante o par);
+        // sem a coluna, descarta p/ não quebrar o update
+        if (array_key_exists('whatsapp_notify', $input)) {
+            global $DB;
+            if (isset($DB) && method_exists($DB, 'fieldExists') && $DB->tableExists('glpi_plugin_kanpro_boards') && $DB->fieldExists('glpi_plugin_kanpro_boards', 'whatsapp_notify')) {
+                $input['whatsapp_notify'] = !empty($input['whatsapp_notify']) ? 1 : 0;
+            } else {
+                unset($input['whatsapp_notify']);
+            }
+        }
         return $input;
     }
 
@@ -561,6 +579,17 @@ class PluginKanproBoard extends CommonDBTM {
             'team'    => '👥 Equipe',
             'public'  => '🌐 Público',
         ], ['value' => $this->fields['visibility'] ?? 'private']);
+        echo "</td></tr>";
+
+        // Notificação WhatsApp do quadro (criar ou editar via engrenagem — admin do quadro)
+        $zapOn = !empty($this->fields['whatsapp_notify']);
+        echo "<tr class='tab_bg_1'>";
+        echo "<td>Notificação WhatsApp<br><small style='color:#6b778c'>Botão no header p/ membro/admin avisar</small></td><td colspan='3'>";
+        echo "<input type='hidden' name='whatsapp_notify' value='0'>";
+        echo "<label style='display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700'>";
+        echo "<input type='checkbox' name='whatsapp_notify' value='1'" . ($zapOn ? ' checked' : '') . " style='width:16px;height:16px;accent-color:#25d366'> 📲 Notificação WhatsApp";
+        echo "</label>";
+        echo "<small style='color:#5e6c84'>Quando ligada, Membro ou Admin vê botão no topo do quadro que envia WhatsApp p/ cristian.sawata@educacao.sp.gov.br: \"No quadro (NOME) tem alterações realizadas para voce verificar\".</small>";
         echo "</td></tr>";
 
         echo "<tr class='tab_bg_1'>";

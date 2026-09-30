@@ -382,6 +382,8 @@ $acting_user_id_json = function_exists('kanpro_acting_user_id') ? (int) kanpro_a
 $history_btn = !empty($__histAdmin)
     ? '<button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>'
     : '';
+// Botão WhatsApp no header do quadro (visibilidade via JS: só se whatsapp_notify ligado e membro/admin)
+$zap_btn = '<button id="kanpro-zap-btn" onclick="Kanpro.sendBoardWhatsapp()" title="Avisar no WhatsApp" style="display:none;background:#25d366;border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700"><i class="ti ti-brand-whatsapp"></i> 📲 Notificar WhatsApp</button>';
 
 echo <<<HTML
 <style>
@@ -410,6 +412,7 @@ echo <<<HTML
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       {$assinatura_btn}
+      {$zap_btn}
       <button onclick="Kanpro.toggleDarkMode()" id="kanpro-dark-btn" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Alternar modo escuro"><i class="ti ti-moon"></i></button>
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
       <button onclick="Kanpro.openGlobalSearch()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer" title="Buscar em todos os quadros"><i class="ti ti-search"></i> Busca global</button>
@@ -577,6 +580,11 @@ echo <<<HTML
         <button onclick="Kanpro.openBoardSettings()" style="background:#eaecf0;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;flex:1">Configurações</button>
         <button onclick="Kanpro.archiveBoard()" style="background:#fff3cd;border:1px solid #ffc107;padding:6px 10px;border-radius:4px;cursor:pointer">Arquivar quadro</button>
       </div>
+    </div>
+    <!-- 📲 Notificação WhatsApp do quadro (só admin liga/desliga) -->
+    <div id="board-menu-whatsapp" style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px">
+      <div style="font-weight:700;margin-bottom:4px"><i class="ti ti-brand-whatsapp" style="color:#25d366"></i> 📲 Notificação WhatsApp</div>
+      <div id="board-menu-whatsapp-body" style="font-size:12px;color:#5e6c84">Carregando…</div>
     </div>
     <!-- 🎨 Troca de cor/tema dentro do quadro -->
     <div style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px">

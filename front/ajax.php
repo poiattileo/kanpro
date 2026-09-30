@@ -501,6 +501,9 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'whatsapp_notify')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp do quadro ligada' AFTER `visibility`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_cards')) {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) {
@@ -1579,6 +1582,51 @@ switch ($action) {
         if (!$rel) jexit(['success'=>false,'msg'=>'Papel de parede inválido']);
         $board->getFromDB($bid);
         jexit(['success'=>true,'background'=>$rel,'url'=>PluginKanproBoard::getBackgroundImageUrl($bid, $rel)]);
+
+    case 'set_board_whatsapp':
+        needEdit();
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $boardW = new PluginKanproBoard();
+        if (!$boardW->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        // só admin do quadro pode ligar/desligar
+        if (!kanpro_can_manage_members($bid)) {
+            jexit(['success'=>false,'msg'=>'Somente admin do quadro pode alterar a Notificação WhatsApp.']);
+        }
+        $enabledW = !empty($_POST['enabled']) ? 1 : 0;
+        if (isset($_POST['whatsapp_notify'])) $enabledW = ((int)$_POST['whatsapp_notify'] ? 1 : 0);
+        try {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'whatsapp_notify')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp do quadro ligada' AFTER `visibility`");
+            }
+            $DB->update('glpi_plugin_kanpro_boards', ['whatsapp_notify'=>$enabledW,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$bid]);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Falha ao salvar']); }
+        PluginKanproBoard::logActivity($bid, null, null, 'board_whatsapp', ($enabledW ? 'Notificação WhatsApp ATIVADA' : 'Notificação WhatsApp desativada'));
+        jexit(['success'=>true,'whatsapp_notify'=>$enabledW]);
+
+    case 'send_board_whatsapp':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        $boardS = new PluginKanproBoard();
+        if (!$boardS->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+        if (!kanpro_can_view_board($bid)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        if (empty($boardS->fields['whatsapp_notify'])) jexit(['success'=>false,'msg'=>'Notificação WhatsApp desligada neste quadro.']);
+        // só Membro ou Admin do quadro pode apertar o botão
+        $boardRoleS = kanpro_my_board_role($bid);
+        if ($boardRoleS === null) {
+            $meIdsS = array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]);
+            if (!in_array((int)($boardS->fields['users_id'] ?? 0), $meIdsS, true)) {
+                jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode notificar.']);
+            }
+        }
+        if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Remetente WhatsApp indisponível']);
+        try {
+            $resS = PluginKanproMaintenanceZap::sendBoardAlerta($bid);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro ao enviar: '.$e->getMessage()]); }
+        if (!empty($resS['ok'])) jexit(['success'=>true,'phone'=>($resS['phone'] ?? '')]);
+        $errS = (string)($resS['error'] ?? 'falha');
+        if ($errS === 'sem telefone') $errS = 'Aprovador sem telefone cadastrado (cristian.sawata@educacao.sp.gov.br)';
+        jexit(['success'=>false,'msg'=>'WhatsApp não enviado: '.$errS]);
 
     case 'invite_member':
         $bid = (int)($_POST['boards_id'] ?? 0);

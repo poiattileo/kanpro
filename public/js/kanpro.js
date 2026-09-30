@@ -81,43 +81,70 @@
       if(this.board && ids.includes(parseInt(this.board.users_id))) return true;
       return (this.members||[]).some(x=> ids.includes(parseInt(x.users_id)));
     },
-    // "admin do card" = admin do quadro ou criador do card
-    isCardAdmin(cardOrData){
-      if(this.isBoardAdmin()) return true;
-      try {
-        const creator = parseInt((cardOrData && (cardOrData.users_id ?? cardOrData.board_creator)) || 0);
-        if(creator > 0 && this.myUserIds().includes(creator)) return true;
-      } catch(e){}
-      return false;
+    // Notificação WhatsApp do QUADRO: só admin liga/desliga; membro ou admin vê o botão de envio
+    boardZapEnabled(){
+      return Number((this.board && this.board.whatsapp_notify) || 0) === 1;
     },
-    isCardMember(cardIdOrData){
+    canToggleBoardWhatsapp(){
+      return this.isBoardAdmin();
+    },
+    canSeeBoardZap(){
+      if(!this.boardZapEnabled()) return false;
+      return this.isBoardAdmin() || this.isBoardMember();
+    },
+    updateZapButton(){
       try {
-        const ids = this.myUserIds();
-        let cid = cardIdOrData;
-        // se passou o objeto do card, checa members direto (dados frescos do get_card)
-        if(cardIdOrData && typeof cardIdOrData === 'object'){
-          cid = cardIdOrData.id;
-          const arr0 = cardIdOrData.members || [];
-          if(arr0.some(m=> ids.includes(parseInt(m.id || m.users_id)))) return true;
+        const b = document.getElementById('kanpro-zap-btn');
+        if(!b) return;
+        b.style.display = this.canSeeBoardZap() ? '' : 'none';
+      } catch(e){}
+    },
+    toggleBoardWhatsapp(){
+      if(!this.canToggleBoardWhatsapp()){ this.showAlert('Somente admin do quadro pode alterar a Notificação WhatsApp.', 'Sem permissão'); return; }
+      const cur = this.boardZapEnabled() ? 0 : 1;
+      this.ajax('set_board_whatsapp', {boards_id: this.board.id, enabled: cur}).then(res=>{
+        if(res.success){
+          try { this.board.whatsapp_notify = Number(res.whatsapp_notify ?? cur); } catch(e){}
+          this.updateZapButton();
+          this.renderBoardMenuWhatsapp();
+          this.showToast(cur ? '📲 Notificação WhatsApp ATIVADA no quadro' : '📲 Notificação WhatsApp desativada no quadro');
+        } else {
+          this.showAlert(res.msg || 'Não foi possível alterar', 'Erro');
         }
-        const arr = this.cardMembers[cid] || [];
-        if(arr.some(m=> ids.includes(parseInt(m.users_id)))) return true;
-        // fallback: dados do modal aberto
-        const cur = this._cardMembersData || [];
-        if(String(cid) === String(this.currentCardId) && cur.some(m=> ids.includes(parseInt(m.id || m.users_id)))) return true;
+      });
+    },
+    sendBoardWhatsapp(){
+      const btn = document.getElementById('kanpro-zap-btn');
+      const old = btn ? btn.innerHTML : '';
+      if(btn){ btn.disabled = true; btn.style.opacity = '.6'; }
+      this.ajax('send_board_whatsapp', {boards_id: this.board.id}).then(res=>{
+        if(btn){ btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = old; }
+        if(res.success){
+          this.showToast('📲 WhatsApp enviado para o aprovador!');
+          this.showAlert('Mensagem enviada no WhatsApp:\n\nNo quadro (' + ((this.board && this.board.name) || '') + ') tem alterações realizadas para voce verificar', '✅ WhatsApp enviado');
+        } else {
+          this.showAlert(res.msg || 'Falha ao enviar', '❌ WhatsApp');
+        }
+      });
+    },
+    renderBoardMenuWhatsapp(){
+      try {
+        const body = document.getElementById('board-menu-whatsapp-body');
+        if(!body) return;
+        const on = this.boardZapEnabled();
+        const canToggle = this.canToggleBoardWhatsapp();
+        const canSee = this.canSeeBoardZap();
+        let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;${on ? 'background:#e6f9ec;color:#006644;border:1px solid #25d366' : 'background:#f4f5f7;color:#5e6c84;border:1px solid #dfe1e6'}">${on ? '📲 LIGADA' : '📴 Desligada'}</span>
+        </div>`;
+        html += `<div style="margin-bottom:8px">Quando ligada, Membro ou Admin vê botão <strong>📲 Notificar WhatsApp</strong> no topo do quadro que avisa <strong>cristian.sawata@educacao.sp.gov.br</strong>.</div>`;
+        if(canToggle){
+          html += `<button onclick="Kanpro.toggleBoardWhatsapp()" style="width:100%;background:${on ? '#ffebe6' : '#25d366'};color:${on ? '#bf2600' : '#fff'};border:1px solid ${on ? '#ffbdad' : '#25d366'};padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:800;font-size:12px">${on ? 'Desligar notificação' : '📲 Ligar Notificação WhatsApp'}</button>`;
+        } else {
+          html += `<div style="font-size:11px;color:#5e6c84;text-align:center">${canSee ? '✅ Você pode usar o botão no topo do quadro.' : 'Somente admin do quadro pode ligar.'}</div>`;
+        }
+        body.innerHTML = html;
       } catch(e){}
-      return false;
-    },
-    canToggleCardWhatsapp(cardOrData){
-      return this.isCardAdmin(cardOrData);
-    },
-    canSendCardWhatsapp(cardOrData){
-      if(!cardOrData) return false;
-      if(Number(cardOrData.whatsapp_notify || 0) !== 1) return false;
-      if(this.isBoardAdmin()) return true;
-      if(this.isCardMember(cardOrData)) return true;
-      if(this.isBoardMember()) return true;
-      return false;
     },
     csrf() {
 
@@ -173,6 +200,9 @@
       this.updateShowHiddenBtn();
       this.renderMemberAvatars();
       this.renderBoardMenuDetails();
+      this.updateZapButton();
+      // limpa resquício da UI antiga de card (versão anterior): toggle/selo do cartão
+      try { document.getElementById('kp-whatsapp-toggle-btn')?.remove(); } catch(e){}
       this.updateStats();
       this.applyDarkMode();
       if(this.openCardId){ this.openCard(this.openCardId); }
@@ -388,6 +418,7 @@
         this.renderBoard();
         this.updateShowHiddenBtn();
         this.renderMemberAvatars();
+        this.updateZapButton();
 
         if(!isFirstLoad && changedCardIds.length){
           this.showToast(newCount>0 ? 'Quadro atualizado — novo cartão adicionado' : 'Quadro atualizado');
@@ -924,9 +955,6 @@
         ${addCardHtml}
         <div class="kp-card-composer" style="display:none">
           <textarea placeholder="Digite um título para este cartão..." rows="3"></textarea>
-          <label class="kp-whatsapp-check" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5e6c84;margin-top:8px;cursor:pointer">
-            <input type="checkbox" class="kp-whatsapp-input" style="accent-color:#25d366"> 📲 Notificação WhatsApp
-          </label>
           <div class="kp-composer-actions">
             <button class="kp-btn-primary" onclick="Kanpro.confirmAddCard(${list.id}, this)">Adicionar cartão</button>
             <button class="kp-btn-ghost" onclick="Kanpro.hideAddCard(${list.id})">✕</button>
@@ -1151,10 +1179,6 @@
         const chSt = String(card.chamado_status || '');
         if (chSt === 'liberado') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">📞 Chamado criado ✓</span>`);
         else badges.push(`<span class="kp-badge" style="background:#e1316f;color:#fff;font-weight:800;border:1px solid #e1316f">📞 Pendência Chamado</span>`);
-      }
-      // Notificação WhatsApp ligada — selo verde no mini-card
-      if (Number(card.whatsapp_notify || 0) === 1) {
-        badges.push(`<span class="kp-badge" title="Notificação WhatsApp ligada — abra o card para avisar" style="background:#25d366;color:#fff;font-weight:800;border:1px solid #25d366"><i class="ti ti-brand-whatsapp"></i> 📲 WhatsApp</span>`);
       }
       if (members.length) {
         // members avatars handled separately
@@ -1734,8 +1758,6 @@
     renderNotifiedInModal(isNotified, cardData){
       const box = document.getElementById('card-modal-badges');
       if(!box) return;
-      // preserva WhatsApp e chamado (todos moram no header)
-      const zapHtml = box.querySelector('#kp-whatsapp-actions') ? box.querySelector('#kp-whatsapp-actions').outerHTML : '<span id="kp-whatsapp-actions" style="display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center"></span>';
       // SÓ Retirada mostra Notificado
       let showNotif = true;
       try {
@@ -1751,133 +1773,15 @@
       // preserva botões de chamado (Pegar / Chamado criado) que também moram aqui
       const extra = box.querySelector('#kp-chamado-actions') ? box.querySelector('#kp-chamado-actions').outerHTML : '<span id="kp-chamado-actions" style="display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center"></span>';
       if(!showNotif){
-        box.innerHTML = zapHtml + extra;
-        const hasZap = box.querySelector('#kp-whatsapp-actions') && box.querySelector('#kp-whatsapp-actions').innerHTML.trim();
-        const hasCh = box.querySelector('#kp-chamado-actions') && box.querySelector('#kp-chamado-actions').innerHTML.trim();
-        box.style.display = (hasZap || hasCh) ? 'flex' : 'none';
+        box.innerHTML = extra;
+        box.style.display = box.querySelector('#kp-chamado-actions') && box.querySelector('#kp-chamado-actions').innerHTML.trim() ? 'flex' : 'none';
         return;
       }
       box.innerHTML = `
         <button onclick="Kanpro.toggleNotified()" title="${on ? 'Marcado como notificado — clique para desmarcar' : 'Marcar que foi notificado sobre o chamado'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
           <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificado?'}
-        </button>${zapHtml}${extra}`;
+        </button>${extra}`;
       box.style.display = 'flex';
-    },
-    // ---------- NOTIFICAÇÃO WHATSAPP DO CARTÃO ----------
-    // Toggle (só admin do card/quadro) + botão no header (Membro ou Admin) que avisa o aprovador fixo.
-    renderWhatsappInModal(data){
-      try {
-        const box = document.getElementById('card-modal-badges');
-        if(box && !box.querySelector('#kp-whatsapp-actions')){
-          const s = document.createElement('span');
-          s.id = 'kp-whatsapp-actions';
-          s.style.cssText = 'display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center';
-          box.appendChild(s);
-          if(box.style.display === 'none') box.style.display = 'flex';
-        }
-        const wrap = document.getElementById('kp-whatsapp-actions');
-        const d = data || this._lastModalData || ((this.cards||[]).find(x=> x.id==this.currentCardId) || {});
-        const enabled = Number(d.whatsapp_notify || 0) === 1;
-        const canToggle = this.canToggleCardWhatsapp(d);
-        const canSend = this.canSendCardWhatsapp(d);
-        // sidebar: botão Notificação WhatsApp (só admin vê; engrenagem de edição do card)
-        try {
-          const sideBtns = document.querySelector('#kanpro-card-modal .kp-sidebar-btn')?.parentElement?.parentElement || document.querySelector('#kanpro-card-modal .kp-sidebar-btn')?.parentElement;
-          // procura container AÇÕES (segundo bloco da sidebar)
-          let sideWrap = null;
-          document.querySelectorAll('#kanpro-card-modal .kp-sidebar-btn').forEach(b=>{
-            if(b.id === 'kp-whatsapp-toggle-btn') sideWrap = b.parentElement;
-          });
-          const allSide = document.querySelectorAll('#kanpro-card-modal div');
-          // garante botão 1x
-          let tgl = document.getElementById('kp-whatsapp-toggle-btn');
-          if(!tgl){
-            // acha o bloco AÇÕES pelo título
-            const titles = Array.from(document.querySelectorAll('#kanpro-card-modal div')).filter(el=> el.textContent.trim() === 'AÇÕES');
-            const actionsBox = titles.length ? titles[0].nextElementSibling : null;
-            if(actionsBox){
-              tgl = document.createElement('button');
-              tgl.id = 'kp-whatsapp-toggle-btn';
-              tgl.className = 'kp-sidebar-btn';
-              tgl.onclick = ()=> Kanpro.toggleCardWhatsapp();
-              actionsBox.appendChild(tgl);
-            }
-          }
-          if(tgl){
-            if(!canToggle){
-              tgl.style.display = 'none';
-            } else {
-              tgl.style.display = '';
-              tgl.style.background = enabled ? '#e6f9ec' : '';
-              tgl.style.border = enabled ? '1px solid #25d366' : '';
-              tgl.style.fontWeight = '800';
-              tgl.innerHTML = enabled
-                ? '<i class="ti ti-brand-whatsapp"></i> 📲 Notificação WhatsApp: ON'
-                : '<i class="ti ti-brand-whatsapp"></i> 📲 Notificação WhatsApp: OFF';
-              tgl.title = enabled ? 'Notificação ligada — clique para desligar' : 'Notificação desligada — clique para ligar';
-            }
-          }
-        } catch(e){}
-        if(!wrap) return;
-        if(!enabled){
-          wrap.innerHTML = '';
-          // se só tinha whatsapp, esconde box (mas mantém chamado/notificado)
-          try {
-            const hasOther = (box.querySelector('#kp-chamado-actions')?.innerHTML.trim() || '') !== '' || (Array.from(box.querySelectorAll('button')).some(b=> b !== wrap && b.textContent.includes('Notificado')));
-            if(!hasOther && wrap.innerHTML.trim() === '') {
-              // deixa display como está (renderNotified decide)
-            }
-          } catch(e){}
-          return;
-        }
-        if(!canSend){
-          wrap.innerHTML = '';
-          return;
-        }
-        const cardName = this.escape(d.name || ('#' + (d.id || '')));
-        wrap.innerHTML = `
-          <button id="kp-whatsapp-send-btn" onclick="Kanpro.sendCardWhatsapp()" title="Avisar no WhatsApp: No card (${cardName}) tem alterações para verificar" style="background:#25d366;color:#fff;border:1px solid #25d366;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
-            <i class="ti ti-brand-whatsapp"></i> 📲 Notificar WhatsApp
-          </button>`;
-        if(box) box.style.display = 'flex';
-      } catch(e){ console.error('[KanPro] renderWhatsapp', e); }
-    },
-    toggleCardWhatsapp(){
-      const cid = this.currentCardId;
-      if(!cid) return;
-      const d = this._lastModalData || ((this.cards||[]).find(x=> x.id==cid) || {});
-      if(!this.canToggleCardWhatsapp(d)){ this.showAlert('Somente admin do quadro pode alterar a Notificação WhatsApp.', 'Sem permissão'); return; }
-      const cur = Number(d.whatsapp_notify || 0) === 1 ? 0 : 1;
-      this.ajax('set_card_whatsapp', {cards_id: cid, enabled: cur}).then(res=>{
-        if(res.success){
-          const nv = Number(res.whatsapp_notify ?? cur);
-          try {
-            if(this._lastModalData) this._lastModalData.whatsapp_notify = nv;
-            const lc = (this.cards||[]).find(x=> x.id==cid);
-            if(lc) lc.whatsapp_notify = nv;
-          } catch(e){}
-          this.renderWhatsappInModal(this._lastModalData || {id: cid, whatsapp_notify: nv});
-          this.renderBoard();
-          this.showToast(nv ? '📲 Notificação WhatsApp ATIVADA' : '📲 Notificação WhatsApp desativada');
-        } else {
-          this.showAlert(res.msg || 'Não foi possível alterar', 'Erro');
-        }
-      });
-    },
-    sendCardWhatsapp(){
-      const cid = this.currentCardId;
-      if(!cid) return;
-      const btn = document.getElementById('kp-whatsapp-send-btn');
-      if(btn){ btn.disabled = true; btn.style.opacity = '.6'; btn.innerHTML = '<i class="ti ti-loader"></i> Enviando…'; }
-      this.ajax('send_card_whatsapp', {cards_id: cid}).then(res=>{
-        if(btn){ btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = '<i class="ti ti-brand-whatsapp"></i> 📲 Notificar WhatsApp'; }
-        if(res.success){
-          this.showToast('📲 WhatsApp enviado para o aprovador!');
-          this.showAlert('Mensagem enviada no WhatsApp:\n\nNo card (' + ((this._lastModalData && this._lastModalData.name) || ('#' + cid)) + ') tem alterações realizadas para voce verificar', '✅ WhatsApp enviado');
-        } else {
-          this.showAlert(res.msg || 'Falha ao enviar', '❌ WhatsApp');
-        }
-      });
     },
     // ---------- TRAVA: cartão da lista "Pendente" ----------
     // Nasce como Manutenção (nome vem da entidade, conteúdo é o checklist de máquinas):
@@ -2540,17 +2444,13 @@
       const ta = listEl.querySelector('.kp-card-composer textarea');
       const name = ta.value.trim();
       if(!name) return;
-      const zapChk = listEl.querySelector('.kp-card-composer .kp-whatsapp-input');
-      const whatsapp_notify = (zapChk && zapChk.checked) ? 1 : 0;
       btn.disabled=true;
-      this.ajax('add_card', {lists_id: listId, name, whatsapp_notify}).then(res=>{
+      this.ajax('add_card', {lists_id: listId, name}).then(res=>{
         btn.disabled=false;
         if(res.success){
           ta.value=''; // limpa (o composer agora persiste entre renders)
-          if(zapChk) zapChk.checked = false;
-          const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name, rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0, is_notified:0, whatsapp_notify};
+          const newCard = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name, rank: 999999, description:'', due_date:null, start_date:null, cover_color:null, is_completed:0, is_archived:0, is_notified:0};
           if(newCard.is_notified === undefined) newCard.is_notified = 0;
-          if(newCard.whatsapp_notify === undefined) newCard.whatsapp_notify = whatsapp_notify;
           this.cards.push(newCard);
           this.cardLabels[newCard.id]=[];
           this.cardMembers[newCard.id]=[];
@@ -2619,7 +2519,6 @@
               <input id="task-due" type="datetime-local" class="task-field" style="padding:8px 10px;font-size:13px"></div>
               <label id="task-urgent-box" class="task-urgent-box"><input id="task-urgent" type="checkbox" onchange="document.getElementById('task-urgent-box').classList.toggle('on', this.checked)" style="width:16px;height:16px;accent-color:#eb5a46"> 🔥 É urgência</label>
             </div>
-            <label id="task-whatsapp-box" class="task-urgent-box" style="margin-top:8px" title="Quando ligado, Membro ou Admin do card vê botão no header para avisar no WhatsApp"><input id="task-whatsapp" type="checkbox" onchange="document.getElementById('task-whatsapp-box').classList.toggle('on', this.checked);document.getElementById('task-whatsapp-box').style.background=this.checked?'#e6f9ec':'';document.getElementById('task-whatsapp-box').style.borderColor=this.checked?'#25d366':''" style="width:16px;height:16px;accent-color:#25d366"> 📲 Notificação WhatsApp</label>
             </div>
           </div>
           <button onclick="Kanpro.confirmTaskCard(${listId}, this)" class="task-create">Criar cartão</button>
@@ -2656,16 +2555,13 @@
       const dueRaw = document.getElementById('task-due').value;
       const due = dueRaw ? dueRaw.replace('T',' ') + ':00' : '';
       const urgent = document.getElementById('task-urgent').checked ? 1 : 0;
-      const zapEl = document.getElementById('task-whatsapp');
-      const whatsapp_notify = (zapEl && zapEl.checked) ? 1 : 0;
       btn.disabled = true;
-      this.ajax('add_task_card', {lists_id: listId, name: title, items: JSON.stringify(items), due_date: due, is_urgent: urgent, whatsapp_notify}).then(res=>{
+      this.ajax('add_task_card', {lists_id: listId, name: title, items: JSON.stringify(items), due_date: due, is_urgent: urgent}).then(res=>{
         btn.disabled = false;
         if(res.success){
           this.closePicker();
-          const nc = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: title, rank: 999999, description: '', due_date: due || null, start_date: null, cover_color: null, is_completed: 0, is_archived: 0, is_urgent: urgent, is_notified: 0, whatsapp_notify};
+          const nc = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: title, rank: 999999, description: '', due_date: due || null, start_date: null, cover_color: null, is_completed: 0, is_archived: 0, is_urgent: urgent, is_notified: 0};
           if(nc.is_notified === undefined) nc.is_notified = 0;
-          if(nc.whatsapp_notify === undefined) nc.whatsapp_notify = whatsapp_notify;
           this.cards.push(nc);
           this.cardLabels[nc.id] = [];
           this.cardMembers[nc.id] = [];
@@ -2789,8 +2685,6 @@
       try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0, data); } catch(e){}
       // pendência chamado / pegar / solicitar (botões do fluxo)
       try { this.renderChamadoInModal(data); } catch(e){ console.error(e); }
-      // notificação WhatsApp do cartão (toggle admin + botão header p/ membro/admin)
-      try { this.renderWhatsappInModal(data); } catch(e){ console.error(e); }
       // cover
       const cover = $('#card-modal-cover');
       if(data.cover_color){
@@ -2988,7 +2882,6 @@
         this.cards[idx].is_completed=data.is_completed;
         this.cards[idx].is_maintenance=data.is_maintenance||0;
         if(data.is_notified !== undefined) this.cards[idx].is_notified = data.is_notified ? 1 : 0;
-        if(data.whatsapp_notify !== undefined) this.cards[idx].whatsapp_notify = data.whatsapp_notify ? 1 : 0;
       }
       // atualiza maps
       this.cardLabels[data.id] = data.labels||[];
@@ -5986,6 +5879,7 @@
       this.renderBoardMenuColors();
       this.renderBoardMenuBackground();
       this.renderBoardMenuWallpapers();
+      this.renderBoardMenuWhatsapp();
       this.updateTrashCount();
     },
     closeBoardMenu(){ $('#kanpro-board-menu').style.display='none'; },
@@ -6462,6 +6356,7 @@
           return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👤 MEMBRO</small>';
         };
         const membersHtml = (res.members||[]).map(m=>{
+          try {
           let ctrl = '';
           if(m.is_creator){
             ctrl = '<small style="color:#5e6c84;font-size:12px">acesso total</small>';
@@ -6479,6 +6374,7 @@
             <span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${this.escape(m.initials||'?')}</span>
             <span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(m.name||('Usuário #'+m.users_id))}</span> ${badge(m)}</span>
             ${ctrl}</div>`;
+          } catch(e){ return ''; }
         }).join('') || '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhum membro ainda.</div>';
         let addHtml = '';
         if(canM){
@@ -6496,7 +6392,7 @@
         }
         body.innerHTML = `<div style="font-size:12px;color:#5e6c84;margin-bottom:8px">Membros existentes e seus cargos — admin pode trocar o papel ou remover.</div>
           <div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:4px">👥 Pessoas com acesso (${(res.members||[]).length})</div>
-          <div style="display:grid;gap:6px;max-height:280px;overflow-y:auto">${membersHtml}</div>${addHtml}`;
+          <div id="kpk-members-list" style="display:grid;gap:6px;align-content:start;min-height:40px">${membersHtml}</div>${addHtml}`;
         if(canM){
           this._boardAvailable = res.available || [];
           this.renderBoardMemberResults('');

@@ -25,6 +25,7 @@ function plugin_kanpro_install(): bool {
                 `is_starred`      TINYINT(1)   NOT NULL DEFAULT '0',
                 `generate_term`   TINYINT(1)   NOT NULL DEFAULT '0',
                 `visibility`      VARCHAR(20)  NOT NULL DEFAULT 'private',
+                `whatsapp_notify` TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp do quadro ligada',
                 `users_id`        INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`   DATETIME     DEFAULT NULL,
                 `date_mod`        DATETIME     DEFAULT NULL,
@@ -47,6 +48,10 @@ function plugin_kanpro_install(): bool {
         // garante background existe (tema degradê)
         if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'background')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `background` VARCHAR(255) DEFAULT NULL AFTER `color`");
+        }
+        // notificacao whatsapp do quadro (botao no header p/ membro/admin avisar o aprovador)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'whatsapp_notify')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp do quadro ligada' AFTER `visibility`");
         }
     }
     // Migração: amplia color para suportar degradês (linear-gradient) — 255 chars

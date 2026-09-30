@@ -33,7 +33,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete', 'card_alerta'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete', 'card_alerta', 'quadro_alerta'];
     }
 
     /** Login/e-mail do aprovador fixo da Pendência Chamado */
@@ -561,6 +561,54 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $details
             );
         } catch (Throwable $e) {}
+    }
+
+    static function logBoard(int $boards_id, string $details): void {
+        try {
+            PluginKanproBoard::logActivity($boards_id, null, null, 'board_zap', $details);
+        } catch (Throwable $e) {}
+    }
+
+    /**
+     * Alerta manual do QUADRO: botão no header do quadro (Membro ou Admin do quadro,
+     * com Notificação WhatsApp ligada) envia "No quadro (NOME) tem alterações
+     * realizadas para voce verificar" para o aprovador fixo
+     * (cristian.sawata@educacao.sp.gov.br).
+     * Sem trava de duplicado (cada aperto envia). Nunca joga exceção.
+     */
+    static function sendBoardAlerta(int $boards_id): array {
+        try {
+            if ($boards_id <= 0) return ['ok' => false, 'error' => 'Quadro inválido'];
+            $b = new PluginKanproBoard();
+            if (!$b->getFromDB($boards_id)) return ['ok' => false, 'error' => 'Quadro não encontrado'];
+            $quadroNome = trim((string)($b->fields['name'] ?? ''));
+            if ($quadroNome === '') $quadroNome = 'Quadro #' . $boards_id;
+            $phone = self::resolveApproverPhone();
+            $phone = self::normalizeBRPhone((string)$phone);
+            if ($phone === '') {
+                self::markSent(0, 'quadro_alerta', '', false, 'sem telefone do aprovador');
+                self::logBoard($boards_id, 'WhatsApp quadro_alerta NÃO enviado: aprovador sem telefone cadastrado (' . self::pendenciaApprover() . ')');
+                return ['ok' => false, 'error' => 'sem telefone'];
+            }
+            $txt = self::renderTxt('quadro_alerta', [
+                'board_id'  => (string)$boards_id,
+                'quadro'    => $quadroNome,
+                'quadro_nome' => $quadroNome,
+                'data'      => date('d/m/Y H:i'),
+            ]);
+            // fallback se template ausente: mensagem pedida pelo usuário
+            if ($txt === null || $txt === '') {
+                $txt = "No quadro ({$quadroNome}) tem alterações realizadas para voce verificar";
+            }
+            $res = self::evoSend($phone, $txt, 20);
+            self::markSent($boards_id, 'quadro_alerta', $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+            self::logBoard($boards_id, $res['ok']
+                ? "WhatsApp quadro_alerta enviado para {$phone} (aprovador)"
+                : "WhatsApp quadro_alerta FALHOU para {$phone}: " . ($res['error'] ?? ''));
+            return $res + ['phone' => $phone];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
     }
 
     /**
