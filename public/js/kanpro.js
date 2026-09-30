@@ -314,7 +314,7 @@
         this.transferStatus = res.transferStatus || {};
 
         // retoma auto-exclusão de pendências liberadas (mesmo sem abrir o modal — 30s desde date_mod)
-        // + zap de liberado (25s desde date_mod). Anti-duplicado no servidor.
+        // + zap de liberado (5s desde date_mod). Anti-duplicado no servidor.
         try {
           (this.cards||[]).forEach(c=>{
             if(c && Number(c.chamado_source_id||0) > 0 && String(c.chamado_status||'') === 'liberado'){
@@ -328,9 +328,9 @@
                 if(delRemain <= 30) this.schedulePendenciaAutoDelete(c.id, delRemain);
               }
               if(!(this._libZapTimers && this._libZapTimers[c.id])){
-                const zapRemain = 25 - elapsed;
+                const zapRemain = 5 - elapsed;
                 if(zapRemain <= 0) this.scheduleLiberadoZap(c.id, 2);
-                else if(zapRemain <= 25) this.scheduleLiberadoZap(c.id, zapRemain);
+                else if(zapRemain <= 5) this.scheduleLiberadoZap(c.id, zapRemain);
               }
             }
           });
@@ -1836,16 +1836,16 @@
         if(act){
           if(isLib){
             act.innerHTML += `<span title="Origem ${this.escape(srcName)} liberada — auto-exclui em 30s" style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">📞 Chamado criado ✓ <span style="background:#006644;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">⏳ <span id="kp-autodel-count-${data.id}">30s</span></span></span>`;
-            // retoma contagem após reload (zap 25s + delete 30s desde date_mod da liberação)
+            // retoma contagem após reload (zap 5s + delete 30s desde date_mod da liberação)
             try {
               let elapsed = 0;
               if(data.date_mod){
                 const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
                 if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
               }
-              this.scheduleLiberadoZap(data.id, Math.max(2, 25 - elapsed));
+              this.scheduleLiberadoZap(data.id, Math.max(2, 5 - elapsed));
               this.schedulePendenciaAutoDelete(data.id, Math.max(2, 30 - elapsed));
-            } catch(e){ this.scheduleLiberadoZap(data.id, 25); this.schedulePendenciaAutoDelete(data.id, 30); }
+            } catch(e){ this.scheduleLiberadoZap(data.id, 5); this.schedulePendenciaAutoDelete(data.id, 30); }
           } else {
             act.innerHTML += `<button onclick="Kanpro.confirmChamadoCriado()" title="Confirmar que o chamado foi criado e liberar a origem ${this.escape(srcName)} (só admin)" style="background:${amAdmin ? '#61bd4f' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-phone-check"></i> 📞 Chamado criado${amAdmin ? '' : ' (só admin)'}</button>`;
           }
@@ -2084,17 +2084,17 @@
         }
       } catch(e){}
       const ok = await this.showConfirm(
-        `Confirmar que o chamado foi criado?\n\n📋 Pendência #${cid} "${String(pName).slice(0,60)}"\n🔗 Origem ${srcId ? '#' + srcId + ' "' + String(srcName).slice(0,60) + '"' : srcName}${nMach ? `\n🔧 ${nMach} máquina(s) serão liberadas` : ''}\n\n• Zap para os técnicos em 25s\n• Este card se auto-exclui em 30s`,
+        `Confirmar que o chamado foi criado?\n\n📋 Pendência #${cid} "${String(pName).slice(0,60)}"\n🔗 Origem ${srcId ? '#' + srcId + ' "' + String(srcName).slice(0,60) + '"' : srcName}${nMach ? `\n🔧 ${nMach} máquina(s) serão liberadas` : ''}\n\n• Zap para os técnicos em 5s\n• Este card se auto-exclui em 30s`,
         '📞 Chamado criado?',
         'Liberar origem'
       );
       if(!ok) return;
       this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
         if(!res || !res.success){ this.showAlert((res&&res.msg)||'Erro ao confirmar', 'Erro'); return; }
-        this.showToast('Origem liberada ✓ — zap em 25s, excluindo em 30s ⏳');
+        this.showToast('Origem liberada ✓ — zap em 5s, excluindo em 30s ⏳');
         this.refreshCardModal();
         this.forceSync();
-        this.scheduleLiberadoZap(cid, 25);
+        this.scheduleLiberadoZap(cid, 5);
         this.schedulePendenciaAutoDelete(cid, 30);
       });
     },
@@ -2102,7 +2102,7 @@
       try {
         this._libZapTimers = this._libZapTimers || {};
         if(this._libZapTimers[pid]) clearTimeout(this._libZapTimers[pid]);
-        const wait = Math.max(1, Math.round(seconds || 25));
+        const wait = Math.max(1, Math.round(seconds || 5));
         this._libZapTimers[pid] = setTimeout(()=>{
           delete this._libZapTimers[pid];
           this.ajax('send_liberado_zap', {pendencia_cards_id: pid}).then(res=>{
@@ -2879,7 +2879,7 @@
       const actionHtml = isLib
         ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem desbloqueada — chamado criado<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
         : (amAdmin
-          ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#22b573,#0d8a4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(34,181,115,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:20px"></i> Chamado criado</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Libera a origem • zap em 25s • auto-exclui em 30s</div>`
+          ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#22b573,#0d8a4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(34,181,115,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:20px"></i> Chamado criado</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Libera a origem • zap em 5s • auto-exclui em 30s</div>`
           : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`);
       pc.innerHTML = `
         <div style="background:linear-gradient(135deg,#d81b60,#ff5fa2);padding:20px 20px 16px;color:#fff">
@@ -2932,9 +2932,9 @@
             const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
             if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
           }
-          this.scheduleLiberadoZap(data.id, Math.max(2, 25 - elapsed));
+          this.scheduleLiberadoZap(data.id, Math.max(2, 5 - elapsed));
           this.schedulePendenciaAutoDelete(data.id, Math.max(2, 30 - elapsed));
-        } catch(e){ this.scheduleLiberadoZap(data.id, 25); this.schedulePendenciaAutoDelete(data.id, 30); }
+        } catch(e){ this.scheduleLiberadoZap(data.id, 5); this.schedulePendenciaAutoDelete(data.id, 30); }
       }
       try { this.renderBoardQuick(); } catch(e){}
     },
@@ -3008,7 +3008,7 @@
       const bigBtn = isLib
         ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:10px;padding:12px;text-align:center;font-weight:800;font-size:14px">✓ Liberado — origem desbloqueada<br><span style="font-size:12px;font-weight:600">auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:8px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
         : (amAdmin
-          ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#61bd4f,#2e9e4f);color:#fff;border:none;padding:14px;border-radius:10px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 3px 10px rgba(46,158,79,.4);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:18px"></i> 📞 Chamado criado — Liberar origem</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:6px">Libera as máquinas na origem • zap em 25s • auto-exclui em 30s</div>`
+          ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#61bd4f,#2e9e4f);color:#fff;border:none;padding:14px;border-radius:10px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 3px 10px rgba(46,158,79,.4);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:18px"></i> 📞 Chamado criado — Liberar origem</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:6px">Libera as máquinas na origem • zap em 5s • auto-exclui em 30s</div>`
           : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:10px;padding:12px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`);
       const html = `
         <div style="background:linear-gradient(135deg,#e1316f,#ff78cb);border-radius:12px;padding:14px 16px;color:#fff;box-shadow:0 3px 10px rgba(225,49,111,.35)">
@@ -5671,6 +5671,8 @@
       let s = String(raw == null ? '' : raw).replace(/\[mid:\d+\]/gi, '').trim();
       // remove prefixo "#12 — " / "#12 " herdado da pendência
       s = s.replace(/^#\s*\d+\s*[—\-–:.]?\s*/, '').trim();
+      // remove prefixo "Máquina N - " do label p/ agrupar por modelo ("6x Notebook")
+      s = s.replace(/^m[aá]quina\s+\d+\s*[-–—:.]?\s*/i, '').trim();
       s = s.replace(/\s+/g, ' ').trim();
       return s;
     },

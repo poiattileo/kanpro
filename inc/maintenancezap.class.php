@@ -19,7 +19,7 @@ if (!defined('GLPI_ROOT')) {
  *   cancelado revert_maintenance
  *   pendencia request_chamado / pegar_pending_card — 1 msg por card novo em Pendência Chamado
  *             (destinatário fixo: fone do usuário cristian.sawata@educacao.sp.gov.br)
- *   liberado  confirm_chamado_created + 25s — 1 msg por técnico membro da origem
+ *   liberado  confirm_chamado_created + 5s — 1 msg por técnico membro da origem
  *             (avisa chamado criado + máquinas liberadas, com nº/nome do chamado)
  *
  * Anti-duplicado: tabela glpi_plugin_kanpro_maintenance_zaplog (milestone por card).
@@ -407,7 +407,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Aviso de liberado: 1 msg por técnico membro da origem, 25s após Chamado criado.
+     * Aviso de liberado: 1 msg por técnico membro da origem, 5s após Chamado criado.
      * Anti-duplicado por técnico (milestone liberado_<uid>). Nunca joga exceção.
      */
     static function sendLiberado(int $pendenciaId): array {

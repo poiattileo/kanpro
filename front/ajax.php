@@ -3237,7 +3237,7 @@ switch ($action) {
         jexit(['success'=>true,'deleted'=>true]);
 
     case 'send_liberado_zap':
-        // Disparo 25s após Chamado criado (agendado no kanban). Anti-duplicado por técnico. Nunca quebra.
+        // Disparo 5s após Chamado criado (agendado no kanban). Anti-duplicado por técnico. Nunca quebra.
         needEdit();
         kanpro_ensure_maintenance_tables();
         $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
