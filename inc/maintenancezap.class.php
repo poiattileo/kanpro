@@ -905,7 +905,10 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             ]);
             // lembretes 9h e 13h: Aguardando aprovação + Pendente + Em Andamento (só envia se > 0)
             // frequency 1800 (30min): permite nova tentativa ainda na mesma hora.
-            foreach ([['zaplembrete9', 9, 'KanPro: WhatsApp lembrete 9h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete13', 13, 'KanPro: WhatsApp lembrete 13h (Aguard.aprovação + Pendente + Andamento)']] as [$cname, $chour, $cmt]) {
+            // ATENÇÃO: hourmax é EXCLUSIVO no GLPI (roda se hourmin <= H < hourmax).
+            // Com hourmin==hourmax a tarefa NUNCA entra na janela e jamais executa —
+            // por isso era hourmin==hourmax (9/9 e 13/13) e nada era enviado. Janela de 1h.
+            foreach ([['zaplembrete9', 9, 10, 'KanPro: WhatsApp lembrete 9h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete13', 13, 14, 'KanPro: WhatsApp lembrete 13h (Aguard.aprovação + Pendente + Andamento)']] as [$cname, $chour, $hmax, $cmt]) {
                 $upsert($cname, [
                     'frequency'     => 1800,
                     'param'         => $chour,
@@ -914,7 +917,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'allowmode'     => 3,
                     'logs_lifetime' => 30,
                     'hourmin'       => $chour,
-                    'hourmax'       => $chour,
+                    'hourmax'       => $hmax,
                     'comment'       => $cmt,
                 ]);
             }
