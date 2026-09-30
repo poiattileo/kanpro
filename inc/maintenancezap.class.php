@@ -940,12 +940,14 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             // ATENÇÃO: hourmax é EXCLUSIVO no GLPI (roda se hourmin <= H < hourmax).
             // Com hourmin==hourmax a tarefa NUNCA entra na janela e jamais executa —
             // por isso era hourmin==hourmax (9/9 e 13/13) e nada era enviado. Janela de 1h.
+            // mode EXTERNO: dispara via cron do SO (php front/cron.php) — garante o envio
+            // mesmo sem ninguém usando o sistema. O fallback do polling continua como rede extra.
             foreach ([['zaplembrete9', 9, 10, 'KanPro: WhatsApp lembrete 9h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete13', 13, 14, 'KanPro: WhatsApp lembrete 13h (Aguard.aprovação + Pendente + Andamento)']] as [$cname, $chour, $hmax, $cmt]) {
                 $upsert($cname, [
                     'frequency'     => 1800,
                     'param'         => $chour,
                     'state'         => 1,
-                    'mode'          => 1, // MODE_INTERNAL (antes MODE_EXTERNAL nunca rodava sem cron do SO)
+                    'mode'          => 2, // MODE_EXTERNAL: exige cron do SO — ver README do plugin
                     'allowmode'     => 3,
                     'logs_lifetime' => 30,
                     'hourmin'       => $chour,
