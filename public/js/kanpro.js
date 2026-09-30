@@ -764,6 +764,19 @@
           slot.innerHTML = this.listTypeChip(list, false, true);
         }
       }
+      // recolher/expandir: espelha o localStorage no elemento reaproveitado
+      // (o renderBoard reutiliza o DOM — sem isso o clique só valia após F5)
+      const collapsed = this.isListCollapsed(list.id);
+      if(listEl._colSig !== (collapsed ? '1' : '0')){
+        listEl._colSig = collapsed ? '1' : '0';
+        listEl.classList.toggle('collapsed', collapsed);
+        const colBtn = listEl.querySelector('button[onclick^="Kanpro.toggleCollapse"]');
+        if(colBtn){
+          colBtn.title = collapsed ? 'Expandir lista' : 'Recolher lista';
+          const ic = colBtn.querySelector('i');
+          if(ic) ic.className = 'ti ' + (collapsed ? 'ti-chevrons-down' : 'ti-chevrons-up');
+        }
+      }
       const isRestricted = !!(list.is_restricted || (list.viewer_ids && list.viewer_ids.length));
       const lockSig = isRestricted ? '1' : '0';
       if(listEl._lockSig !== lockSig){
