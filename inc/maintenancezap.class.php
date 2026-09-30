@@ -463,18 +463,35 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     else $solNome = 'Usuário #' . $solId;
                 } catch (Throwable $e) { $solNome = 'Usuário #' . $solId; }
             }
-            // máquinas liberadas (as da solicitação)
+            // máquinas liberadas (as da solicitação; fallback p/ origem se snapshot defasado)
             $mids = [];
             try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
             $mids = array_values(array_filter(array_map('intval', (array)$mids)));
             $lines = [];
-            if (!empty($mids) && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
                 try {
-                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['id' => $mids], 'ORDER' => 'seq ASC']) as $m) {
-                        $lines[] = '#' . (int)($m['seq'] ?? 0) . ' — ' . trim((string)($m['model'] ?? '')) . ' (' . self::statusLabel($m['status'] ?? '') . ')';
+                    if (!empty($mids)) {
+                        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['id' => $mids], 'ORDER' => 'seq ASC']) as $m) {
+                            $label = trim((string)($m['label'] ?? '')) !== '' ? trim((string)$m['label']) : trim((string)($m['model'] ?? ''));
+                            // label já vem como "Máquina N - Modelo"; extrai só o modelo p/ msg curta
+                            $lines[] = '#' . (int)($m['seq'] ?? 0) . ' — ' . $label . ' (' . self::statusLabel($m['status'] ?? '') . ')';
+                        }
+                    }
+                    // fallback: snapshot vazio ou IDs apagados → lista o que está na origem agora
+                    if (empty($lines) && $srcId > 0) {
+                        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['plugin_kanpro_cards_id' => $srcId], 'ORDER' => 'seq ASC']) as $m) {
+                            $label = trim((string)($m['label'] ?? '')) !== '' ? trim((string)$m['label']) : trim((string)($m['model'] ?? ''));
+                            $lines[] = '#' . (int)($m['seq'] ?? 0) . ' — ' . $label . ' (' . self::statusLabel($m['status'] ?? '') . ')';
+                        }
                     }
                 } catch (Throwable $e) {}
             }
+            // data de solicitação = criação da pendência (não o agora do liberado)
+            $solData = date('d/m/Y H:i');
+            try {
+                $dc = (string)($pc->fields['date_creation'] ?? '');
+                if ($dc !== '' && $dc !== '0000-00-00 00:00:00') $solData = (new DateTime($dc))->format('d/m/Y H:i');
+            } catch (Throwable $e) {}
             $sent = 0; $skipped = 0; $errors = [];
             foreach (array_keys($uids) as $uid) {
                 $ms = 'liberado_' . (int)$uid;
@@ -505,10 +522,10 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'origem_nome'    => $srcName,
                     'chamado_id'     => $chId,
                     'chamado_nome'   => $chNome !== '' ? $chNome : '—',
-                    'quantidade'     => (string)count($mids),
+                    'quantidade'     => (string)count($lines),
                     'maquinas'       => $lines ? implode("\n", $lines) : '(sem máquinas vinculadas)',
                     'solicitado_por' => $solNome !== '' ? $solNome : '—',
-                    'data'           => date('d/m/Y H:i'),
+                    'data'           => $solData,
                 ];
                 $txt = self::renderTxt('liberado', $data);
                 if ($txt === null || $txt === '') {

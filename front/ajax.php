@@ -5108,21 +5108,28 @@ switch ($action) {
         try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
         $mids = array_values(array_unique(array_map('intval', (array)$mids)));
         $mids = array_values(array_filter($mids, function ($v) { return $v > 0; }));
+        $nowUnlock = date('Y-m-d H:i:s');
+        // Desbloqueio robusto: por IDs snapshot + por vínculo + rede de segurança na origem.
+        // Antes só fazia um OU outro — se o snapshot estivesse defasado, a origem ficava travada.
         if (!empty($mids)) {
-            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $mids]);
-        } else {
-            // fallback: destrava por vínculo
-            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => date('Y-m-d H:i:s')], ['locked_chamado_card_id' => $pid]);
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => $nowUnlock], ['id' => $mids]);
         }
-        $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => date('Y-m-d H:i:s')], ['id' => $pid]);
+        // sempre limpa também por vínculo (cobre máquinas adicionadas/movidas após o snapshot)
+        try { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => $nowUnlock], ['locked_chamado_card_id' => $pid]); } catch (Throwable $e) {}
+        // rede final: qualquer máquina ainda travada da origem é liberada
+        try { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => $nowUnlock], ['plugin_kanpro_cards_id' => $srcId, 'is_locked' => 1]); } catch (Throwable $e) {}
+        $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $pid]);
         kanpro_touch_card($srcId);
         kanpro_touch_card($pid);
         $srcCard = new PluginKanproCard();
         $srcBid = $bidC; $srcLid = 0;
         if ($srcCard->getFromDB($srcId)) { $srcBid = (int)$srcCard->fields['plugin_kanpro_boards_id']; $srcLid = (int)$srcCard->fields['plugin_kanpro_lists_id']; }
-        PluginKanproBoard::logActivity($srcBid, $srcId, $srcLid, 'chamado_released', "Chamado criado confirmado (pendência #{$pid}) — máquinas liberadas");
-        PluginKanproBoard::logActivity($bidC, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_released', "Chamado criado — origem #{$srcId} liberada");
-        jexit(['success'=>true,'source_cards_id'=>$srcId,'unlocked'=>count($mids)]);
+        // conta real de desbloqueadas (quantas ainda restam travadas na origem)
+        $stillLocked = 0;
+        try { $stillLocked = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id' => $srcId, 'is_locked' => 1]); } catch (Throwable $e) {}
+        PluginKanproBoard::logActivity($srcBid, $srcId, $srcLid, 'chamado_released', "Chamado criado confirmado (pendência #{$pid}) — máquinas liberadas (restam {$stillLocked} travada(s))");
+        PluginKanproBoard::logActivity($bidC, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_released', "Chamado criado — origem #{$srcId} liberada (mids:" . count($mids) . " restam:{$stillLocked})");
+        jexit(['success'=>true,'source_cards_id'=>$srcId,'unlocked'=>count($mids),'still_locked'=>$stillLocked]);
 
     case 'pegar_pending_card':
         needEdit();
