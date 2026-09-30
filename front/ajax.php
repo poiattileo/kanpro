@@ -780,6 +780,31 @@ function kanpro_need_not_finalized(int $cards_id) {
     if (!kanpro_card_is_finalized($cards_id)) return;
     jexit(['success'=>false,'msg'=>'Manutenção finalizada — já foi enviada para Assinatura. Não é mais possível editar, adicionar ou remover máquinas. Somente visualização.','finalized'=>true]);
 }
+// Origem com Pendência Chamado aberta = máquinas travadas aguardando "Chamado criado".
+// Enquanto travar, NADA pode ser editado/adicionado/removido nesse chamado (nem mesmo as livres,
+// para não quebrar o snapshot da pendência). Libera sozinho no "Chamado criado".
+function kanpro_card_chamado_locked_info(int $cards_id): array {
+    global $DB;
+    $out = ['locked' => 0, 'pendencia_id' => 0];
+    if ($cards_id <= 0) return $out;
+    try {
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $out['locked'] = (int)countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id' => $cards_id, 'is_locked' => 1]);
+        }
+        if ($DB->tableExists('glpi_plugin_kanpro_cards')) {
+            $r = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $cards_id, 'chamado_status' => 'pendente'], 'ORDER' => 'id ASC', 'LIMIT' => 1])->current();
+            if ($r && !empty($r['id'])) $out['pendencia_id'] = (int)$r['id'];
+        }
+    } catch (Throwable $e) {}
+    return $out;
+}
+function kanpro_need_not_chamado_locked(int $cards_id) {
+    $info = kanpro_card_chamado_locked_info($cards_id);
+    if ($info['locked'] > 0 || $info['pendencia_id'] > 0) {
+        $pend = $info['pendencia_id'] > 0 ? (' (pendência #' . $info['pendencia_id'] . ')') : '';
+        jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado' . $pend . '. Nada pode ser editado/adicionado até liberar.','locked'=>true,'pendencia_id'=>$info['pendencia_id']]);
+    }
+}
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
 // Comentários/checks/anexos não geravam activity nem tocavam datas — o selo ficava cego.
@@ -3903,6 +3928,7 @@ switch ($action) {
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Cartão não é de manutenção. Converta primeiro.']);
         kanpro_need_not_finalized($cid);
+        kanpro_need_not_chamado_locked($cid);
         // Parse definições
         $defs = [];
         if (!empty($definitions_json)) {
@@ -4037,6 +4063,7 @@ switch ($action) {
         // O caminho é clicar em Pegar (admin), que move p/ Em Andamento e cria a Pendência Chamado.
         kanpro_need_card_editable((int)$row['plugin_kanpro_cards_id']);
         kanpro_need_not_finalized((int)$row['plugin_kanpro_cards_id']);
+        kanpro_need_not_chamado_locked((int)$row['plugin_kanpro_cards_id']);
         $updates = [];
         if (array_key_exists('diary', $_POST)) $updates['diary'] = $_POST['diary'];
         if (array_key_exists('is_done', $_POST)) $updates['is_done'] = (int)$_POST['is_done'] ? 1:0;
@@ -4159,6 +4186,7 @@ switch ($action) {
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         kanpro_need_card_editable($cid);
         kanpro_need_not_finalized($cid);
+        kanpro_need_not_chamado_locked($cid);
         // status opcional
         $applyStatus = false; $st = null;
         if (array_key_exists('status', $_POST) && trim($_POST['status'] ?? '') !== '') {
@@ -4234,6 +4262,7 @@ switch ($action) {
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         kanpro_need_card_editable($cid);
         kanpro_need_not_finalized($cid);
+        kanpro_need_not_chamado_locked($cid);
         $upd = ['needs_inventory'=>$val, 'date_mod'=>date('Y-m-d H:i:s'), 'users_id'=>kanpro_acting_user_id()];
         if (!$val) $upd['is_inventoried'] = 0;
         $DB->update('glpi_plugin_kanpro_maintenance_machines', $upd, ['plugin_kanpro_cards_id'=>$cid]);
@@ -4259,6 +4288,7 @@ switch ($action) {
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Não é manutenção']);
         kanpro_need_not_finalized($cid);
+        kanpro_need_not_chamado_locked($cid);
         $defs = [];
         if (!empty($definitions_json)) {
             $decoded = json_decode($definitions_json, true);
@@ -4332,6 +4362,7 @@ switch ($action) {
         $cid = $row['plugin_kanpro_cards_id'];
         kanpro_need_card_editable((int)$cid);
         kanpro_need_not_finalized((int)$cid);
+        kanpro_need_not_chamado_locked((int)$cid);
         $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id'=>$mid]);
         $tid = kanpro_card_ticket_id((int)$cid);
         if ($tid) {
@@ -4445,6 +4476,7 @@ switch ($action) {
         if (!$mrow) jexit(['success'=>false,'msg'=>'Máquina não encontrada']);
         if (!empty($mrow['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado','locked'=>true]);
         kanpro_need_not_finalized((int)$mrow['plugin_kanpro_cards_id']);
+        kanpro_need_not_chamado_locked((int)$mrow['plugin_kanpro_cards_id']);
         $now = date('Y-m-d H:i:s');
         $nid = $DB->insert('glpi_plugin_kanpro_maintenance_notes', [
             'machine_id'    => $mid,
@@ -4468,7 +4500,7 @@ switch ($action) {
         $mid = (int)$nrow['machine_id'];
         try {
             $mrow2 = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mid]])->current();
-            if ($mrow2) kanpro_need_not_finalized((int)$mrow2['plugin_kanpro_cards_id']);
+            if ($mrow2) { kanpro_need_not_finalized((int)$mrow2['plugin_kanpro_cards_id']); kanpro_need_not_chamado_locked((int)$mrow2['plugin_kanpro_cards_id']); }
         } catch (Throwable $e) {}
         $DB->delete('glpi_plugin_kanpro_maintenance_notes', ['id'=>$nid]);
         $cnt = $DB->tableExists('glpi_plugin_kanpro_maintenance_notes') ? countElementsInTable('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]) : 0;
@@ -4489,6 +4521,7 @@ switch ($action) {
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Card não é de manutenção']);
         kanpro_need_card_editable($cid);
         kanpro_need_not_finalized($cid);
+        kanpro_need_not_chamado_locked($cid);
         // cria novo card com mesmo nome/entidade
         $origName = trim($card->fields['name']);
         $newName = mb_substr($origName, 0, 255);
@@ -4593,6 +4626,7 @@ switch ($action) {
         // reverter deixaria um card normal travado na lista Pendente (sem como editar) — não deixa
         kanpro_need_card_editable($cid);
         kanpro_need_not_finalized($cid);
+        kanpro_need_not_chamado_locked($cid);
         if (!kanpro_verify_password($password)) jexit(['success'=>false,'msg'=>'Senha incorreta']);
         // captura dados p/ WhatsApp CANCELADO antes de limpar
         $zapData = null;
@@ -5031,6 +5065,7 @@ switch ($action) {
         if (!$src->getFromDB($srcId)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($src->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Só card de manutenção pode solicitar chamado']);
         kanpro_need_not_finalized($srcId);
+        kanpro_need_not_chamado_locked($srcId);
         $bid = (int)$src->fields['plugin_kanpro_boards_id'];
         $rawIds = $_POST['machine_ids'] ?? $_POST['machines'] ?? '[]';
         $mids = is_string($rawIds) ? (json_decode($rawIds, true) ?: []) : (is_array($rawIds) ? $rawIds : []);

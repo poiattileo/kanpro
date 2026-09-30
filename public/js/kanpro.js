@@ -1894,6 +1894,7 @@
       const livres = machines.filter(m=> !m.is_locked);
       const travadas = machines.filter(m=> m.is_locked);
       if(!livres.length){ alert('Todas as máquinas já estão travadas aguardando chamado.'); return; }
+      if(travadas.length){ const pid0 = (travadas[0] && travadas[0].locked_chamado_card_id) || ''; alert(`Este chamado já tem ${travadas.length} máquina(s) travada(s) aguardando Chamado criado${pid0 ? ` (pendência #${pid0})` : ''}. Nada pode ser editado/adicionado até liberar.`); return; }
       const cardName = (data && data.name) || ('#' + cid);
       const stPill = (st)=>{
         const s = String(st||'').toLowerCase();
@@ -3181,6 +3182,8 @@
       const termCid = data.id || this.currentCardId || 0;
       const termStat = this.transferStatus && this.transferStatus[termCid];
       const lockedFinal = !!isFinalized;
+      const chamadoLocked = (machines||[]).some(m=> m && Number(m.is_locked)==1);
+      const chamadoPendId = ((machines||[]).find(m=> m && Number(m.is_locked)==1) || {}).locked_chamado_card_id || '';
       let finalizeBtnHtml = "";
       if (lockedFinal) {
         finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
@@ -3199,9 +3202,9 @@
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:10px 12px;justify-content:space-between;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span id="maint-progress-label" style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              ${lockedFinal ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
-              ${total && !cardPending && !lockedFinal ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
-              ${total && !cardPending && !lockedFinal ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
+              ${lockedFinal || chamadoLocked ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
+              ${total && !cardPending && !lockedFinal && !chamadoLocked ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
+              ${total && !cardPending && !lockedFinal && !chamadoLocked ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
               ${finalizeBtnHtml}
@@ -3215,6 +3218,10 @@
           <div style="padding:10px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <i class="ti ti-lock"></i> Atendimento bloqueado: este card ainda está na lista <strong>Pendente</strong>. Ninguém pegou ele ainda.
             <span style="font-weight:600">Clique em ${this.isBoardAdmin() ? '<strong>Pegar</strong> (você é admin do quadro)' : '<strong>Pegar</strong> (só admin do quadro pode)'} para mover para Em Andamento e liberar Status/Diário.</span>
+          </div>` : ""}
+          ${(!cardPending && !lockedFinal && chamadoLocked) ? `
+          <div style="padding:10px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <i class="ti ti-lock"></i> 🔒 Chamado travado — aguardando <strong>Chamado criado</strong>${chamadoPendId ? ` (pendência #${chamadoPendId})` : ''}. Nada pode ser editado ou adicionado até liberar.
           </div>` : ""}
           ${selectMode? `
           <div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
@@ -3345,7 +3352,7 @@
         `;
       });
       html += `</div>`;
-      html += (lockedFinal ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      html += (lockedFinal || chamadoLocked ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
         ${cardPending ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
       </div>`);
@@ -3924,6 +3931,10 @@
     },
     openMaintenanceSetup(isAppend=false){
       if(this.finalizedGuard()) return;
+      try {
+        const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+        if ((ms||[]).some(m=> m && Number(m.is_locked)==1)) { this.showToast('🔒 Chamado travado — aguardando Chamado criado. Nada pode ser editado/adicionado até liberar.'); return; }
+      } catch(e){}
       const isAppendMode = !!isAppend;
       const title = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas — Manutenção";
       const models = this.getMaintModels();
