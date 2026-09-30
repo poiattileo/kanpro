@@ -564,9 +564,9 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Lembrete 9h/13h: quantos cards há nas listas Pendência Chamado, Pendente e
+     * Lembrete 8h/10h/13h: quantos cards há nas listas Pendência Chamado, Pendente e
      * Em Andamento (todos os quadros ativos). Só envia se total > 0.
-     * Anti-duplicado por dia+turno (milestone lembrete_Y-m-d_09 / _13).
+     * Anti-duplicado por dia+turno (milestone lembrete_Y-m-d_08 / _10 / _13).
      * Destinatário fixo = aprovador (cristian.sawata@educacao.sp.gov.br).
      * Nunca joga exceção.
      */
@@ -574,8 +574,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         global $DB;
         try {
             $hour = (int)date('H');
-            if ($slot === 8) $slot = 9; // compat: turno da manhã migrou de 8h para 9h
-            if ($slot === null || !in_array($slot, [9, 13], true)) $slot = ($hour < 12) ? 9 : 13;
+            if ($slot === null || !in_array($slot, [8, 9, 10, 13], true)) $slot = ($hour < 9) ? 8 : (($hour < 12) ? 10 : 13);
             $forceResend = !empty($opts['forceResend']);
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
             if (!$forceResend && self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
@@ -676,16 +675,16 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Rede de segurança do lembrete 9h/13h: chamada no polling do kanban
+     * Rede de segurança do lembrete 8h/10h/13h: chamada no polling do kanban
      * (get_board_stamp) para o envio não depender só do cron do GLPI
      * (que só roda com visita na janela ou cron do SO configurado).
-     * Só age dentro das janelas 9h e 13h, uma vez por dia+turno (milestone),
+     * Só age dentro das janelas 8h, 10h e 13h, uma vez por dia+turno (milestone),
      * e nunca quebra o request (tudo em try/catch).
      */
     static function maybeSendLembreteFallback(): void {
         try {
             $h = (int)date('G');
-            $slot = ($h === 9) ? 9 : (($h === 13) ? 13 : 0);
+            $slot = ($h === 8) ? 8 : (($h === 10) ? 10 : (($h === 13) ? 13 : 0));
             if ($slot <= 0) return;
             global $DB;
             if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) return;
@@ -764,13 +763,13 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $out['template_ok'] = ($txt !== null && $txt !== '');
             if (!$out['template_ok']) $out['template_hint'] = 'Arquivo templates_whatsapp/lembrete.txt ausente ou vazio';
             // milestones de hoje
-            foreach ([9, 13] as $s) {
+            foreach ([8, 10, 13] as $s) {
                 $ms = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$s, 2, '0', STR_PAD_LEFT);
                 $out['milestone_' . $s] = ['name' => $ms, 'already_sent' => self::alreadySent(0, $ms)];
             }
             // crontasks
             try {
-                foreach ($DB->request(['SELECT' => ['name', 'state', 'mode', 'frequency', 'hourmin', 'hourmax', 'lastrun'], 'FROM' => 'glpi_crontasks', 'WHERE' => ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zaplembrete9', 'zaplembrete13']]]) as $t) {
+                foreach ($DB->request(['SELECT' => ['name', 'state', 'mode', 'frequency', 'hourmin', 'hourmax', 'lastrun'], 'FROM' => 'glpi_crontasks', 'WHERE' => ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zaplembrete8', 'zaplembrete10', 'zaplembrete13']]]) as $t) {
                     $out['cron_' . $t['name']] = $t;
                 }
             } catch (Throwable $e) {}
@@ -778,21 +777,31 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return $out;
     }
 
-    public static function cronZaplembrete9($task = null): int {
+    public static function cronZaplembrete8($task = null): int {
         try {
-            $r = self::sendLembrete(9);
+            $r = self::sendLembrete(8);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 9h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+                $task->log('KanPro lembrete 8h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
     }
 
-    /** @deprecated turno da manhã migrou de 8h para 9h (mantido p/ não quebrar tarefa antiga residual) */
-    public static function cronZaplembrete8($task = null): int {
+    public static function cronZaplembrete10($task = null): int {
+        try {
+            $r = self::sendLembrete(10);
+            if (is_object($task) && method_exists($task, 'log')) {
+                $task->log('KanPro lembrete 10h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+            }
+        } catch (Throwable $e) { return 1; }
+        return 1;
+    }
+
+    /** @deprecated turno das 9h foi substituído por 8h/10h (mantido p/ não quebrar tarefa antiga residual) */
+    public static function cronZaplembrete9($task = null): int {
         try {
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 8h desativado (migrou para 9h / zaplembrete9)');
+                $task->log('KanPro lembrete 9h desativado (substituído por 8h/10h)');
             }
         } catch (Throwable $e) {}
         return 1;
@@ -935,14 +944,13 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 'hourmax'       => 24,
                 'comment'       => 'KanPro: WhatsApp de atraso (lembrete a cada 5 dias em Retirada)',
             ]);
-            // lembretes 9h e 13h: Aguardando aprovação + Pendente + Em Andamento (só envia se > 0)
+            // lembretes 8h, 10h e 13h: Aguardando aprovação + Pendente + Em Andamento (só envia se > 0)
             // frequency 1800 (30min): permite nova tentativa ainda na mesma hora.
             // ATENÇÃO: hourmax é EXCLUSIVO no GLPI (roda se hourmin <= H < hourmax).
-            // Com hourmin==hourmax a tarefa NUNCA entra na janela e jamais executa —
-            // por isso era hourmin==hourmax (9/9 e 13/13) e nada era enviado. Janela de 1h.
+            // Com hourmin==hourmax a tarefa NUNCA entra na janela e jamais executa. Janela de 1h.
             // mode EXTERNO: dispara via cron do SO (php front/cron.php) — garante o envio
             // mesmo sem ninguém usando o sistema. O fallback do polling continua como rede extra.
-            foreach ([['zaplembrete9', 9, 10, 'KanPro: WhatsApp lembrete 9h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete13', 13, 14, 'KanPro: WhatsApp lembrete 13h (Aguard.aprovação + Pendente + Andamento)']] as [$cname, $chour, $hmax, $cmt]) {
+            foreach ([['zaplembrete8', 8, 9, 'KanPro: WhatsApp lembrete 8h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete10', 10, 11, 'KanPro: WhatsApp lembrete 10h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete13', 13, 14, 'KanPro: WhatsApp lembrete 13h (Aguard.aprovação + Pendente + Andamento)']] as [$cname, $chour, $hmax, $cmt]) {
                 $upsert($cname, [
                     'frequency'     => 1800,
                     'param'         => $chour,
@@ -955,9 +963,9 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'comment'       => $cmt,
                 ]);
             }
-            // limpa tarefa antiga do turno da manhã (8h/08:30) p/ não duplicar com a de 9h
+            // limpa tarefa antiga do turno das 9h (substituído por 8h/10h)
             try {
-                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zaplembrete8']);
+                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zaplembrete9']);
             } catch (Throwable $e) {}
         } catch (Throwable $e) {
             error_log('[KanPro] registerCron zap: ' . $e->getMessage());
@@ -968,7 +976,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         global $DB;
         try {
             if ($DB->tableExists('glpi_crontasks')) {
-                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete9', 'zaplembrete13']]);
+                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete9', 'zaplembrete10', 'zaplembrete13']]);
             }
         } catch (Throwable $e) {}
     }

@@ -2200,7 +2200,7 @@ switch ($action) {
         if (!$boards_id) jexit(['success' => false]);
         $board_chk = new PluginKanproBoard();
         if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
-        // rede do lembrete 9h/13h: garante o envio mesmo se o cron do GLPI não rodar na janela
+        // rede do lembrete 8h/10h/13h: garante o envio mesmo se o cron do GLPI não rodar na janela
         // (fora da janela custa só um date(); dentro, 1 lookup indexado até enviar)
         try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::maybeSendLembreteFallback(); } catch (Throwable $e) {}
         try {
@@ -3278,7 +3278,7 @@ switch ($action) {
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
 
     case 'zap_lembrete_diagnose':
-        // Diagnóstico do lembrete 08:30/13h sem enviar (listas, contagens, fone mascarado, evo, cron).
+        // Diagnóstico do lembrete 8h/10h/13h sem enviar (listas, contagens, fone mascarado, evo, cron).
         try {
             if (!Session::haveRight('plugin_kanpro', UPDATE)) jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro)']);
             if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
@@ -3287,14 +3287,13 @@ switch ($action) {
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
 
     case 'zap_lembrete_send':
-        // Envio manual do lembrete (ignora a trava de horário, útil p/ testar às 14h o slot das 9h).
-        // params: slot=9|13 (8 aceito como apelido de 9; padrão: pelo horário), force=1 reenvia mesmo se já enviado hoje.
+        // Envio manual do lembrete (ignora a trava de horário, útil p/ testar às 14h o slot das 13h).
+        // params: slot=8|10|13 (padrão: pelo horário), force=1 reenvia mesmo se já enviado hoje.
         try {
             if (!Session::haveRight('plugin_kanpro', UPDATE)) jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro)']);
             if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
             $slot = (int)($_POST['slot'] ?? $_GET['slot'] ?? 0);
-            if ($slot === 8) $slot = 9;
-            if (!in_array($slot, [9, 13], true)) $slot = ((int)date('H') < 12) ? 9 : 13;
+            if (!in_array($slot, [8, 9, 10, 13], true)) $slot = ((int)date('H') < 9) ? 8 : (((int)date('H') < 12) ? 10 : 13);
             $force = !empty($_POST['force']) || !empty($_GET['force']);
             $r = PluginKanproMaintenanceZap::sendLembrete($slot, $force ? ['forceResend' => true] : []);
             if (!empty($r['ok'])) jexit(['success'=>true,'slot'=>$slot,'total'=>($r['total'] ?? 0),'phone'=>($r['phone'] ?? '')]);
