@@ -2200,6 +2200,9 @@ switch ($action) {
         if (!$boards_id) jexit(['success' => false]);
         $board_chk = new PluginKanproBoard();
         if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
+        // rede do lembrete 9h/13h: garante o envio mesmo se o cron do GLPI não rodar na janela
+        // (fora da janela custa só um date(); dentro, 1 lookup indexado até enviar)
+        try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::maybeSendLembreteFallback(); } catch (Throwable $e) {}
         try {
             // aproveita o selo p/ heartbeat (1 request leve faz os dois — antes eram 2 a cada 2s)
             $uid0 = (int)Session::getLoginUserID();

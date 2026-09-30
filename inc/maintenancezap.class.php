@@ -579,6 +579,14 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $forceResend = !empty($opts['forceResend']);
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
             if (!$forceResend && self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
+            // trava distribuída: cron do GLPI + fallback do polling podem disparar juntos —
+            // só um prossegue (o outro sai como 'envio em andamento').
+            $lemLock = 'kanpro_lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
+            $lemGotLock = false;
+            try { $lemGotLock = (bool)$DB->getLock($lemLock, 0); } catch (Throwable $e) { $lemGotLock = true; }
+            if (!$lemGotLock) return ['ok' => false, 'error' => 'envio em andamento (outro processo)'];
+            try {
+            if (!$forceResend && self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
             // classifica listas (tipo ou nome legado, sem acento)
             $norm = function ($s) {
                 $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
@@ -657,10 +665,34 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             }
             $res = self::evoSend($phone, $txt, 20);
             self::markSent(0, $milestone, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
-            return $res + ['phone' => $phone, 'total' => $total];
+            $lemOut = $res + ['phone' => $phone, 'total' => $total];
+            } finally {
+                try { $DB->releaseLock($lemLock); } catch (Throwable $e2) {}
+            }
+            return $lemOut;
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Rede de segurança do lembrete 9h/13h: chamada no polling do kanban
+     * (get_board_stamp) para o envio não depender só do cron do GLPI
+     * (que só roda com visita na janela ou cron do SO configurado).
+     * Só age dentro das janelas 9h e 13h, uma vez por dia+turno (milestone),
+     * e nunca quebra o request (tudo em try/catch).
+     */
+    static function maybeSendLembreteFallback(): void {
+        try {
+            $h = (int)date('G');
+            $slot = ($h === 9) ? 9 : (($h === 13) ? 13 : 0);
+            if ($slot <= 0) return;
+            global $DB;
+            if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) return;
+            $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
+            if (self::alreadySent(0, $milestone)) return;
+            self::sendLembrete($slot);
+        } catch (Throwable $e) {}
     }
 
     /**
