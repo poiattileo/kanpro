@@ -171,8 +171,14 @@ if (!function_exists('kanpro_can_view_board')) {
         if ($bid <= 0) return false;
         $b = new PluginKanproBoard();
         if (!$b->getFromDB($bid)) return false;
-        $me = (int)Session::getLoginUserID();
-        if ($me > 0 && (int)($b->fields['users_id'] ?? 0) === $me) return true;
+        $creator = (int)($b->fields['users_id'] ?? 0);
+        try {
+            $viewerIds = kanpro_viewer_ids();
+            if ($creator > 0 && in_array($creator, $viewerIds, true)) return true;
+        } catch (Throwable $e) {
+            $me = (int)Session::getLoginUserID();
+            if ($me > 0 && $creator === $me) return true;
+        }
         try {
             if (countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $bid, 'users_id' => kanpro_viewer_ids()]) > 0) return true;
             if (kanpro_board_profile_role($bid) !== null) return true;

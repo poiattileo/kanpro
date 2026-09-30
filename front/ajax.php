@@ -101,7 +101,16 @@ function kanpro_all_profiles() {
 function kanpro_is_board_creator($bid) {
     $b = new PluginKanproBoard();
     if (!$b->getFromDB($bid)) return false;
-    return (int)($b->fields['users_id'] ?? 0) === (int)Session::getLoginUserID();
+    $creator = (int)($b->fields['users_id'] ?? 0);
+    if ($creator <= 0) return false;
+    // vale sessão e pessoa (login compartilhado)
+    try {
+        if ($creator === (int)Session::getLoginUserID()) return true;
+        if (function_exists('kanpro_acting_user_id') && $creator === (int)kanpro_acting_user_id()) return true;
+    } catch (Throwable $e) {
+        if ($creator === (int)Session::getLoginUserID()) return true;
+    }
+    return false;
 }
 function kanpro_can_manage_members($bid) {
     if (kanpro_is_board_creator($bid)) return true;
@@ -532,6 +541,9 @@ function kanpro_migrate_schema_once() {
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_by` INT NOT NULL DEFAULT '0' AFTER `chamado_status`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `chamado_by`"); } catch (Throwable $e) {}
             }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
@@ -1602,7 +1614,7 @@ switch ($action) {
         $bid = (int)($_POST['boards_id'] ?? 0);
         $uid = (int)($_POST['users_id'] ?? 0);
         $role = $_POST['role'] ?? 'member';
-        if (!in_array($role, ['admin','member'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin ou member)']);
+        if (!in_array($role, ['admin','member','observer'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin, member ou observer)']);
         if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
         kanpro_need_manage_members($bid);
         $bchk = new PluginKanproBoard();
@@ -1883,9 +1895,11 @@ switch ($action) {
         $creatorId = (int)($bchk->fields['users_id'] ?? 0);
         $me = (int)Session::getLoginUserID();
         // só quem pode ver o quadro pode listar membros (criador, membro ou quadro legado sem membros)
+        // vale sessão e pessoa (login compartilhado)
         $__myRole = kanpro_my_board_role($bid);
         $__hasAny = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => $bid]) > 0;
-        if ($me !== $creatorId && $__myRole === null && $__hasAny) {
+        $__meIds = array_unique([$me, kanpro_acting_user_id()]);
+        if (!in_array($creatorId, $__meIds, true) && $__myRole === null && $__hasAny) {
             jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
         }
         $members = [];
@@ -2262,8 +2276,8 @@ switch ($action) {
             };
             // listas: nome/arquivada/ordem/categoria (rename, arquivar, reorder, mover e set_list_type não tocam date_mod)
             $listsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', name, '|', is_archived, '|', rank, '|', IFNULL(list_type, '')))), 0) AS s", "`glpi_plugin_kanpro_lists`", "`plugin_kanpro_boards_id` = {$bidInt}");
-            // cartões: lista+rank+arquivada+aprovação+urgência+notificado+chamado (mover/reordenar na mesma lista é rank-only sem date_mod)
-            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0), '|', IFNULL(is_notified, 0), '|', IFNULL(chamado_source_id, 0), '|', IFNULL(chamado_status, '')))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
+            // cartões: lista+rank+arquivada+aprovação+urgência+notificado+chamado+whatsapp (mover/reordenar na mesma lista é rank-only sem date_mod)
+            $cardsBit = $ag("COUNT(*) AS c, COALESCE(SUM(CRC32(CONCAT(id, '|', plugin_kanpro_lists_id, '|', rank, '|', is_archived, '|', approval_from, '|', IFNULL(is_urgent, 0), '|', IFNULL(is_notified, 0), '|', IFNULL(chamado_source_id, 0), '|', IFNULL(chamado_status, ''), '|', IFNULL(whatsapp_notify, 0)))), 0) AS s", "`glpi_plugin_kanpro_cards`", "`plugin_kanpro_boards_id` = {$bidInt}");
             // visibilidade das listas: trocar quem vê não toca date_mod — sem isso o outro PC nunca percebe
             $listVisBit = '';
             if ($DB->tableExists('glpi_plugin_kanpro_lists_viewers')) {
@@ -2725,8 +2739,16 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Na lista Pendente o cartão é criado direto como Manutenção.','need_maintenance'=>true]);
         }
         $card = new PluginKanproCard();
-        $id = $card->add(['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name]);
+        $newFields = ['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name];
+        if (!empty($_POST['whatsapp_notify']) && $DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
+            $newFields['whatsapp_notify'] = 1;
+        }
+        $id = $card->add($newFields);
         if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão (tente de novo)']);
+        // garante flag mesmo se add() filtrou (schema antigo)
+        if (!empty($newFields['whatsapp_notify'])) {
+            try { $DB->update('glpi_plugin_kanpro_cards', ['whatsapp_notify'=>1], ['id'=>$id]); $card->getFromDB($id); } catch (Throwable $e) {}
+        }
         jexit(['success'=>true,'id'=>$id, 'card'=>$card->fields]);
 
     case 'add_pending_maintenance':
@@ -2791,15 +2813,23 @@ switch ($action) {
         kanpro_need_list_allows_card($lists_id);
         $due = trim($_POST['due_date'] ?? '');
         $urgent = !empty($_POST['is_urgent']) ? 1 : 0;
+        $zapNotify = !empty($_POST['whatsapp_notify']) ? 1 : 0;
         $card = new PluginKanproCard();
-        $id = $card->add([
+        $taskFields = [
             'plugin_kanpro_boards_id' => $list->fields['plugin_kanpro_boards_id'],
             'plugin_kanpro_lists_id'  => $lists_id,
             'name'                    => mb_substr($name, 0, 255),
             'due_date'                => ($due !== '' ? $due : null),
             'is_urgent'               => $urgent,
-        ]);
+        ];
+        if ($zapNotify && $DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
+            $taskFields['whatsapp_notify'] = 1;
+        }
+        $id = $card->add($taskFields);
         if (!$id) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão']);
+        if ($zapNotify) {
+            try { $DB->update('glpi_plugin_kanpro_cards', ['whatsapp_notify'=>1], ['id'=>$id]); } catch (Throwable $e) {}
+        }
         $items = json_decode($_POST['items'] ?? '[]', true);
         if (!is_array($items)) $items = [];
         $items = array_values(array_filter(array_map(function ($v) { return mb_substr(trim((string)$v), 0, 255); }, $items), function ($v) { return $v !== ''; }));
@@ -2858,6 +2888,57 @@ switch ($action) {
         if (!$c->update($fields)) jexit(['success'=>false,'msg'=>'Não foi possível salvar (tente de novo)']);
         kanpro_touch_member($cid);
         jexit(['success'=>true]);
+
+    case 'set_card_whatsapp':
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        kanpro_need_card_editable($cid);
+        $cardW = new PluginKanproCard();
+        if (!$cardW->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $bidW = (int)($cardW->fields['plugin_kanpro_boards_id'] ?? 0);
+        // só admin do quadro (ou criador do card) pode ligar/desligar — "admin do card"
+        $isCreator = ((int)($cardW->fields['users_id'] ?? 0) === kanpro_acting_user_id()) || ((int)($cardW->fields['users_id'] ?? 0) === (int)Session::getLoginUserID());
+        if (!kanpro_can_manage_members($bidW) && !$isCreator) {
+            jexit(['success'=>false,'msg'=>'Somente admin do quadro pode alterar a Notificação WhatsApp.']);
+        }
+        $enabled = !empty($_POST['enabled']) ? 1 : 0;
+        if (isset($_POST['whatsapp_notify'])) $enabled = ((int)$_POST['whatsapp_notify'] ? 1 : 0);
+        try {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `chamado_by`");
+            }
+            $DB->update('glpi_plugin_kanpro_cards', ['whatsapp_notify'=>$enabled,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Falha ao salvar']); }
+        kanpro_touch_card($cid);
+        PluginKanproBoard::logActivity($bidW, $cid, (int)($cardW->fields['plugin_kanpro_lists_id'] ?? 0), 'card_whatsapp', ($enabled ? 'Notificação WhatsApp ATIVADA' : 'Notificação WhatsApp desativada'));
+        jexit(['success'=>true,'whatsapp_notify'=>$enabled]);
+
+    case 'send_card_whatsapp':
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $cardS = new PluginKanproCard();
+        if (!$cardS->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $bidS = (int)($cardS->fields['plugin_kanpro_boards_id'] ?? 0);
+        if (!kanpro_can_view_board($bidS)) jexit(['success'=>false,'msg'=>'Sem acesso a este quadro']);
+        if (empty($cardS->fields['whatsapp_notify'])) jexit(['success'=>false,'msg'=>'Notificação WhatsApp desligada neste cartão.']);
+        // só membro do card ou membro/admin do quadro pode apertar o botão
+        $meIds = array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]);
+        $isCardMember = countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$meIds]) > 0;
+        $boardRole = kanpro_my_board_role($bidS);
+        if (!$isCardMember && $boardRole === null) {
+            // criador do card também pode
+            $isCreatorS = in_array((int)($cardS->fields['users_id'] ?? 0), $meIds, true);
+            if (!$isCreatorS) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do cartão pode notificar.']);
+        }
+        if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Remetente WhatsApp indisponível']);
+        try {
+            $res = PluginKanproMaintenanceZap::sendCardAlerta($cid);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro ao enviar: '.$e->getMessage()]); }
+        if (!empty($res['ok'])) jexit(['success'=>true,'phone'=>($res['phone'] ?? '')]);
+        $err = (string)($res['error'] ?? 'falha');
+        if ($err === 'sem telefone') $err = 'Aprovador sem telefone cadastrado (cristian.sawata@educacao.sp.gov.br)';
+        jexit(['success'=>false,'msg'=>'WhatsApp não enviado: '.$err]);
 
     case 'move_card':
         needEdit();

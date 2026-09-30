@@ -159,7 +159,7 @@ class PluginKanproCard extends CommonDBTM {
         $new_list = $target_lists_id ?? $orig['plugin_kanpro_lists_id'];
 
         $new = new self();
-        $new_id = $new->add([
+        $newFields = [
             'plugin_kanpro_boards_id' => $orig['plugin_kanpro_boards_id'],
             'plugin_kanpro_lists_id'  => $new_list,
             'name'        => $orig['name'] . ' (cópia)',
@@ -167,8 +167,15 @@ class PluginKanproCard extends CommonDBTM {
             'due_date'    => $orig['due_date'],
             'start_date'  => $orig['start_date'],
             'cover_color' => $orig['cover_color'],
-        ]);
+        ];
+        if (isset($orig['whatsapp_notify']) && $DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
+            $newFields['whatsapp_notify'] = !empty($orig['whatsapp_notify']) ? 1 : 0;
+        }
+        $new_id = $new->add($newFields);
         if (!$new_id) return false;
+        if (!empty($newFields['whatsapp_notify'])) {
+            try { $DB->update('glpi_plugin_kanpro_cards', ['whatsapp_notify'=>1], ['id'=>$new_id]); } catch (Throwable $e) {}
+        }
 
         // copia etiquetas
         $labels = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards_labels', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id]]);

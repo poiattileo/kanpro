@@ -33,7 +33,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete', 'card_alerta'];
     }
 
     /** Login/e-mail do aprovador fixo da Pendência Chamado */
@@ -561,6 +561,51 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $details
             );
         } catch (Throwable $e) {}
+    }
+
+    /**
+     * Alerta manual do cartão: botão no header do card (Membro ou Admin do card)
+     * envia "No card (NOME) tem alterações realizadas para voce verificar"
+     * para o aprovador fixo (cristian.sawata@educacao.sp.gov.br).
+     * Sem trava de duplicado (cada aperto envia). Nunca joga exceção.
+     */
+    static function sendCardAlerta(int $cards_id): array {
+        try {
+            if ($cards_id <= 0) return ['ok' => false, 'error' => 'Card inválido'];
+            $card = new PluginKanproCard();
+            if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Card não encontrado'];
+            $cardNome = trim((string)($card->fields['name'] ?? ''));
+            if ($cardNome === '') $cardNome = 'Card #' . $cards_id;
+            $boardNome = '';
+            $b = new PluginKanproBoard();
+            if ($b->getFromDB((int)($card->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
+            $phone = self::resolveApproverPhone();
+            $phone = self::normalizeBRPhone((string)$phone);
+            if ($phone === '') {
+                self::markSent($cards_id, 'card_alerta', '', false, 'sem telefone do aprovador');
+                self::logCard($cards_id, 'WhatsApp card_alerta NÃO enviado: aprovador sem telefone cadastrado (' . self::pendenciaApprover() . ')');
+                return ['ok' => false, 'error' => 'sem telefone'];
+            }
+            $txt = self::renderTxt('card_alerta', [
+                'card_id'   => (string)$cards_id,
+                'card_nome' => $cardNome,
+                'quadro'    => $boardNome,
+                'data'      => date('d/m/Y H:i'),
+            ]);
+            // fallback se template ausente: mensagem pedida pelo usuário
+            if ($txt === null || $txt === '') {
+                $txt = "No card ({$cardNome}) tem alterações realizadas para voce verificar";
+            }
+            $res = self::evoSend($phone, $txt, 20);
+            // registra cada envio (milestone com timestamp p/ não bloquear o próximo aperto)
+            self::markSent($cards_id, 'card_alerta', $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+            self::logCard($cards_id, $res['ok']
+                ? "WhatsApp card_alerta enviado para {$phone} (aprovador)"
+                : "WhatsApp card_alerta FALHOU para {$phone}: " . ($res['error'] ?? ''));
+            return $res + ['phone' => $phone];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
     }
 
     /**
