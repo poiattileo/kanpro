@@ -4705,7 +4705,9 @@
       if(!cardId) return;
       // Sem finalizedGuard aqui de propósito: se já existe transferência, o backend devolve
       // o termo existente (retry abre a assinatura). Trava de edição é separada.
-      if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
+      try {
+        if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
+      } catch(e){ console.error('[KanPro] finalize lockcheck', e); alert('Erro ao verificar trava do card: '+(e.message||e)); return; }
       // valida status obrigatório local antes de chamar backend
       // ATENÇÃO: só valem os selects de Status Final de cada máquina (onchange updateMaintenanceStatus) —
       // o select do modo "Selecionar" em massa (#maint-bulk-status) NÃO conta (antes travava o finalizar à toa)
@@ -4799,6 +4801,7 @@
       };
       // guarda o passo final p/ a etapa da palavra-desafio
       this._finalizeProceed = proceed;
+      try {
       // pendentes não precisam estar 100% — apenas não-pendentes
       if(prog && prog.total>0 && prog.done!==prog.total){
         // pendentes justificam não estar 100% Feito (ficam em novo card)
@@ -4815,6 +4818,7 @@
           this.showConfirm(`${pendingCount} máquina(s) como Pendente ficarão em NOVO CARD e não irão para o termo. As demais (Garantia/Ok/Inservível) serão enviadas para Assinatura. Continuar?`, 'Atenção', 'Continuar').then(ok=>{ if(ok) this.askFinalizeWord(0); });
         } else this.askFinalizeWord(0);
       }
+      } catch(e){ console.error('[KanPro] finalize confirm', e); alert('Erro ao abrir confirmação do finalizar: '+(e.message||e)); }
     },
     // Autenticação por palavra no finalizar — mesmas palavras da conversão p/ manutenção e do Pegar
     askFinalizeWord(force){
