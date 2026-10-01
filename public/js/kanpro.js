@@ -3284,7 +3284,7 @@
       } else if (cardPending) {
         finalizeBtnHtml = `<span title="O card ainda está na lista Pendente — clique em Pegar (admin do quadro) para liberar o atendimento" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-lock" style="font-size:11px"></i> FINALIZAR bloqueado</span>`;
       } else if (hasMissing) {
-        finalizeBtnHtml = `<button disabled title="Selecione o Status Final de todas as máquinas (${missingStatus}/${total})" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
+        finalizeBtnHtml = `<button onclick="Kanpro.explainMissingStatus()" title="Clique para ver quais máquinas estão sem Status Final" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
       } else if (allDone) {
         finalizeBtnHtml = `<button onclick="Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR</button>`;
       } else {
@@ -4675,6 +4675,31 @@
         window.open(res.pdf_url, '_blank');
       });
     },
+    explainMissingStatus(missingSeqs){
+      // Diz EXATAMENTE quais máquinas estão sem Status Final, destaca e rola até a primeira.
+      // Sem isso o usuário clicava no FINALIZAR e "nada acontecia".
+      try {
+        const data = this._lastModalData;
+        const machines = (data && data.maintenance_machines) || [];
+        let seqs = Array.isArray(missingSeqs) && missingSeqs.length ? missingSeqs.map(Number)
+          : machines.filter(m=> !m.status || String(m.status).trim()==="").map(m=> Number(m.seq));
+        const wrap = document.getElementById("card-modal-maintenance");
+        if(wrap){
+          // limpa destaques antigos e marca só os selects de status vazios (não o bulk)
+          const statusSels = [...wrap.querySelectorAll("select[onchange*='updateMaintenanceStatus']")];
+          let firstEmpty = null;
+          statusSels.forEach(s=>{
+            if(!s.value || String(s.value).trim()===""){ s.style.boxShadow = "0 0 0 2px #eb5a46"; if(!firstEmpty) firstEmpty = s; }
+            else s.style.boxShadow = "";
+          });
+          if(firstEmpty) firstEmpty.scrollIntoView({behavior:"smooth", block:"center"});
+        }
+        const total = machines.length || '';
+        const list = seqs.length ? seqs.slice(0,12).join(', #') : '—';
+        const more = seqs.length > 12 ? ` (+${seqs.length-12})` : '';
+        this.showAlert(`Selecione o Status Final de todas as máquinas antes de finalizar.\n\nFaltam #${list}${more} (${seqs.length}/${total}).\n\nOpções: Garantia / OK / Inservível / Pendente (campo ao lado de "Feito").`, 'Falta Status Final');
+      } catch(e){ alert('Selecione o Status Final de todas as máquinas antes de finalizar.'); }
+    },
     finalizeMaintenance(){
       const cardId=this.currentCardId;
       if(!cardId) return;
@@ -4682,35 +4707,41 @@
       // o termo existente (retry abre a assinatura). Trava de edição é separada.
       if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
       // valida status obrigatório local antes de chamar backend
+      // ATENÇÃO: só valem os selects de Status Final de cada máquina (onchange updateMaintenanceStatus) —
+      // o select do modo "Selecionar" em massa (#maint-bulk-status) NÃO conta (antes travava o finalizar à toa)
+      const statusSelects = ()=>{
+        const wrap = document.getElementById("card-modal-maintenance");
+        if(!wrap) return [];
+        return [...wrap.querySelectorAll("select[onchange*='updateMaintenanceStatus']")];
+      };
       const checkAndPrompt = ()=>{
         // busca dados atuais do modal para validar pendentes sem recarregar
-        const wrap = document.getElementById("card-modal-maintenance");
-        if(wrap){
-          const selects = wrap.querySelectorAll("select");
-          let missing = 0;
-          selects.forEach(s=>{ if(!s.value || s.value.trim()==="") missing++; });
-          if(missing>0){
-            alert(`Selecione o Status Final de todas as máquinas antes de finalizar. Faltam ${missing} com status em branco (campo obrigatório ao lado de 'Feito').`);
-            return false;
-          }
+        let missing = 0;
+        statusSelects().forEach(s=>{ if(!s.value || s.value.trim()==="") missing++; });
+        if(missing>0){
+          this.explainMissingStatus();
+          return false;
         }
         return true;
       };
       if(!checkAndPrompt()) return;
       const prog = this.maintenanceProgress[cardId];
-      const wrap = document.getElementById("card-modal-maintenance");
-      const countPending = ()=> wrap ? [...wrap.querySelectorAll("select")].filter(s=> s.value==="pendente").length : 0;
+      const countPending = ()=> statusSelects().filter(s=> s.value==="pendente").length;
       const proceed = (force, word)=>{
         const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
+        const btnOld = btn ? btn.textContent : '';
         if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
         this.ajax("finalize_maintenance", {cards_id: cardId, force, confirm_text: word||''}).then(res=>{
-        if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
+        if(btn){ btn.disabled=false; if(btnOld) btn.textContent=btnOld; }
         if(!res.success){
           if(res.need_status){
-            alert(res.msg||"Selecione o Status Final de todas as máquinas.");
-            // destaca selects vazios
-            const wrap = document.getElementById("card-modal-maintenance");
-            if(wrap) wrap.querySelectorAll("select").forEach(s=>{ if(!s.value) s.style.boxShadow="0 0 0 2px #eb5a46"; });
+            this.explainMissingStatus(res.missing);
+            return;
+          }
+          if(res.need_confirm){
+            // palavra expirou/divergiu: reabre a etapa da palavra em vez de travar num alert
+            this.showToast('Confirme a palavra-desafio para finalizar');
+            this.askFinalizeWord(force ? 1 : 0);
             return;
           }
           if(res.need_100){
