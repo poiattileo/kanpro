@@ -212,7 +212,11 @@
         // se o elemento clicado foi removido do DOM (ex: removeMaintenanceRow remove a linha), não fecha o picker
         if(!document.contains(e.target)) return;
         const picker = document.getElementById('kanpro-picker');
-        if(picker && picker.style.display!=='none' && !picker.contains(e.target) && !e.target.closest('[onclick*="open"]') && !e.target.closest('[onclick*="Picker"]') && !e.target.closest('.kp-sidebar-btn')){
+        // picker que acabou de abrir NO MESMO clique não fecha: fluxos que abrem o picker de forma
+        // síncrona no onclick (ex: FINALIZAR 100% abre a palavra-desafio) teriam o bubble chegando
+        // aqui logo depois e fechando na mesma hora (clique morto). Janela de 600ms.
+        const justOpened = (Date.now() - (this._pickerShownAt||0)) < 600;
+        if(!justOpened && picker && picker.style.display!=='none' && !picker.contains(e.target) && !e.target.closest('[onclick*="open"]') && !e.target.closest('[onclick*="Picker"]') && !e.target.closest('.kp-sidebar-btn')){
           // evita fechar se clique é no botão que abriu (já tratado por showPicker)
           const isPickerBtn = e.target.closest('button');
           if(!isPickerBtn || !isPickerBtn.textContent.match(/Membros|Etiquetas|Datas|Capa|Mover|Filtrar/)){
@@ -3286,10 +3290,10 @@
       } else if (hasMissing) {
         finalizeBtnHtml = `<button onclick="Kanpro.explainMissingStatus()" title="Clique para ver quais máquinas estão sem Status Final" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
       } else if (allDone) {
-        finalizeBtnHtml = `<button onclick="Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR</button>`;
+        finalizeBtnHtml = `<button onclick="event.stopPropagation();Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR</button>`;
       } else {
         const pendenteInfo = pendenteCount>0 ? ` • ${pendenteCount} pendente(s) → novo card` : "";
-        finalizeBtnHtml = `<button onclick="Kanpro.finalizeMaintenance()" title="Nem todos estão como 'Feito' — pendentes ficarão em novo card" style="background:#ffab00;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR (${pct}%${pendenteInfo})</button>`;
+        finalizeBtnHtml = `<button onclick="event.stopPropagation();Kanpro.finalizeMaintenance()" title="Nem todos estão como 'Feito' — pendentes ficarão em novo card" style="background:#ffab00;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR (${pct}%${pendenteInfo})</button>`;
       }
       let html = `
         <div style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);overflow:hidden;margin-bottom:16px;border-left:4px solid #ffab00">
@@ -6693,6 +6697,7 @@
       const p = $('#kanpro-picker');
       const bd = $('#picker-body');
       if(!p || !bd){ console.error('[KanPro] showPicker sem elementos (picker/body ausentes)'); alert('Erro interno: painel não encontrado na página. Recarregue (Ctrl+F5).'); return; }
+      try { this._pickerShownAt = Date.now(); } catch(e){}
       $('#picker-title').textContent = title||'';
       bd.innerHTML = html||'';
       // reset geométrico total: fluxos diferentes (manutenção/pegar/tarefa) mexem em
