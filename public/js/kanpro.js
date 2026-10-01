@@ -4701,8 +4701,11 @@
       } catch(e){ alert('Selecione o Status Final de todas as máquinas antes de finalizar.'); }
     },
     finalizeMaintenance(){
+      // Feedback imediato: prova que o clique chegou na função (diagnóstico de clique morto)
+      try { this.showToast('Finalizar: verificando…'); } catch(e){}
+      console.log('[KanPro] finalize click, cardId=', this.currentCardId);
       const cardId=this.currentCardId;
-      if(!cardId) return;
+      if(!cardId){ try { this.showAlert('Não identifiquei o cartão aberto (feche e abra o card de novo).', 'Finalizar'); } catch(e){ alert('Não identifiquei o cartão aberto.'); } return; }
       // Sem finalizedGuard aqui de propósito: se já existe transferência, o backend devolve
       // o termo existente (retry abre a assinatura). Trava de edição é separada.
       try {
