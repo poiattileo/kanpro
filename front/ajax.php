@@ -836,6 +836,32 @@ function kanpro_touch_card(int $cards_id) {
     } catch (Throwable $e) {}
 }
 
+// Move o card para a lista de categoria "Retirada" do quadro (pós-Finalizar).
+// Sem lista Retirada ou já estando nela: não faz nada. Nunca joga exceção.
+// Retorna ['moved'=>bool,'lists_id'=>int,'list_name'=>string].
+function kanpro_move_card_to_retirada(int $cards_id): array {
+    global $DB;
+    $noop = ['moved'=>false,'lists_id'=>0,'list_name'=>''];
+    try {
+        if ($cards_id <= 0) return $noop;
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return $noop;
+        $bid = (int)($c->fields['plugin_kanpro_boards_id'] ?? 0);
+        $curLid = (int)($c->fields['plugin_kanpro_lists_id'] ?? 0);
+        if ($bid <= 0) return $noop;
+        $dest = kanpro_find_list_by_type($bid, 'retirada');
+        if (!$dest) return $noop;
+        $destLid = (int)($dest['id'] ?? 0);
+        if ($destLid <= 0 || $destLid === $curLid) return $noop;
+        $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$destLid],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+        $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$destLid,'rank'=>$rank,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cards_id]);
+        kanpro_touch_card($cards_id);
+        PluginKanproBoard::logActivity($bid, $cards_id, $destLid, 'card_move', "Finalizado e movido para '{$dest['name']}'");
+        return ['moved'=>true,'lists_id'=>$destLid,'list_name'=>(string)($dest['name'] ?? 'Retirada')];
+    } catch (Throwable $e) { return $noop; }
+}
+
 // Cria um chamado GLPI a partir do cartão e vincula (tickets_id).
 // Usado na conversão para manutenção (automático) e no botão Chamado.
 // Se o cartão já tem chamado válido, só retorna o vínculo existente.
@@ -3009,9 +3035,9 @@ switch ($action) {
             $fl0 = new PluginKanproList();
             if ($fl0->getFromDB($from_list)) $from_name = $fl0->fields['name'];
         }
-        // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (admin).
+        // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (membro ou admin).
         if ($from_list && kanpro_list_category($from_list) === 'pending') {
-            jexit(['success'=>false,'msg'=>'Card da lista Pendente é travado — ninguém pode arrastar. Use o botão Pegar (admin do quadro) para mover para Em Andamento.']);
+            jexit(['success'=>false,'msg'=>'Card da lista Pendente é travado — ninguém pode arrastar. Use o botão Pegar (membro ou admin do quadro) para mover para Em Andamento.']);
         }
         $pos = (isset($_POST['position']) && $_POST['position'] !== '') ? (int)$_POST['position'] : null;
         // Se position dado, calcula rank; senão joga pro fim
@@ -4938,7 +4964,11 @@ switch ($action) {
                 if (class_exists('PluginKanproMaintenanceZap')) {
                     try { PluginKanproMaintenanceZap::sendOnce('retirada', $cid); } catch (Throwable $e) {}
                 }
-                jexit(['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true]);
+                // card com termo vai para a lista Retirada (se existir)
+                $retMove = kanpro_move_card_to_retirada($cid);
+                $existResp = ['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'msg'=>'Já existe termo para este card','existing'=>true];
+                if (!empty($retMove['moved'])) { $existResp['moved_to_retirada'] = true; $existResp['retirada_lists_id'] = $retMove['lists_id']; $existResp['retirada_list_name'] = $retMove['list_name']; }
+                jexit($existResp);
             }
         }
         // Se há pendentes, cria novo card com pendentes ANTES de gerar termo (nome igual, campos zerados)
@@ -5177,6 +5207,9 @@ switch ($action) {
         $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
         $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
         $resp = ['success'=>true,'transfer_id'=>$transfer_id,'assinatura_url'=>$assinatura_url,'pdf_url'=>$pdf_url,'progress'=>['total'=>$total,'done'=>$doneTerm,'percent'=>$total?round($doneTerm/$total*100):0,'garantia'=>$cntGarantiaTerm,'ok'=>$cntOkTerm,'inservivel'=>$cntInservivelTerm]];
+        // card finalizado (com termo) vai para a lista Retirada (se existir no quadro)
+        $retMove2 = kanpro_move_card_to_retirada($cid);
+        if (!empty($retMove2['moved'])) { $resp['moved_to_retirada'] = true; $resp['retirada_lists_id'] = $retMove2['lists_id']; $resp['retirada_list_name'] = $retMove2['list_name']; }
         if ($pendingCardId) { $resp['pending_card_id']=$pendingCardId; $resp['pending_count']=$pendingCount; $resp['msg_pending']="Pendentes ({$pendingCount}) movidos para novo card #{$pendingCardId}"; }
         if (!empty($pendenciaSplit['pendencia_id'])) { $resp['pendencia_id']=$pendenciaSplit['pendencia_id']; $resp['pendencia_locked']=$pendenciaSplit['locked']; $resp['zap_ok']=$pendenciaSplit['zap_ok']; $resp['zap_error']=$pendenciaSplit['zap_error']; }
         elseif (!empty($pendenciaSplit['warning']) && $pendingCardId && function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) { $resp['pendencia_warning']=$pendenciaSplit['warning']; }
@@ -5318,8 +5351,12 @@ switch ($action) {
             }
         }
         if (!$isPending) jexit(['success'=>false,'msg'=>'Só card da lista Pendente pode ser pego']);
-        // só admin do quadro pega (criador/admin; UPDATE só em legado aberto — botão só aparece p/ admin, mas valida no servidor)
-        if (!kanpro_can_manage_members($bid)) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode pegar']);
+        // admin do quadro: fluxo completo (Pegar + Pendência Chamado com trava + zap).
+        // membro do quadro: pega direto p/ Em Andamento, SEM gerar Pendência Chamado (sem trava/verificação).
+        // (botão só aparece p/ admin/membro, mas valida no servidor; observer continua só-visualização)
+        $isAdminPegar = kanpro_can_manage_members($bid);
+        $myRolePegar = kanpro_my_board_role($bid);
+        if (!$isAdminPegar && !in_array($myRolePegar, ['member','admin'], true)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode pegar']);
         $dest = kanpro_find_list_by_type($bid, 'andamento');
         if (!$dest) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Em Andamento" neste quadro','need_list'=>true]);
         $destLid = (int)$dest['id'];
@@ -5337,12 +5374,13 @@ switch ($action) {
             }
         } catch (Throwable $e) {}
         kanpro_touch_member($cid, $who);
-        PluginKanproBoard::logActivity($bid, $cid, $destLid, 'card_move', "Pego por técnico e movido para '{$dest['name']}'");
-        // cria pendência com TODAS as máquinas (se for manutenção) e trava tudo
+        PluginKanproBoard::logActivity($bid, $cid, $destLid, 'card_move', $isAdminPegar ? "Pego por técnico e movido para '{$dest['name']}'" : "Pego por membro (direto, sem Pendência Chamado) e movido para '{$dest['name']}'");
+        // cria pendência com TODAS as máquinas (se for manutenção) e trava tudo — SÓ no pegar do admin.
+        // Membro pega direto: sem Pendência Chamado, sem trava, sem verificação.
         $pendId = 0; $lockedN = 0;
         $isMaint = !empty($c->fields['is_maintenance']);
         $allM = [];
-        if ($isMaint && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+        if ($isAdminPegar && $isMaint && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']) as $m) $allM[] = $m;
         }
         if (!empty($allM)) {
@@ -5382,7 +5420,7 @@ switch ($action) {
         kanpro_touch_card($cid);
         $fresh = new PluginKanproCard();
         $fresh->getFromDB($cid);
-        $respPeg = ['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'card'=>$fresh->fields];
+        $respPeg = ['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'direct'=>!$isAdminPegar,'card'=>$fresh->fields];
         if (isset($zapOk2)) { $respPeg['zap_ok'] = $zapOk2; $respPeg['zap_error'] = $zapErr2; }
         jexit($respPeg);
 

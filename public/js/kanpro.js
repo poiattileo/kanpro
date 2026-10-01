@@ -92,6 +92,16 @@
       if(!this.boardZapEnabled()) return false;
       return this.isBoardAdmin() || this.isBoardMember();
     },
+    // Quem pode Pegar card da Pendente: admin (fluxo completo c/ Pendência Chamado)
+    // ou membro (direto p/ Em Andamento, sem Pendência Chamado). Observer não.
+    canPegar(){
+      if(this.isBoardAdmin()) return true;
+      try {
+        const ids = this.myUserIds();
+        const m = (this.members||[]).find(x=> ids.includes(parseInt(x.users_id)));
+        return !!(m && (m.role === 'member' || m.role === 'admin'));
+      } catch(e){ return false; }
+    },
     updateZapButton(){
       try {
         const b = document.getElementById('kanpro-zap-btn');
@@ -1010,7 +1020,7 @@
       div.draggable = !_isPendingDrag;
       if(_isPendingDrag){
         div.style.cursor = 'not-allowed';
-        div.title = 'Card da lista Pendente é travado — use o botão Pegar (admin do quadro)';
+        div.title = 'Card da lista Pendente é travado — use o botão Pegar (membro ou admin do quadro)';
       }
 
       // aplica filtro
@@ -1198,13 +1208,13 @@
         ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcado como notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
         : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar que foi notificado sobre o chamado" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificado?</button>`);
 
-      // botão Pegar (mini) — só Pendente + só admin do quadro
+      // botão Pegar (mini) — só Pendente; admin ou membro (membro vai direto, sem pendência)
       let pegarBtnHtml = '';
       try {
         const lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
         const lt = this.listTypeOf(lst);
         const isPending = lt && lt.code === 'pending';
-        if (isPending && this.isBoardAdmin()) {
+        if (isPending && this.canPegar()) {
           pegarBtnHtml = `<button onclick="event.stopPropagation();Kanpro.pegarPendingCard(${card.id}, event)" title="Pegar: mover para Em Andamento e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         }
       } catch(e){}
@@ -1401,7 +1411,7 @@
       try {
         if(this.isCardLocked(card)){
           this.renderBoard();
-          alert('Card da lista Pendente é travado — ninguém pode arrastar.\n\nUse o botão Pegar (admin do quadro) para mover para Em Andamento.');
+          alert('Card da lista Pendente é travado — ninguém pode arrastar.\n\nUse o botão Pegar (membro ou admin do quadro) para mover para Em Andamento.');
           this.forceSync();
           return;
         }
@@ -1918,8 +1928,8 @@
       const amAdmin = this.isBoardAdmin();
       // Solicitar Chamado: só manutenção (lado direito em Ações)
       if(isMaint && btnSol) btnSol.style.display = '';
-      // Pegar: só Pendente + só admin (topo + sidebar)
-      if(isPending && amAdmin){
+      // Pegar: só Pendente; admin (c/ Pendência Chamado) ou membro (direto) — topo + sidebar
+      if(isPending && this.canPegar()){
         if(btnPegar) btnPegar.style.display = '';
         if(act) act.innerHTML += `<button onclick="Kanpro.pegarPendingCard()" title="Pegar: mover para Em Andamento e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         // BUGFIX: renderNotifiedInModal esconde o box quando não é Retirada — se enchemos o act aqui, precisa reexibir
@@ -2258,7 +2268,8 @@
       if(ev && ev.stopPropagation) ev.stopPropagation();
       const cid = cardId || this.currentCardId;
       if(!cid) return;
-      if(!this.isBoardAdmin()){ alert('Somente admin do quadro pode pegar.'); return; }
+      if(!this.canPegar()){ alert('Somente Membro ou Admin do quadro pode pegar.'); return; }
+      const directMode = !this.isBoardAdmin();
       // autenticação por palavra — mesmas palavras da conversão p/ manutenção
       let challenge;
       if (Math.random() < 0.10) {
@@ -2291,7 +2302,7 @@
             <span style="font-size:26px">✋</span>
             <div style="min-width:0"><div style="font-size:15px;font-weight:800">Pegar card</div>
             <div style="font-size:12px;opacity:.92;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px">${this.escape(cardName)}</div>
-            <div style="font-size:11px;opacity:.9;margin-top:2px">Vai para <strong>Em Andamento</strong> e fica atribuído a você</div></div>
+            <div style="font-size:11px;opacity:.9;margin-top:2px">Vai para <strong>Em Andamento</strong> e fica atribuído a você${directMode ? '<br>Membro: direto, <strong>sem</strong> Pendência Chamado' : ''}</div></div>
           </div>
           <div style="display:flex;gap:10px;align-items:flex-start">
             <span class="pg-num">1</span>
@@ -2346,6 +2357,7 @@
         this.closePicker();
         if(res.warning) alert(res.warning);
         if(res.pendencia_id) this.showToast(`Pego ✓ → Em Andamento + pendência #${res.pendencia_id}`);
+        else if(res.direct) this.showToast('Pego ✓ → Em Andamento (direto, sem pendência)');
         else this.showToast('Pego ✓ → Em Andamento');
         if(res.zap_error && res.pendencia_id && res.zap_error !== 'duplicate') this.showToast('Zap não enviado: ' + res.zap_error);
         if(this.currentCardId == cid) this.closeCardModal();
@@ -3286,7 +3298,7 @@
       if (lockedFinal) {
         finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
       } else if (cardPending) {
-        finalizeBtnHtml = `<span title="O card ainda está na lista Pendente — clique em Pegar (admin do quadro) para liberar o atendimento" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-lock" style="font-size:11px"></i> FINALIZAR bloqueado</span>`;
+        finalizeBtnHtml = `<span title="O card ainda está na lista Pendente — clique em Pegar (membro ou admin) para liberar o atendimento" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-lock" style="font-size:11px"></i> FINALIZAR bloqueado</span>`;
       } else if (hasMissing) {
         finalizeBtnHtml = `<button onclick="Kanpro.explainMissingStatus()" title="Clique para ver quais máquinas estão sem Status Final" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
       } else if (allDone) {
@@ -3315,7 +3327,7 @@
           ${cardPending? `
           <div style="padding:10px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <i class="ti ti-lock"></i> Atendimento bloqueado: este card ainda está na lista <strong>Pendente</strong>. Ninguém pegou ele ainda.
-            <span style="font-weight:600">Clique em ${this.isBoardAdmin() ? '<strong>Pegar</strong> (você é admin do quadro)' : '<strong>Pegar</strong> (só admin do quadro pode)'} para mover para Em Andamento e liberar Status/Diário.</span>
+            <span style="font-weight:600">Clique em ${this.canPegar() ? '<strong>Pegar</strong> (você pode pegar)' : '<strong>Pegar</strong> (membro ou admin do quadro)'} para mover para Em Andamento e liberar Status/Diário.</span>
           </div>` : ""}
           ${(!cardPending && !lockedFinal && chamadoLocked) ? `
           <div style="padding:10px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -3398,7 +3410,7 @@
         const lockTxt = lockedFinal
           ? '🔒 Finalizado — enviado para Assinatura. Somente visualização.'
           : (cardPending
-            ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (admin do quadro) para liberar o atendimento.'
+            ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (membro ou admin do quadro) para liberar o atendimento.'
             : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`);
         const lockBanner = workLocked ? `<div style="background:${lockedFinal ? '#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc' : '#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600'};font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> ${lockTxt}</div>` : '';
         const lockHint = lockedFinal ? 'Finalizado' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado');
@@ -3439,7 +3451,7 @@
             </div>
             <div style="padding:10px 12px">
               <div style="font-size:11px;font-weight:600;color:#5e6c84;margin-bottom:4px;letter-spacing:.04em">RELATÓRIO — o que foi feito nesta máquina</div>
-              <textarea id="maint-diary-${m.id}" ${dis} placeholder="${cardPending ? 'Bloqueado — clique em Pegar (admin do quadro) para liberar o atendimento' : (isLocked ? 'Travada — aguardando Chamado criado' : 'Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)')}" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box;${workLocked ? 'background:#f4f5f7' : ''}" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
+                             <textarea id="maint-diary-${m.id}" ${dis} placeholder="${cardPending ? 'Bloqueado — clique em Pegar (membro ou admin) para liberar o atendimento' : (isLocked ? 'Travada — aguardando Chamado criado' : 'Descreva o que foi feito nesta máquina... (ex: limpeza interna, troca de pasta térmica, verificação de memória)')}" style="width:100%;min-height:56px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;resize:vertical;font-size:13px;box-sizing:border-box;${workLocked ? 'background:#f4f5f7' : ''}" oninput="Kanpro.onDiaryInput(${m.id})" onblur="Kanpro.autoSaveDiary(${m.id})">${this.escape(diary)}</textarea>
               <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
                 <span id="maint-save-status-${m.id}" style="font-size:11px;color:#5e6c84"></span>
                 <span style="font-size:10px;color:#97a0af;font-style:italic">💾 salvamento automático a cada digitação</span>
@@ -4392,7 +4404,7 @@
     },
     maintLockAlert(){
       try { if(this.isCardFinalized()){ this.finalizedGuard(); return; } } catch(e){}
-      if(this.isCardWorkLocked()) alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (admin do quadro) para mover para Em Andamento e liberar o atendimento.');
+      if(this.isCardWorkLocked()) alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.');
       else alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.');
     },
     toggleMaintenanceNeeds(mid){
@@ -4780,12 +4792,15 @@
         }
         let msg = "Enviado para Assinatura!";
         if(res.pending_card_id) msg += ` Pendentes → card #${res.pending_card_id} (${res.pending_count})`;
+        if(res.moved_to_retirada) msg += ` • Card → ${res.retirada_list_name || 'Retirada'}`;
         this.showToast(msg);
         // marca local como Retirada SOMENTE se há transfer_id real (sem isso, retry ficaria travado
         // como "finalizado" sem assinatura criada). Concluído vem após assinatura via polling.
         if(res.transfer_id){
           this.transferStatus[cardId] = {label:'Retirada', status:'retirada'};
           this.renderBoard();
+          // busca snapshot na hora p/ o card aparecer já na lista Retirada (backend moveu)
+          try { this.forceSync(); } catch(e){}
         }
         this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
         // abre apenas a aba de Assinaturas — não abre mais o termo sem assinar
