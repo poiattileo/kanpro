@@ -4716,13 +4716,16 @@
       // o select do modo "Selecionar" em massa (#maint-bulk-status) NÃO conta (antes travava o finalizar à toa)
       const statusSelects = ()=>{
         const wrap = document.getElementById("card-modal-maintenance");
-        if(!wrap) return [];
-        return [...wrap.querySelectorAll("select[onchange*='updateMaintenanceStatus']")];
+        if(!wrap){ console.log('[KanPro] finalize: sem wrap maintenance'); return []; }
+        const sels = [...wrap.querySelectorAll("select[onchange*='updateMaintenanceStatus']")];
+        console.log('[KanPro] finalize: statusSelects=', sels.length);
+        return sels;
       };
       const checkAndPrompt = ()=>{
         // busca dados atuais do modal para validar pendentes sem recarregar
         let missing = 0;
         statusSelects().forEach(s=>{ if(!s.value || s.value.trim()==="") missing++; });
+        console.log('[KanPro] finalize: missing status=', missing);
         if(missing>0){
           this.explainMissingStatus();
           return false;
@@ -4805,6 +4808,7 @@
       // guarda o passo final p/ a etapa da palavra-desafio
       this._finalizeProceed = proceed;
       try {
+      console.log('[KanPro] finalize: prog=', JSON.stringify(prog||null));
       // pendentes não precisam estar 100% — apenas não-pendentes
       if(prog && prog.total>0 && prog.done!==prog.total){
         // pendentes justificam não estar 100% Feito (ficam em novo card)
@@ -4825,6 +4829,7 @@
     },
     // Autenticação por palavra no finalizar — mesmas palavras da conversão p/ manutenção e do Pegar
     askFinalizeWord(force){
+      console.log('[KanPro] finalize: abrindo palavra-desafio, force=', force ? 1 : 0);
       let challenge;
       if (Math.random() < 0.10) {
         const specials = ["PAIVA","MASSON","FERRARI","MORANGO","SAWATA"];
@@ -6687,7 +6692,7 @@
     showPicker({title, html, x, y}){
       const p = $('#kanpro-picker');
       const bd = $('#picker-body');
-      if(!p || !bd) return;
+      if(!p || !bd){ console.error('[KanPro] showPicker sem elementos (picker/body ausentes)'); alert('Erro interno: painel não encontrado na página. Recarregue (Ctrl+F5).'); return; }
       $('#picker-title').textContent = title||'';
       bd.innerHTML = html||'';
       // reset geométrico total: fluxos diferentes (manutenção/pegar/tarefa) mexem em
