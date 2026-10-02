@@ -35,7 +35,7 @@
   }
 
   const C = {
-    // Criação guiada na Pendência Chamado: título + descrição
+    // Criação guiada na Pendência Chamado: título + descrição + origem (URE ou Escola)
     create(listsId){
       picker('📞 Novo chamado', `
         <div style="display:grid;gap:10px">
@@ -44,16 +44,46 @@
             <input id="kc-title" type="text" maxlength="255" placeholder="Ex: Impressora sala 3 sem imprimir" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:14px"></label>
           <label style="font-size:12px;font-weight:700;color:#172b4d">Descrição
             <textarea id="kc-desc" rows="4" placeholder="Detalhe o problema..." style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:13px;font-family:inherit"></textarea></label>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:4px">Origem do chamado</div>
+            <div style="display:flex;gap:8px">
+              <label style="flex:1;display:flex;align-items:center;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-radius:6px;padding:8px 10px;font-size:13px;cursor:pointer"><input type="radio" name="kc-origin" value="ure" checked onchange="KanproChamado.toggleOrigin()"> 🏢 URE</label>
+              <label style="flex:1;display:flex;align-items:center;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-radius:6px;padding:8px 10px;font-size:13px;cursor:pointer"><input type="radio" name="kc-origin" value="escola" onchange="KanproChamado.toggleOrigin()"> 🏫 Escola</label>
+            </div>
+          </div>
+          <label id="kc-entity-wrap" style="display:none;font-size:12px;font-weight:700;color:#172b4d">Escola (entidade)
+            <select id="kc-entity" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:13px"><option value="">Carregando escolas...</option></select></label>
           <button id="kc-save" onclick="KanproChamado.confirmCreate(${Number(listsId)}, this)" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">Criar chamado</button>
         </div>`);
       setTimeout(()=> document.getElementById('kc-title')?.focus(), 60);
     },
+    toggleOrigin(){
+      const wrap = document.getElementById('kc-entity-wrap');
+      const sel = document.getElementById('kc-entity');
+      const origin = document.querySelector('input[name="kc-origin"]:checked')?.value || 'ure';
+      if (!wrap || !sel) return;
+      if (origin !== 'escola') { wrap.style.display = 'none'; return; }
+      wrap.style.display = '';
+      if (sel.dataset.loaded === '1') return;
+      sel.innerHTML = '<option value="">Carregando escolas...</option>';
+      K.ajax('list_entities', {}).then(res=>{
+        const s = document.getElementById('kc-entity');
+        if (!s) return;
+        const list = (res && res.success && res.entities) || [];
+        if (!list.length) { s.innerHTML = '<option value="">Nenhuma escola encontrada</option>'; return; }
+        s.innerHTML = '<option value="">Selecione a escola...</option>' + list.map(e=>`<option value="${Number(e.id)}">${esc(e.completename || e.name)}</option>`).join('');
+        s.dataset.loaded = '1';
+      });
+    },
     confirmCreate(listsId, btn){
       const title = document.getElementById('kc-title')?.value.trim() || '';
       const desc = document.getElementById('kc-desc')?.value.trim() || '';
+      const origin = document.querySelector('input[name="kc-origin"]:checked')?.value || 'ure';
+      const entities_id = origin === 'escola' ? Number(document.getElementById('kc-entity')?.value || 0) : 0;
       if (!title) { alert('Título obrigatório'); return; }
+      if (origin === 'escola' && !entities_id) { alert('Selecione a escola (entidade).'); return; }
       if (btn) { btn.disabled = true; btn.textContent = 'Criando...'; }
-      K.ajax('add_chamado_card', {lists_id: listsId, name: title, description: desc}).then(res=>{
+      K.ajax('add_chamado_card', {lists_id: listsId, name: title, description: desc, origin, entities_id}).then(res=>{
         if (!res || !res.success) {
           alert((res && res.msg) || 'Erro');
           if (btn) { btn.disabled = false; btn.textContent = 'Criar chamado'; }
@@ -89,6 +119,7 @@
         ${d.description ? `<div style="font-size:13px;color:#172b4d;background:#f4f5f7;border-radius:6px;padding:10px;white-space:pre-wrap">${esc(d.description)}</div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:#5e6c84">
           ${ticketHtml}
+          ${d.entity_name ? `<span style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 10px;border-radius:10px;font-weight:700">🏫 ${esc(d.entity_name)}</span>` : ''}
           ${badge || ''}
         </div>`;
     },
@@ -230,21 +261,55 @@
         ${lockBanner}
         <div style="display:grid;gap:6px;max-height:220px;overflow-y:auto">${hist}</div>
         <label style="font-size:12px;font-weight:700;color:#172b4d">O que foi realizado
-          <textarea id="kc-note" rows="3" placeholder="${liberado ? 'Descreva...' : '🔒 Bloqueado — aguarde o Chamado aberto'}" ${dis} style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:13px;font-family:inherit;${disStyle}"></textarea></label>
-        <label style="font-size:12px;font-weight:700;color:#172b4d">Status
+          <textarea id="kc-note" rows="3" placeholder="${liberado ? 'Descreva...' : '🔒 Bloqueado — aguarde o Chamado aberto'}" ${dis} oninput="KanproChamado.draftSave(${d.id})" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:13px;font-family:inherit;${disStyle}"></textarea></label>
+        <div id="kc-draft-hint" style="font-size:11px;color:#8c8c8c;min-height:14px"></div>
+        <label style="font-size:12px;font-weight:700;color:#172b4d">Status <span style="color:#eb5a46">*</span>
           <select id="kc-status" ${dis} style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;${disStyle}">
+            <option value="" selected>Selecione o status...</option>
             <option value="pendente">🕐 Pendente (só anota)</option>
             <option value="finalizado">✅ Finalizado (encerra e move)</option>
           </select></label>
         ${liberado ? '' : '<div style="font-size:11px;color:#bf2600;font-weight:700">🔒 Finalizar e anotar exigem o "Chamado aberto" em Abrir chamado.</div>'}
         <button onclick="KanproChamado.saveUpdate(${d.id}, this)" ${dis} title="${liberado ? 'Registrar atualização' : 'Bloqueado — aguarde o Chamado aberto'}" style="background:${liberado ? '#403294' : '#97a0af'};color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:${liberado ? 'pointer' : 'not-allowed'};font-weight:800">${liberado ? 'Atualizar card' : '🔒 Bloqueado — aguarde Chamado aberto'}</button>
       </div>`);
+      if (liberado) this.draftRestore(d.id);
     },
+    // Rascunho do "O que foi realizado": salva sozinho a cada tecla (local, por card).
+    // Se fechar e abrir de novo, o texto volta. Some ao registrar com sucesso.
+    draftKey(cardId){ return 'kc-draft-' + Number(cardId); },
+    draftSave(cardId){
+      try {
+        const ta = document.getElementById('kc-note');
+        if (!ta || ta.disabled) return;
+        clearTimeout(this._draftT);
+        this._draftT = setTimeout(()=>{
+          try {
+            localStorage.setItem(this.draftKey(cardId), ta.value);
+            const h = document.getElementById('kc-draft-hint');
+            if (h && ta.value.trim()) h.textContent = '💾 Rascunho salvo automaticamente';
+          } catch(_){}
+        }, 400);
+      } catch(_){}
+    },
+    draftRestore(cardId){
+      try {
+        const v = localStorage.getItem(this.draftKey(cardId)) || '';
+        if (!v) return;
+        const ta = document.getElementById('kc-note');
+        if (ta && !ta.disabled) {
+          ta.value = v;
+          const h = document.getElementById('kc-draft-hint');
+          if (h) h.textContent = '💾 Rascunho restaurado';
+        }
+      } catch(_){}
+    },
+    draftClear(cardId){ try { localStorage.removeItem(this.draftKey(cardId)); } catch(_){} },
     saveUpdate(cardId, btn){
       if (this._andamentoLocked) { alert('🔒 Card bloqueado — aguarde o "Chamado aberto" em Abrir chamado.'); return; }
       const note = document.getElementById('kc-note')?.value.trim() || '';
-      const status = document.getElementById('kc-status')?.value || 'pendente';
+      const status = document.getElementById('kc-status')?.value || '';
       if (!note) { alert('Escreva o que foi realizado.'); return; }
+      if (!status) { alert('Selecione o status (Pendente ou Finalizado).'); document.getElementById('kc-status')?.focus(); return; }
       const doSave = ()=>{
         if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
         K.ajax('chamado_update', {cards_id: cardId, note, status}).then(res=>{
@@ -253,6 +318,7 @@
             if (btn) { btn.disabled = false; btn.textContent = 'Atualizar card'; }
             return;
           }
+          this.draftClear(cardId);
           try { K.closePicker && K.closePicker(); } catch(_){}
           K.showToast && K.showToast(res.finished ? '✅ Chamado finalizado' : '📝 Atualização registrada');
           try { K.forceSync && K.forceSync(); } catch(_){}
@@ -271,12 +337,51 @@
       doSave();
     },
     renderFinalizado(d, updates){
+      this._lastFinalizado = {d, updates};
       let hist = '';
       if (updates.length) hist = '<div style="display:grid;gap:6px;max-height:220px;overflow-y:auto">' + updates.map(u=>
         `<div style="background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:8px 10px;font-size:12px">`
         + `<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px"><b>${esc(userName(u.users_id))}</b><span style="color:#5e6c84">${esc(fmtDate(u.date))}</span></div>`
         + `<div style="white-space:pre-wrap">${esc(u.note)}</div></div>`).join('') + '</div>';
-      picker('✅ Chamado finalizado', this.headHtml(d, '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Finalizado</span>') + hist + '</div>');
+      picker('✅ Chamado finalizado', this.headHtml(d, '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Finalizado</span>') + hist
+        + `<button onclick="KanproChamado.copyFinalizado(this)" style="background:#0052cc;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">📋 Copiar informações</button></div>`);
+    },
+    // Copia tudo que foi lançado no chamado (título, ticket, escola, descrição, atualizações)
+    copyFinalizado(btn){
+      const ref = this._lastFinalizado;
+      if (!ref) return;
+      const {d, updates} = ref;
+      const lines = [];
+      lines.push('✅ CHAMADO FINALIZADO');
+      lines.push(`Card #${d.id} "${d.name || ''}"`);
+      if (d.tickets_id) lines.push(`Ticket GLPI: #${d.tickets_id}`);
+      if (d.board_name) lines.push(`Quadro: ${d.board_name}`);
+      if (d.entity_name) lines.push(`Escola/Entidade: ${d.entity_name}`);
+      if (d.creator_name) lines.push(`Solicitado por: ${d.creator_name}${d.date_creation ? ' em ' + fmtDate(d.date_creation) : ''}`);
+      if (d.description) lines.push(`Descrição: ${d.description}`);
+      if ((updates || []).length) {
+        lines.push('', 'Atualizações:');
+        (updates || []).forEach(u=> lines.push(`- ${fmtDate(u.date)} — ${userName(u.users_id)}: ${u.note}`));
+      }
+      lines.push('', 'Manutenção de TI - URE Jales');
+      const txt = lines.join('\n');
+      const done = ()=> { try { K.showToast && K.showToast('📋 Informações copiadas!'); } catch(_){} if (btn) { const o = btn.textContent; btn.textContent = '✓ Copiado!'; setTimeout(()=>{ btn.textContent = o; }, 2000); } };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).then(done).catch(()=> this.copyFallback(txt, done)); }
+        else this.copyFallback(txt, done);
+      } catch(_){ this.copyFallback(txt, done); }
+    },
+    copyFallback(txt, done){
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = txt;
+        ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        done();
+      } catch(_){ alert('Não foi possível copiar automaticamente.'); }
     },
   };
 

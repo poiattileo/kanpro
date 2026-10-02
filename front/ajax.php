@@ -932,7 +932,7 @@ function kanpro_move_card_to_retirada(int $cards_id): array {
 // Cria um chamado GLPI a partir do cartão e vincula (tickets_id).
 // Usado na conversão para manutenção (automático) e no botão Chamado.
 // Se o cartão já tem chamado válido, só retorna o vínculo existente.
-function kanpro_create_ticket_from_card(int $cards_id): array {
+function kanpro_create_ticket_from_card(int $cards_id, int $force_entities_id = 0, string $origin_label = ''): array {
     global $DB;
     if (!class_exists('Ticket')) return ['ok' => false, 'error' => 'Classe Ticket indisponível'];
     $card = new PluginKanproCard();
@@ -947,11 +947,14 @@ function kanpro_create_ticket_from_card(int $cards_id): array {
     $board->getFromDB((int)$card->fields['plugin_kanpro_boards_id']);
     $list = new PluginKanproList();
     $list->getFromDB((int)$card->fields['plugin_kanpro_lists_id']);
-    $entities_id = (int)($board->fields['entities_id'] ?? 0);
+    // Escola selecionada tem prioridade; senão entidade do quadro/ativa (URE).
+    $entities_id = $force_entities_id > 0 ? $force_entities_id : (int)($card->fields['entities_id'] ?? 0);
+    if ($entities_id <= 0) $entities_id = (int)($board->fields['entities_id'] ?? 0);
     if ($entities_id <= 0) $entities_id = (int)($_SESSION['glpiactive_entity'] ?? 0);
     $content = "Chamado aberto automaticamente pelo KanPro.\n\n"
         . 'Quadro: ' . ($board->fields['name'] ?? '-') . "\n"
         . 'Lista: ' . ($list->fields['name'] ?? '-') . "\n"
+        . ($origin_label !== '' ? 'Origem: ' . $origin_label . "\n" : '')
         . 'Cartão: #' . $cards_id . ' ' . (trim($card->fields['name'] ?? '') ?: ('Cartão #' . $cards_id)) . "\n";
     if (!empty($card->fields['description'])) $content .= "\nDescrição do cartão:\n" . $card->fields['description'] . "\n";
     $content .= "\nAs atualizações da manutenção serão registradas como acompanhamentos neste chamado.";
@@ -3420,13 +3423,28 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Sem permissão para criar chamados no GLPI (perfil sem ticket CREATE).']);
         }
         $actor = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        // Origem do chamado: URE (padrão, entidade do quadro/ativa) ou Escola (entidade selecionada).
+        $origin = strtolower(trim($_POST['origin'] ?? 'ure'));
+        if (!in_array($origin, ['ure','escola'], true)) $origin = 'ure';
+        $originEntitiesId = 0;
+        $originLabel = 'URE';
+        if ($origin === 'escola') {
+            $originEntitiesId = (int)($_POST['entities_id'] ?? 0);
+            if ($originEntitiesId <= 0) jexit(['success'=>false,'msg'=>'Selecione a escola (entidade).']);
+            $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$originEntitiesId]])->current();
+            if (!$entRow || !empty($entRow['is_deleted'])) jexit(['success'=>false,'msg'=>'Escola (entidade) não encontrada.']);
+            $originLabel = 'Escola: ' . trim(($entRow['completename'] ?? $entRow['name'] ?? ('#' . $originEntitiesId)));
+        }
         $now = date('Y-m-d H:i:s');
         $card = new PluginKanproCard();
         $origId = (int)$card->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$lists_id,
-            'name'=>$name,'description'=>$desc,'users_id'=>$actor,'date_creation'=>$now,'date_mod'=>$now]);
+            'name'=>$name,'description'=>$desc,'entities_id'=>$originEntitiesId,
+            'users_id'=>$actor,'date_creation'=>$now,'date_mod'=>$now]);
         if (!$origId) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão (tente de novo)']);
+        // solicitante fica vinculado ao card (membro) — vale p/ ver o finalizado depois
+        try { $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$origId,'users_id'=>$actor]); } catch (Throwable $e) {}
         // ticket GLPI acompanha tudo (obrigatório: sem ticket não há fluxo)
-        $tk = function_exists('kanpro_create_ticket_from_card') ? kanpro_create_ticket_from_card($origId) : ['ok'=>false,'error'=>'integração indisponível'];
+        $tk = function_exists('kanpro_create_ticket_from_card') ? kanpro_create_ticket_from_card($origId, $originEntitiesId, $originLabel) : ['ok'=>false,'error'=>'integração indisponível'];
         if (empty($tk['ok'])) {
             $card->delete(['id'=>$origId], true);
             jexit(['success'=>false,'msg'=>'Chamado GLPI não criado: ' . ($tk['error'] ?? 'erro')]);
@@ -3457,7 +3475,7 @@ switch ($action) {
             kanpro_run_rules($bid, $origId, (int)$andam['id']);
             kanpro_run_rules($bid, $cloneId, (int)$abrir['id']);
         }
-        PluginKanproBoard::logActivity($bid, $origId, (int)$andam['id'], 'chamado_created', "Chamado #{$tickets_id} criado: clone #{$cloneId} em Abrir chamado, original em Em Andamento");
+        PluginKanproBoard::logActivity($bid, $origId, (int)$andam['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}): clone #{$cloneId} em Abrir chamado, original em Em Andamento");
         // zap p/ os responsáveis (não trava o fluxo se falhar)
         $zapRes = ['ok' => false];
         try {
@@ -3585,6 +3603,27 @@ switch ($action) {
         if (!in_array($catD, ['abrir_chamado','andamento_chamado','chamado_finalizado'], true)) {
             jexit(['success'=>false,'msg'=>'Fora do fluxo Chamado.']);
         }
+        // Finalizado: admin vê tudo; membro só abre card ao qual está vinculado
+        // (membro do card, criador ou autor de atualização). Espelha o filtro da lista.
+        if ($catD === 'chamado_finalizado' && function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($bidD)) {
+            $__linked = false;
+            try {
+                $__viewerIds = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
+                $__viewerIds = array_values(array_unique(array_map('intval', $__viewerIds)));
+                if (in_array((int)($cd->fields['users_id'] ?? 0), $__viewerIds, true)) $__linked = true;
+                if (!$__linked) {
+                    foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => $cid]]) as $__m) {
+                        if (in_array((int)($__m['users_id'] ?? 0), $__viewerIds, true)) { $__linked = true; break; }
+                    }
+                }
+                if (!$__linked && $DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
+                    foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_plugin_kanpro_chamado_updates', 'WHERE' => ['plugin_kanpro_cards_id' => $cid]]) as $__u) {
+                        if (in_array((int)($__u['users_id'] ?? 0), $__viewerIds, true)) { $__linked = true; break; }
+                    }
+                }
+            } catch (Throwable $e) {}
+            if (!$__linked) jexit(['success'=>false,'msg'=>'Você não está vinculado a este chamado finalizado.','need_link'=>true]);
+        }
         if (function_exists('kanpro_can_view_list')) {
             $lrD = new PluginKanproList();
             if ($lrD->getFromDB((int)$cd->fields['plugin_kanpro_lists_id']) && !kanpro_can_view_list($lrD->fields, $bidD)) {
@@ -3616,7 +3655,12 @@ switch ($action) {
         } catch (Throwable $e) {}
         jexit(['success'=>true,'card'=>['id'=>$cid,'name'=>(string)($cd->fields['name'] ?? ''),
             'description'=>(string)($cd->fields['description'] ?? ''),'tickets_id'=>(int)($cd->fields['tickets_id'] ?? 0),
-            'chamado_status'=>(string)($cd->fields['chamado_status'] ?? ''),'category'=>$catD],
+            'chamado_status'=>(string)($cd->fields['chamado_status'] ?? ''),'category'=>$catD,
+            'board_name'=> (function() use ($bidD) { try { $b = new PluginKanproBoard(); if ($b->getFromDB($bidD)) return (string)($b->fields['name'] ?? ''); } catch (Throwable $e) {} return ''; })(),
+            'entity_name'=> (function() use ($cd) { try { global $DB; $eid = (int)($cd->fields['entities_id'] ?? 0); if ($eid <= 0) return ''; $r = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$eid]])->current(); if (!$r) return ''; return trim(($r['completename'] ?? $r['name'] ?? '')); } catch (Throwable $e) { return ''; } })(),
+            'creator_id'=>(int)($cd->fields['users_id'] ?? 0),
+            'creator_name'=> (function() use ($cd) { try { $u = new User(); if ($u->getFromDB((int)($cd->fields['users_id'] ?? 0))) { $n = $u->getFriendlyName(); if (trim((string)$n) === '') $n = (string)($u->fields['name'] ?? ''); return (string)$n; } } catch (Throwable $e) {} return ''; })(),
+            'date_creation'=>(string)($cd->fields['date_creation'] ?? '')],
             'updates'=>$updates,'sibling'=>$sibling,
             'can_edit'=> (Session::haveRight('plugin_kanpro', UPDATE) || Session::haveRight('plugin_kanpro', CREATE))]);
 

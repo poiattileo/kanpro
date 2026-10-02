@@ -669,6 +669,19 @@
       if(!card) return true;
       // aguardando aprovação: invisível para não-admins
       if((card.approval_from||0) > 0 && !this.isBoardAdmin()) return false;
+      // Chamado finalizado: admin vê tudo; membro só vê card ao qual está vinculado
+      // (membro do card ou criador). Espelha a trava do chamado_detail no backend.
+      try {
+        const lst = (this.lists||[]).find(l=> l.id==card.plugin_kanpro_lists_id);
+        const t = this.listTypeOf ? this.listTypeOf(lst) : null;
+        if(t && t.code === 'chamado_finalizado' && !this.isBoardAdmin()){
+          const ids = this.myUserIds ? this.myUserIds() : [];
+          if(ids.includes(parseInt(card.users_id))) return true;
+          const mems = (this.cardMembers && this.cardMembers[card.id]) || [];
+          if(mems.some(m=> ids.includes(parseInt(m.users_id)))) return true;
+          return false;
+        }
+      } catch(e){}
       return true;
     },
     // ---------- BOARD ----------
