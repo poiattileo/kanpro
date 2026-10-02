@@ -2717,9 +2717,10 @@
       if(descEditBtn) descEditBtn.style.display = locked ? 'none' : '';
       const addClBtn = document.getElementById('card-modal-add-checklist');
       if(addClBtn) addClBtn.style.display = locked ? 'none' : '';
-      // cartão travado só o admin do quadro exclui — esconde o botão de quem não pode
+      // Excluir: SÓ admin do quadro — esconde o botão de quem não pode (vale p/ qualquer card).
+      // Admin: não força exibição aqui — o renderChamado abaixo decide na pendência.
       const delBtn = document.getElementById('kp-delete-btn');
-      if(delBtn) delBtn.style.display = (locked && !this.isBoardAdmin()) ? 'none' : '';
+      if(delBtn && !this.isBoardAdmin()) { delBtn.style.display = 'none'; delBtn.dataset.adminHide = '1'; }
       // botão Notificado (aberto) — SÓ Retirada
       try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0, data); } catch(e){}
       // pendência chamado / pegar / solicitar (botões do fluxo)
@@ -3093,7 +3094,8 @@
         const ac = document.getElementById('card-modal-add-checklist');
         if(ac && ac.dataset.pendHide === '1'){ ac.style.display = ''; delete ac.dataset.pendHide; }
         const dl = document.getElementById('kp-delete-btn');
-        if(dl && dl.dataset.pendHide === '1'){ dl.style.display = ''; delete dl.dataset.pendHide; }
+        // Excluir é só admin: restaura o botão pendente só se for admin (não-admin nunca vê)
+        if(dl && dl.dataset.pendHide === '1'){ delete dl.dataset.pendHide; if (this.isBoardAdmin() && dl.dataset.adminHide !== '1') dl.style.display = ''; }
         return;
       }
       const amAdmin = this.isBoardAdmin();
@@ -5935,11 +5937,14 @@
       });
     },
     async deleteCard(){
+      // Excluir: SÓ admin do quadro (backend barra também — aqui é pra nem tentar)
+      if(!this.isBoardAdmin()){ try { this.showAlert('Somente admin do quadro pode apagar cards.', 'Sem permissão'); } catch(e){ alert('Somente admin do quadro pode apagar cards.'); } return; }
       // cartão travado (Pendente): só o criador/admin do quadro consegue excluir
       if(this.cardLockedGuard(null, true)) return;
       if(!await this.kpConfirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
       this.ajax('delete_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }
+        else { try { this.showAlert(res.msg || 'Não foi possível excluir.', 'Sem permissão'); } catch(e){ alert(res.msg || 'Erro'); } }
       });
     },
 
@@ -6039,7 +6044,14 @@
       });
     },
     async deleteForever(cardId, trashId){
-      if(!confirm('Excluir DEFINITIVAMENTE? Não será possível restaurar.')) return;
+      // Excluir definitivo: SÓ admin do quadro (backend barra também) + padrão do plugin (sem confirm nativo)
+      if(!this.isBoardAdmin()){ try { this.showAlert('Somente admin do quadro pode apagar cards.', 'Sem permissão'); } catch(e){ alert('Somente admin do quadro pode apagar cards.'); } return; }
+      let ok = false;
+      try {
+        if (this.showConfirm) ok = await this.showConfirm('Excluir DEFINITIVAMENTE? Não será possível restaurar.', 'Excluir para sempre', 'Excluir');
+        else ok = confirm('Excluir DEFINITIVAMENTE? Não será possível restaurar.');
+      } catch(e){ ok = confirm('Excluir DEFINITIVAMENTE? Não será possível restaurar.'); }
+      if(!ok) return;
       if(trashId){
         this.ajax('purge_trash', {trash_id: trashId}).then(res=>{
           if(res.success){ this.showToast('Apagado para sempre'); this.loadTrash(); }

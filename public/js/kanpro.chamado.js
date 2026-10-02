@@ -245,18 +245,30 @@
       const note = document.getElementById('kc-note')?.value.trim() || '';
       const status = document.getElementById('kc-status')?.value || 'pendente';
       if (!note) { alert('Escreva o que foi realizado.'); return; }
-      if (status === 'finalizado' && !confirm('Finalizar? Encerra o ticket no GLPI e move para Chamado finalizado.')) return;
-      if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
-      K.ajax('chamado_update', {cards_id: cardId, note, status}).then(res=>{
-        if (!res || !res.success) {
-          alert((res && res.msg) || 'Erro');
-          if (btn) { btn.disabled = false; btn.textContent = 'Atualizar card'; }
-          return;
-        }
-        try { K.closePicker && K.closePicker(); } catch(_){}
-        K.showToast && K.showToast(res.finished ? '✅ Chamado finalizado' : '📝 Atualização registrada');
-        try { K.forceSync && K.forceSync(); } catch(_){}
-      });
+      const doSave = ()=>{
+        if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+        K.ajax('chamado_update', {cards_id: cardId, note, status}).then(res=>{
+          if (!res || !res.success) {
+            alert((res && res.msg) || 'Erro');
+            if (btn) { btn.disabled = false; btn.textContent = 'Atualizar card'; }
+            return;
+          }
+          try { K.closePicker && K.closePicker(); } catch(_){}
+          K.showToast && K.showToast(res.finished ? '✅ Chamado finalizado' : '📝 Atualização registrada');
+          try { K.forceSync && K.forceSync(); } catch(_){}
+        });
+      };
+      if (status === 'finalizado') {
+        // padrão do plugin/GLPI (sem confirm nativo): mesmo visual do showConfirm do kanban
+        try {
+          if (K.showConfirm) {
+            K.showConfirm('Encerra o ticket no GLPI e move para Chamado finalizado.', 'Finalizar chamado?', 'Finalizar').then(ok=>{ if (ok) doSave(); });
+            return;
+          }
+        } catch(_){}
+        if (!confirm('Finalizar? Encerra o ticket no GLPI e move para Chamado finalizado.')) return;
+      }
+      doSave();
     },
     renderFinalizado(d, updates){
       let hist = '';

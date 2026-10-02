@@ -3783,9 +3783,17 @@ switch ($action) {
         jexit(['success'=>true,'is_archived'=>$new]);
 
     case 'delete_card':
-        if (!Session::haveRight('plugin_kanpro', DELETE)) jexit(['success'=>false]);
+        // Apagar card: SÓ admin do quadro (criador/admin). Vale sem DELETE global —
+        // quem é admin no quadro pode limpar; membro/comum não apaga nada.
+        needEdit();
         kanpro_ensure_board_extras();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $cDelBid = function_exists('kanpro_board_id_for_card') ? (int)kanpro_board_id_for_card($cid) : 0;
+        if ($cDelBid > 0) kanpro_require_board_edit($cDelBid);
+        if ($cDelBid > 0 && function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($cDelBid)) {
+            jexit(['success'=>false,'msg'=>'Somente admin do quadro pode apagar cards.','need_admin'=>true]);
+        }
         // cartão travado (Pendente) só sai com o criador/admin do quadro
         kanpro_need_card_editable($cid, true);
         $c = new PluginKanproCard();
@@ -4041,8 +4049,17 @@ switch ($action) {
         jexit(['success'=>true]);
 
     case 'purge_trash':
-        if (!Session::haveRight('plugin_kanpro', DELETE)) jexit(['success'=>false,'msg'=>'Sem permissão']);
+        // Apagar pra sempre: SÓ admin do quadro (mesma regra do Excluir).
+        needEdit();
         $tid = (int)($_POST['trash_id'] ?? 0);
+        if (!$tid) jexit(['success'=>false,'msg'=>'Item inválido']);
+        $tRow = $DB->request(['FROM'=>'glpi_plugin_kanpro_trash','WHERE'=>['id'=>$tid]])->current();
+        if (!$tRow) jexit(['success'=>false,'msg'=>'Item não encontrado']);
+        $tBid = (int)($tRow['plugin_kanpro_boards_id'] ?? 0);
+        if ($tBid > 0) kanpro_require_board_edit($tBid);
+        if ($tBid > 0 && function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($tBid)) {
+            jexit(['success'=>false,'msg'=>'Somente admin do quadro pode apagar cards.','need_admin'=>true]);
+        }
         $DB->delete('glpi_plugin_kanpro_trash', ['id'=>$tid]);
         jexit(['success'=>true]);
 
