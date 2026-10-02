@@ -690,11 +690,24 @@
       } catch(e){}
       return true;
     },
-    /* ---------- filtro do Chamado finalizado (por usuário e data) ---------- */
+    /* ---------- filtro do Chamado finalizado (por usuário e data, só Admin) ---------- */
     finFilterFor(listId){
       this._finFilter = this._finFilter || {};
       if(!this._finFilter[listId]) this._finFilter[listId] = {user:'', from:'', to:''};
       return this._finFilter[listId];
+    },
+    finFilterOpen(listId){
+      this._finFilterOpen = this._finFilterOpen || {};
+      return !!this._finFilterOpen[listId];
+    },
+    toggleFinFilter(listId){
+      this._finFilterOpen = this._finFilterOpen || {};
+      this._finFilterOpen[listId] = !this._finFilterOpen[listId];
+      this.refreshFinFilterBar(listId);
+    },
+    finFilterActive(listId){
+      const f = this.finFilterFor(listId);
+      return !!(f.user || f.from || f.to);
     },
     finFilterPass(list, card){
       try {
@@ -735,13 +748,21 @@
       return [...seen.entries()].sort((a,b)=> String(a[1]).localeCompare(String(b[1])));
     },
     renderFinFilter(list){
+      // Botão + painel: SÓ admin do quadro vê. Clicar abre/fecha as opções.
+      if(!this.isBoardAdmin()) return '';
       const self = this;
       const f = this.finFilterFor(list.id);
+      const open = this.finFilterOpen(list.id);
+      const active = this.finFilterActive(list.id);
+      let html = '<div class="kp-fin-filter-wrap" style="margin:0 8px 8px">';
+      html += '<button onclick="Kanpro.toggleFinFilter(' + list.id + ')" title="Filtrar finalizados por usuário ou data" style="display:flex;align-items:center;gap:6px;background:' + (active ? '#e6f4ff' : '#fff') + ';border:1px solid ' + (active ? '#91d5ff' : '#dfe1e6') + ';color:' + (active ? '#0050b3' : '#5e6c84') + ';padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;width:100%">';
+      html += '<i class="ti ti-filter"></i> Filtrar' + (active ? ' ✓' : '') + '<span style="margin-left:auto">' + (open ? '▲' : '▼') + '</span></button>';
+      if(!open) { html += '</div>'; return html; }
       const opts = this.finFilterOptions(list.id).map(function(op){
         const sel = (String(f.user) === String(op[0])) ? ' selected' : '';
         return '<option value="' + Number(op[0]) + '"' + sel + '>' + self.escape(op[1]) + '</option>';
       }).join('');
-      let html = '<div class="kp-fin-filter" style="display:grid;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-radius:6px;padding:8px;margin:0 8px 8px;font-size:12px">';
+      html += '<div class="kp-fin-filter" style="display:grid;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-top:none;border-radius:0 0 6px 6px;padding:8px;font-size:12px">';
       html += '<label style="display:grid;gap:2px;color:#5e6c84;font-weight:700">👤 Usuário';
       html += '<select onchange="Kanpro.setFinFilter(' + list.id + ', \'user\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px">';
       html += '<option value="">Todos</option>' + opts + '</select></label>';
@@ -752,7 +773,7 @@
       html += '<input type="date" value="' + this.escape(f.to || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'to\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;box-sizing:border-box"></label>';
       html += '</div>';
       if (f.user || f.from || f.to) html += '<button onclick="Kanpro.clearFinFilter(' + list.id + ')" style="background:none;border:none;color:#0052cc;cursor:pointer;font-size:12px;font-weight:700;text-align:left;padding:0">✕ Limpar filtro</button>';
-      html += '</div>';
+      html += '</div></div>';
       return html;
     },
     setFinFilter(listId, field, value){
@@ -773,7 +794,7 @@
         if(!list) return;
         const el = this._listEls && this._listEls[listId];
         if(!el || !el.isConnected) return;
-        const old = el.querySelector('.kp-fin-filter');
+        const old = el.querySelector('.kp-fin-filter-wrap');
         if(!old) return;
         const tmp = document.createElement('div');
         tmp.innerHTML = this.renderFinFilter(list);
