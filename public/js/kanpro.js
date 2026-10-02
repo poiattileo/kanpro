@@ -3508,7 +3508,9 @@
           <div style="font-size:11px;color:#975500;margin-top:6px">Conclui e envia para Assinatura (pendentes ficam em novo card)</div>
         </div>`;
       }
-      let html = `
+      // mesma barra no topo (abaixo da Descrição, acima da checklist) e no fim
+      const finalizeTopHtml = finalizeFootHtml.replace('kp-finalize-bar', 'kp-finalize-bar-top').replace('margin-top:12px', 'margin-bottom:12px');
+      let html = (total>0 ? finalizeTopHtml : '') + `
         <div style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);overflow:hidden;margin-bottom:16px;border-left:4px solid #ffab00">
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:10px 12px;justify-content:space-between;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span id="maint-progress-label" style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
@@ -5106,11 +5108,11 @@
       const prog = this.maintenanceProgress[cardId];
       const countPending = ()=> statusSelects().filter(s=> s.value==="pendente").length;
       const proceed = (force, word)=>{
-        const btn = document.querySelector("#card-modal-maintenance button[onclick*='finalizeMaintenance']");
-        const btnOld = btn ? btn.textContent : '';
-        if(btn){ btn.disabled=true; btn.textContent="Finalizando..."; }
+        const btns = [...document.querySelectorAll("#card-modal-maintenance button[onclick*='finalizeMaintenance']")];
+        const btnOld = btns.map(b=> b.textContent);
+        btns.forEach(b=>{ b.disabled=true; b.textContent="Finalizando..."; });
         this.ajax("finalize_maintenance", {cards_id: cardId, force, confirm_text: word||''}).then(res=>{
-        if(btn){ btn.disabled=false; if(btnOld) btn.textContent=btnOld; }
+        btns.forEach((b,i)=>{ b.disabled=false; if(btnOld[i]) b.textContent=btnOld[i]; });
         if(!res.success){
           if(res.need_status){
             this.explainMissingStatus(res.missing);
@@ -5185,7 +5187,7 @@
         }
         this.closeCardModal();
         }).catch(e=>{
-          if(btn){ btn.disabled=false; btn.textContent="FINALIZAR"; }
+          btns.forEach((b,i)=>{ b.disabled=false; if(btnOld[i]) b.textContent=btnOld[i]; });
           alert("Erro: "+(e.message||e));
         });
       };
