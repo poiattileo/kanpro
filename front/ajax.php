@@ -3534,10 +3534,14 @@ switch ($action) {
             'note'=>$note,'status'=>$st,'date_creation'=>date('Y-m-d H:i:s')]);
         $tidU = (int)($cu->fields['tickets_id'] ?? 0);
         if ($st === 'finalizado') {
-            // só finaliza com o clone liberado (chamado realmente aberto)
+            // só finaliza com o chamado realmente aberto: clone liberado, OU original já
+            // carimbado como liberado, OU clone já auto-excluído (fail-open igual ao cadeado).
+            // Sem isso, quem clicou "Chamado aberto" e esperou 30s nunca conseguia finalizar.
             $cloneRow = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards',
                 'WHERE' => ['chamado_source_id' => $cid], 'ORDER' => 'id DESC', 'LIMIT' => 1])->current();
-            if (!$cloneRow || (($cloneRow['chamado_status'] ?? '') !== 'liberado')) {
+            $__origLib = (($cu->fields['chamado_status'] ?? '') === 'liberado');
+            $__cloneLib = ($cloneRow && (($cloneRow['chamado_status'] ?? '') === 'liberado'));
+            if (!$__origLib && !$__cloneLib && $cloneRow) {
                 jexit(['success'=>false,'msg'=>'Só dá para finalizar após o "Chamado aberto" em Abrir chamado.','need_open'=>true]);
             }
             if ($tidU > 0) {
@@ -3547,7 +3551,10 @@ switch ($action) {
             $fin = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bidU, 'chamado_finalizado') : null;
             if (!$fin) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Chamado finalizado" neste quadro.']);
             $nowF = date('Y-m-d H:i:s');
-            foreach ([[$cid, 'original'], [(int)$cloneRow['id'], 'clone']] as [$mid, $kind]) {
+            // move o original sempre; o clone só se ainda existir (pode ter auto-excluído em 30s)
+            $__toMove = [$cid];
+            if ($cloneRow && (int)($cloneRow['id'] ?? 0) > 0) $__toMove[] = (int)$cloneRow['id'];
+            foreach ($__toMove as $mid) {
                 try {
                     $lastF = $DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => (int)$fin['id']]])->current();
                     $rkF = (float)($lastF['m'] ?? 0) + 1024;
