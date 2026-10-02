@@ -460,7 +460,7 @@ echo <<<HTML
       <button onclick="Kanpro.toggleStar()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Favoritar">⭐</button>
       <span style="background:rgba(255,255,255,.2);padding:4px 8px;border-radius:12px;font-size:12px"><i class="ti ti-lock"></i> {$board->fields['visibility']}</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end">
+    <div style="display:flex;align-items:center;gap:8px;flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;margin-left:auto">
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       {$assinatura_btn}
