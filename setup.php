@@ -14,8 +14,23 @@ function plugin_init_kanpro() {
         $PLUGIN_HOOKS['menu_toadd']['kanpro'] = ['tools' => 'PluginKanproBoard'];
     }
 
-    $PLUGIN_HOOKS['add_css']['kanpro']        = ['public/css/kanpro.css?v=1.1.6'];
-    $PLUGIN_HOOKS['add_javascript']['kanpro'] = ['public/js/kanpro.js?v=1.1.6', 'public/js/history.js?v=1.1.6'];
+    // Cache-buster via filemtime (antes ?v= manual — Apache max-age 30d grudava JS velho).
+    // Novos módulos carregam DEPOIS do core e estendem window.Kanpro via Object.assign.
+    $__kpBase = __DIR__;
+    $__kpVer = function (string $rel) use ($__kpBase): string {
+        $f = $__kpBase . '/' . ltrim($rel, '/');
+        $m = @filemtime($f);
+        return $rel . ($m ? '?v=' . $m : '?v=' . PLUGIN_KANPRO_VERSION);
+    };
+    $PLUGIN_HOOKS['add_css']['kanpro'] = [$__kpVer('public/css/kanpro.css')];
+    $PLUGIN_HOOKS['add_javascript']['kanpro'] = [
+        $__kpVer('public/js/kanpro.js'),
+        $__kpVer('public/js/kanpro.modal.js'),
+        $__kpVer('public/js/kanpro.dnd.js'),
+        $__kpVer('public/js/kanpro.maintenance.js'),
+        $__kpVer('public/js/kanpro.butler.js'),
+        $__kpVer('public/js/history.js'),
+    ];
 
     // Hook para mudança de perfil
     $PLUGIN_HOOKS['change_profile']['kanpro'] = ['PluginKanproProfile', 'changeProfile'];

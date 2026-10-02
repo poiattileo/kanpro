@@ -51,6 +51,8 @@ class PluginKanproBoard extends CommonDBTM {
             Session::addMessageAfterRedirect(__('Nome obrigatório', 'kanpro'), false, ERROR);
             return false;
         }
+        // familia: só inteiro >= 0 (validacao de acesso/ciclo acontece no form/ajax)
+        $input['parent_boards_id'] = max(0, (int)($input['parent_boards_id'] ?? 0));
         $input['date_creation'] = $_SESSION['glpi_currenttime'] ?? date('Y-m-d H:i:s');
         $input['date_mod'] = $input['date_creation'];
         $input['color'] = $input['color'] ?? '#0079bf';
@@ -72,6 +74,10 @@ class PluginKanproBoard extends CommonDBTM {
     function prepareInputForUpdate($input) {
         $input['date_mod'] = $_SESSION['glpi_currenttime'] ?? date('Y-m-d H:i:s');
         if (isset($input['color']) && strlen($input['color']) > 255) $input['color'] = substr($input['color'], 0, 255);
+        // familia: normaliza se veio no input (permissao checada no form/ajax)
+        if (array_key_exists('parent_boards_id', $input)) {
+            $input['parent_boards_id'] = max(0, (int)$input['parent_boards_id']);
+        }
         // só mexe no whatsapp se o form enviou o campo (hidden 0 + checkbox 1 garante o par);
         // sem a coluna, descarta p/ não quebrar o update
         if (array_key_exists('whatsapp_notify', $input)) {
@@ -579,6 +585,50 @@ class PluginKanproBoard extends CommonDBTM {
             'team'    => '👥 Equipe',
             'public'  => '🌐 Público',
         ], ['value' => $this->fields['visibility'] ?? 'private']);
+        echo "</td></tr>";
+
+        // Família de quadros: quadro filho de outro (navegação rápida no header do kanban)
+        $famParent = (int)($this->fields['parent_boards_id'] ?? 0);
+        $famCands = [];
+        try {
+            if (function_exists('kanpro_family_candidates')) {
+                $famCands = kanpro_family_candidates($ID > 0 ? (int)$ID : 0);
+            } else {
+                global $DB;
+                foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['is_archived' => 0], 'ORDER' => 'name ASC']) as $r) {
+                    if ((int)$r['id'] === (int)$ID) continue;
+                    $famCands[] = ['id' => (int)$r['id'], 'name' => (string)$r['name']];
+                    if (count($famCands) >= 200) break;
+                }
+            }
+        } catch (Throwable $e) {}
+        echo "<tr class='tab_bg_1'>";
+        echo "<td>Quadro pai<br><small style='color:#6b778c'>Família p/ navegação rápida</small></td><td colspan='3'>";
+        echo "<select name='parent_boards_id' style='max-width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px'>";
+        echo "<option value='0'" . ($famParent === 0 ? ' selected' : '') . ">— Nenhum (quadro raiz) —</option>";
+        foreach ($famCands as $fc) {
+            $sel = ((int)$fc['id'] === $famParent) ? ' selected' : '';
+            echo "<option value='" . (int)$fc['id'] . "'{$sel}>🔗 " . htmlspecialchars($fc['name']) . "</option>";
+        }
+        echo "</select>";
+        echo "<br><small style='color:#5e6c84'>No quadro (kanban), ao lado do nome aparecem botões da família (pai, irmãos e filhos) para trocar rápido. Só mostra quadros que você pode ver.</small>";
+        if (!$is_new) {
+            try {
+                global $DB;
+                $kids = [];
+                if ($DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) {
+                    foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['parent_boards_id' => (int)$ID], 'ORDER' => 'name ASC']) as $r) {
+                        $kids[] = $r;
+                    }
+                }
+                if (!empty($kids)) {
+                    echo "<div style='margin-top:6px;font-size:12px;color:#172b4d'>Filhos deste quadro: ";
+                    $kl = [];
+                    foreach ($kids as $k) { $kl[] = '🔹 ' . htmlspecialchars($k['name']); }
+                    echo implode(' &nbsp; ', $kl) . "</div>";
+                }
+            } catch (Throwable $e) {}
+        }
         echo "</td></tr>";
 
         // Notificação WhatsApp do quadro (criar ou editar via engrenagem — admin do quadro)

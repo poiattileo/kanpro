@@ -27,6 +27,10 @@ if (!Session::haveRight('plugin_kanpro', READ)) {
     exit;
 }
 
+// CSRF: copia header X-Glpi-Csrf-Token p/ $_POST (GLPI 11 valida via header no listener,
+// mas checkCSRF() explícito lê de $_POST). Sem isso o 2º clique falhava.
+if (function_exists('kanpro_csrf_bridge')) kanpro_csrf_bridge();
+
 $action = $_REQUEST['action'] ?? '';
 global $DB, $CFG_GLPI;
 
@@ -37,6 +41,73 @@ function needEdit() {
         $dbg = json_encode(['profile_id'=>$_SESSION['glpiactiveprofile']['id']??null,'have'=>$have,'haveREAD'=>Session::haveRight('plugin_kanpro',READ),'haveCREATE'=>Session::haveRight('plugin_kanpro',CREATE),'haveUPDATE'=>Session::haveRight('plugin_kanpro',UPDATE)]);
         jexit(['success'=>false,'msg'=>"Sem permissão (precisa CREATE ou UPDATE). Seu nível atual: {$have}. Faça logout/login.", 'debug'=>$dbg]);
     }
+}
+// Mutação exige POST (bloqueia CSRF via <img GET>) + CSRF explícito com token preservado
+// (preserve=true p/ não consumir o token da página — AJAX reusa o mesmo token N vezes).
+// Leitura (kanpro_readonly_actions) usa só framework + gate por quadro abaixo.
+if (!function_exists('kanpro_ajax_guard')) {
+function kanpro_ajax_guard(string $action): void {
+    try {
+        $readonly = function_exists('kanpro_readonly_actions') ? kanpro_readonly_actions() : [];
+        if (in_array($action, $readonly, true) || $action === '') return;
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            http_response_code(405);
+            jexit(['success'=>false,'msg'=>'Método não permitido (use POST)']);
+        }
+        // Se o framework já validou via header, o bridge copiou p/ $_POST. Valida sem consumir.
+        try {
+            // GLPI 11: checkCSRF($data, $preserve=true). GLPI 10: checkCSRF($data) — extra arg é ignorado.
+            Session::checkCSRF($_POST, true);
+        } catch (Throwable $e) {
+            http_response_code(403);
+            jexit(['success'=>false,'msg'=>'Sessão expirada ou token inválido — recarregue a página (F5).','csrf'=>true]);
+        }
+    } catch (Throwable $e) {
+        // jexit acima já saiu; qualquer outro erro aqui não pode vazar HTML
+        if (!headers_sent()) http_response_code(403);
+        jexit(['success'=>false,'msg'=>'Falha de segurança (CSRF). Recarregue a página.']);
+    }
+}
+}
+kanpro_ajax_guard($action);
+// Gate por quadro: resolve boards_id de qualquer param (boards_id/lists_id/cards_id) e exige view.
+// Edição (needEdit + view) é checada nos cases via kanpro_require_board_edit().
+if (!function_exists('kanpro_ajax_board_id')) {
+function kanpro_ajax_board_id(): int {
+    $bid = (int)($_REQUEST['boards_id'] ?? 0);
+    if ($bid > 0) return $bid;
+    $lid = (int)($_REQUEST['lists_id'] ?? $_REQUEST['plugin_kanpro_lists_id'] ?? 0);
+    if ($lid > 0 && function_exists('kanpro_board_id_for_list')) {
+        $b = kanpro_board_id_for_list($lid);
+        if ($b > 0) return $b;
+    }
+    $cid = (int)($_REQUEST['cards_id'] ?? $_REQUEST['plugin_kanpro_cards_id'] ?? $_REQUEST['id'] ?? 0);
+    // 'id' só vale como card em actions de card — heurística segura: tenta resolver, se não for card dá 0
+    if ($cid > 0 && function_exists('kanpro_board_id_for_card')) {
+        $b = kanpro_board_id_for_card($cid);
+        if ($b > 0) return $b;
+    }
+    return 0;
+}
+}
+if (!function_exists('kanpro_require_board_view')) {
+function kanpro_require_board_view(int $bid): void {
+    if ($bid <= 0) return; // actions globais (busca global, grupos pessoais) não têm quadro
+    if (!function_exists('kanpro_can_view_board') || !kanpro_can_view_board($bid)) {
+        http_response_code(403);
+        jexit(['success'=>false,'msg'=>'Sem acesso a este quadro.']);
+    }
+}
+}
+if (!function_exists('kanpro_require_board_edit')) {
+function kanpro_require_board_edit(int $bid): void {
+    needEdit();
+    kanpro_require_board_view($bid);
+}
+}
+// Aplica view-gate precoce p/ leitura sensível (snapshot/stamp/activity/history) — mutação checa no case.
+if (in_array($action, ['get_board_stamp','get_board_snapshot','get_board_activity','get_history','get_board_members','presence_heartbeat'], true)) {
+    kanpro_require_board_view(kanpro_ajax_board_id());
 }
 // Normaliza texto para busca sem acentos (case + accent insensitive): "café" == "cafe"
 function kanpro_norm_text($s) {
@@ -62,26 +133,8 @@ function kanpro_norm_text($s) {
 }
 
 // ---------- Helpers Membros do Quadro ----------
-// Quem pode gerenciar acesso: criador do quadro, admin do quadro ou UPDATE global (bootstrap de quadros legados).
-// Identidades do visualizador: ver inc/acting.php (kanpro_viewer_ids).
-function kanpro_my_board_role($bid) {
-    global $DB;
-    // identidade da pessoa primeiro (login compartilhado), sessão como fallback
-    $best = null;
-    $rank = ['observer' => 1, 'member' => 2, 'admin' => 3];
-    foreach (array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]) as $uid) {
-        if ($uid <= 0) continue;
-        $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $uid]])->current();
-        if ($row) {
-            $r = $row['role'] ?? 'member';
-            if ($best === null || ($rank[$r] ?? 0) > ($rank[$best] ?? 0)) $best = $r;
-        }
-    }
-    // acesso via perfil GLPI soma junto (vale o maior privilégio entre pessoa e perfis)
-    $prof = kanpro_board_profile_role($bid);
-    if ($prof !== null && ($best === null || ($rank[$prof] ?? 0) > ($rank[$best] ?? 0))) $best = $prof;
-    return $best;
-}
+// kanpro_my_board_role(), kanpro_is_board_creator() e kanpro_can_manage_members()
+// moram em inc/acting.php (lib compartilhada com form/kanban/gear).
 // Perfis GLPI vinculados ao usuário (todas as entidades — vale sessão e pessoa)
 // NB: helpers de visibilidade (kanpro_my_profile_ids, kanpro_board_profile_role,
 // kanpro_can_view_board, kanpro_board_is_restricted, kanpro_groups_owner_id)
@@ -97,36 +150,6 @@ function kanpro_all_profiles() {
         }
     } catch (Throwable $e) {}
     return $out;
-}
-function kanpro_is_board_creator($bid) {
-    $b = new PluginKanproBoard();
-    if (!$b->getFromDB($bid)) return false;
-    $creator = (int)($b->fields['users_id'] ?? 0);
-    if ($creator <= 0) return false;
-    // vale sessão e pessoa (login compartilhado)
-    try {
-        if ($creator === (int)Session::getLoginUserID()) return true;
-        if (function_exists('kanpro_acting_user_id') && $creator === (int)kanpro_acting_user_id()) return true;
-    } catch (Throwable $e) {
-        if ($creator === (int)Session::getLoginUserID()) return true;
-    }
-    return false;
-}
-function kanpro_can_manage_members($bid) {
-    if (kanpro_is_board_creator($bid)) return true;
-    if (kanpro_my_board_role($bid) === 'admin') return true;
-    // fallback ESTRITO: UPDATE global só vale em quadro legado aberto (sem membros E sem perfis),
-    // p/ bootstrap. Antes valia em qualquer quadro e todo membro com UPDATE (uso normal do kanban)
-    // virava gestor — membro comum conseguia se promover a admin.
-    if (Session::haveRight('plugin_kanpro', UPDATE)) {
-        try {
-            global $DB;
-            $hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
-            $hasP = $DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
-            if (!$hasM && !$hasP) return true;
-        } catch (Throwable $e) {}
-    }
-    return false;
 }
 function kanpro_need_manage_members($bid) {
     if (!kanpro_can_manage_members($bid)) {
@@ -1759,6 +1782,81 @@ switch ($action) {
         PluginKanproBoard::logActivity($bid, null, null, 'member_role', "Perfil {$pid} agora é {$role}");
         jexit(['success'=>true]);
 
+    // --- FAMÍLIA DE QUADROS (pai/filhos p/ navegação rápida no header) ---
+    case 'set_board_parent':
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $parentId = max(0, (int)($_POST['parent_boards_id'] ?? 0));
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        kanpro_require_board_view($bid);
+        // mover B exige gerenciar B (não o pai) — vale p/ vincular e desvincular
+        if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bid)) {
+            jexit(['success'=>false,'msg'=>'Somente o criador ou admin do quadro pode trocar a família.']);
+        }
+        if (!function_exists('kanpro_set_board_parent')) jexit(['success'=>false,'msg'=>'Recurso indisponível (atualize o plugin)']);
+        [$ok, $msg] = kanpro_set_board_parent($bid, $parentId);
+        if (!$ok) jexit(['success'=>false,'msg'=>$msg]);
+        PluginKanproBoard::logActivity($bid, null, null, 'board_family', $parentId > 0 ? "Família: agora filho do quadro #{$parentId}" : "Família: removido do quadro pai (virou raiz)");
+        jexit(['success'=>true]);
+
+    // --- BUTLER-LIKE (automações: ao entrar na lista -> ação) ---
+    case 'rule_list':
+        $bid = (int)($_REQUEST['boards_id'] ?? 0);
+        if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        kanpro_require_board_view($bid);
+        $rules = [];
+        try {
+            if ($DB->tableExists('glpi_plugin_kanpro_rules')) {
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_rules', 'WHERE' => ['plugin_kanpro_boards_id' => $bid], 'ORDER' => 'id ASC']) as $r) {
+                    $rules[] = ['id' => (int)$r['id'], 'lists_id' => (int)$r['plugin_kanpro_lists_id'],
+                        'action' => (string)$r['action'], 'params' => (string)($r['params'] ?? ''),
+                        'is_active' => (int)$r['is_active']];
+                }
+            }
+        } catch (Throwable $e) {}
+        jexit(['success'=>true,'rules'=>$rules,'can_manage'=>function_exists('kanpro_can_manage_members') ? kanpro_can_manage_members($bid) : false]);
+
+    case 'rule_add':
+        needEdit();
+        $bid = (int)($_POST['boards_id'] ?? 0);
+        $lists_id = (int)($_POST['lists_id'] ?? 0);
+        $action = trim($_POST['rule_action'] ?? '');
+        $params = trim($_POST['params'] ?? '');
+        if (!$bid || !$lists_id) jexit(['success'=>false,'msg'=>'Quadro ou lista inválidos']);
+        if (!in_array($action, ['add_label','assign_member','set_due_days'], true)) jexit(['success'=>false,'msg'=>'Ação inválida']);
+        kanpro_require_board_edit($bid);
+        if (function_exists('kanpro_board_id_for_list') && kanpro_board_id_for_list($lists_id) !== $bid) {
+            jexit(['success'=>false,'msg'=>'Lista de outro quadro']);
+        }
+        // valida params por ação
+        if ($action === 'add_label') {
+            $lok = $DB->request(['FROM' => 'glpi_plugin_kanpro_labels', 'WHERE' => ['id' => (int)$params, 'plugin_kanpro_boards_id' => $bid]])->current();
+            if (!$lok) jexit(['success'=>false,'msg'=>'Etiqueta inválida']);
+            $params = (string)(int)$params;
+        } elseif ($action === 'assign_member') {
+            $uid = (int)$params;
+            if ($uid <= 0) jexit(['success'=>false,'msg'=>'Membro inválido']);
+            $params = (string)$uid;
+        } elseif ($action === 'set_due_days') {
+            if (!is_numeric($params) || (int)$params < 0 || (int)$params > 365) jexit(['success'=>false,'msg'=>'Dias inválidos (0-365)']);
+            $params = (string)(int)$params;
+        }
+        if (!$DB->tableExists('glpi_plugin_kanpro_rules')) jexit(['success'=>false,'msg'=>'Tabela de regras ausente (reinstale o plugin)']);
+        $rid = $DB->insert('glpi_plugin_kanpro_rules', ['plugin_kanpro_boards_id' => $bid, 'trigger' => 'enter_list',
+            'plugin_kanpro_lists_id' => $lists_id, 'action' => $action, 'params' => $params, 'is_active' => 1,
+            'users_id' => (int)Session::getLoginUserID(), 'date_creation' => date('Y-m-d H:i:s'), 'date_mod' => date('Y-m-d H:i:s')]);
+        if (!$rid) jexit(['success'=>false,'msg'=>'Não foi possível salvar a regra']);
+        jexit(['success'=>true,'id'=>(int)$rid]);
+
+    case 'rule_delete':
+        needEdit();
+        $rid = (int)($_POST['id'] ?? 0);
+        if (!$rid) jexit(['success'=>false,'msg'=>'Regra inválida']);
+        $rr = $DB->request(['FROM' => 'glpi_plugin_kanpro_rules', 'WHERE' => ['id' => $rid]])->current();
+        if (!$rr) jexit(['success'=>false,'msg'=>'Regra não encontrada']);
+        kanpro_require_board_edit((int)$rr['plugin_kanpro_boards_id']);
+        $DB->delete('glpi_plugin_kanpro_rules', ['id' => $rid]);
+        jexit(['success'=>true]);
+
     // --- GRUPOS PESSOAIS DE QUADROS (cada usuário organiza os seus do seu jeito) ---
     case 'my_board_groups':
         try {
@@ -2021,10 +2119,30 @@ switch ($action) {
             if (isset($profileIds[$ap['id']])) continue;
             $available_profiles[] = $ap;
         }
+        // família de quadros (engrenagem também gerencia o pai — quadros já criados entram aqui)
+        $__fam = ['parent_id' => 0, 'parent_name' => '', 'children' => [], 'candidates' => []];
+        try {
+            if (function_exists('kanpro_ensure_family_column')) kanpro_ensure_family_column();
+            if (function_exists('kanpro_board_parent_id')) {
+                $__pid = kanpro_board_parent_id($bid);
+                $__fam['parent_id'] = $__pid;
+                if ($__pid > 0) {
+                    $pb = new PluginKanproBoard();
+                    if ($pb->getFromDB($__pid)) $__fam['parent_name'] = (string)($pb->fields['name'] ?? '');
+                }
+                if (function_exists('kanpro_family_candidates')) $__fam['candidates'] = kanpro_family_candidates($bid);
+                global $DB;
+                foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['parent_boards_id' => $bid], 'ORDER' => 'name ASC']) as $__kr) {
+                    $__kid = (int)$__kr['id'];
+                    $__fam['children'][] = ['id' => $__kid, 'name' => (string)$__kr['name'],
+                        'can_manage' => function_exists('kanpro_can_manage_members') ? kanpro_can_manage_members($__kid) : false];
+                }
+            }
+        } catch (Throwable $e) {}
         jexit(['success'=>true, 'board_name'=>$bchk->fields['name'] ?? '', 'members'=>$members,
             'profiles'=>$profiles, 'available_profiles'=>$available_profiles,
             'my_role'=>kanpro_my_board_role($bid), 'is_creator'=>($me === $creatorId),
-            'can_manage'=>kanpro_can_manage_members($bid), 'available'=>$available]);
+            'can_manage'=>kanpro_can_manage_members($bid), 'available'=>$available, 'family'=>$__fam]);
 
     case 'search_board_users':
         // Busca server-side (a lista inicial traz só 300; com milhares de usuários a pessoa some).
@@ -2802,7 +2920,8 @@ switch ($action) {
     case 'add_card':
         needEdit();
         $lists_id = (int)($_POST['lists_id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
+        kanpro_require_board_edit(kanpro_board_id_for_list($lists_id));
+        $name = function_exists('kanpro_clean_text') ? kanpro_clean_text($_POST['name'] ?? '', 255) : trim(strip_tags($_POST['name'] ?? ''));
         if (!$name) jexit(['success'=>false,'msg'=>'Título obrigatório']);
         $list = new PluginKanproList();
         if (!$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
@@ -2931,6 +3050,8 @@ switch ($action) {
         kanpro_ensure_board_extras();
         $data = PluginKanproCard::getFullData($cid);
         if (!$data) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        // IDOR: exige acesso ao quadro + visibilidade da lista
+        kanpro_require_board_view((int)($data['plugin_kanpro_boards_id'] ?? 0));
         // trava de visibilidade da lista: quem não pode ver a lista não abre o cartão
         if (function_exists('kanpro_can_view_list')) {
             $lrChk = new PluginKanproList();
@@ -2945,13 +3066,17 @@ switch ($action) {
     case 'update_card':
         needEdit();
         $cid = (int)($_POST['id'] ?? 0);
+        kanpro_require_board_edit(kanpro_board_id_for_card($cid));
         kanpro_need_card_editable($cid);
         $fields = [];
-        if (isset($_POST['name'])) $fields['name'] = trim($_POST['name']);
-        if (array_key_exists('description', $_POST)) $fields['description'] = $_POST['description'];
+        if (isset($_POST['name'])) $fields['name'] = function_exists('kanpro_clean_text') ? kanpro_clean_text($_POST['name'], 255) : trim(strip_tags($_POST['name']));
+        if (array_key_exists('description', $_POST)) $fields['description'] = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['description']) : $_POST['description'];
         if (array_key_exists('due_date', $_POST)) $fields['due_date'] = empty($_POST['due_date']) ? null : $_POST['due_date'];
         if (array_key_exists('start_date', $_POST)) $fields['start_date'] = empty($_POST['start_date']) ? null : $_POST['start_date'];
-        if (array_key_exists('cover_color', $_POST)) $fields['cover_color'] = $_POST['cover_color'] ?: null;
+        if (array_key_exists('cover_color', $_POST)) {
+            $__cc = trim((string)$_POST['cover_color']);
+            $fields['cover_color'] = ($__cc !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $__cc)) ? $__cc : null;
+        }
         if (array_key_exists('is_urgent', $_POST)) $fields['is_urgent'] = (int)$_POST['is_urgent'] ? 1 : 0;
         if (array_key_exists('is_completed', $_POST)) $fields['is_completed'] = (int)$_POST['is_completed'];
         if (empty($fields)) jexit(['success'=>false]);
@@ -3019,6 +3144,12 @@ switch ($action) {
         kanpro_ensure_board_extras();
         $cid = (int)($_POST['cards_id'] ?? 0);
         $target_list = (int)($_POST['target_lists_id'] ?? 0);
+        // IDOR: origem e destino têm que ser do mesmo quadro acessível
+        $__srcBid = kanpro_board_id_for_card($cid);
+        $__dstBid = kanpro_board_id_for_list($target_list);
+        if ($__srcBid > 0) kanpro_require_board_edit($__srcBid);
+        if ($__dstBid > 0 && $__dstBid !== $__srcBid) kanpro_require_board_edit($__dstBid);
+        if ($__srcBid > 0 && $__dstBid > 0 && $__srcBid !== $__dstBid) jexit(['success'=>false,'msg'=>'Listas de quadros diferentes']);
         // Pendente só recebe cartão de Manutenção (lá tudo é travado): card normal não entra
         if (kanpro_list_category($target_list) === 'pending') {
             $mchk = new PluginKanproCard();
@@ -3083,6 +3214,10 @@ switch ($action) {
             } else {
                 $DB->update('glpi_plugin_kanpro_cards', ['approval_from'=>0], ['id'=>$cid]);
             }
+        }
+        // Butler-like: entrou na lista de verdade (sem pendência) -> roda automações do quadro
+        if ($from_list && $target_list && $from_list !== $target_list && !$pending && function_exists('kanpro_run_rules')) {
+            kanpro_run_rules((int)$bid0, (int)$cid, (int)$target_list);
         }
         // devolve a linha fresca p/ o JS reconciliar (lista+rank reais do banco)
         $fresh = new PluginKanproCard();
@@ -3166,6 +3301,10 @@ switch ($action) {
         kanpro_need_manage_members((int)$c->fields['plugin_kanpro_boards_id']);
         $DB->update('glpi_plugin_kanpro_cards', ['approval_from'=>0], ['id'=>$cid]);
         PluginKanproBoard::logActivity((int)$c->fields['plugin_kanpro_boards_id'], $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'card_approval_ok', "Movimentação aprovada por admin");
+        // Butler-like: aprovação confirma a entrada na lista -> roda automações
+        if (function_exists('kanpro_run_rules')) {
+            kanpro_run_rules((int)$c->fields['plugin_kanpro_boards_id'], (int)$cid, (int)$c->fields['plugin_kanpro_lists_id']);
+        }
         jexit(['success'=>true]);
 
     case 'devolve_card':
@@ -3188,6 +3327,8 @@ switch ($action) {
         if (!Session::haveRight('plugin_kanpro', CREATE)) jexit(['success'=>false,'msg'=>'Sem permissão']);
         kanpro_ensure_board_extras();
         $bid = (int)($_POST['boards_id'] ?? 0);
+        // IDOR: só clona o que pode ver — antes clonava cards/membros de quadro privado
+        kanpro_require_board_view($bid);
         $name = trim($_POST['name'] ?? '');
         $src = new PluginKanproBoard();
         if (!$src->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
@@ -3741,7 +3882,9 @@ switch ($action) {
     case 'add_comment':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
-        $content = trim($_POST['content'] ?? '');
+        kanpro_require_board_edit(kanpro_board_id_for_card($cid));
+        $content = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['content'] ?? '') : trim(strip_tags($_POST['content'] ?? ''));
+        $content = trim($content);
         if (!$content) jexit(['success'=>false]);
         $co = new PluginKanproComment();
         $id = $co->add(['plugin_kanpro_cards_id'=>$cid,'content'=>$content]);
@@ -3752,7 +3895,8 @@ switch ($action) {
     case 'update_comment':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
-        $content = trim($_POST['content'] ?? '');
+        $content = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['content'] ?? '') : trim(strip_tags($_POST['content'] ?? ''));
+        $content = trim($content);
         $upRow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
         $DB->update('glpi_plugin_kanpro_comments', ['content'=>$content,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$id,'users_id'=>[Session::getLoginUserID(), kanpro_acting_user_id()]]);
         if ($upRow) kanpro_touch_card((int)$upRow['plugin_kanpro_cards_id']);
@@ -3761,7 +3905,14 @@ switch ($action) {
     case 'delete_comment':
         needEdit();
         $id = (int)($_POST['id'] ?? 0);
-        $delCrow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
+        $delCrow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id', 'users_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
+        if (!$delCrow) jexit(['success'=>false,'msg'=>'Comentário não encontrado']);
+        $__delBid = kanpro_board_id_for_card((int)($delCrow['plugin_kanpro_cards_id'] ?? 0));
+        kanpro_require_board_view($__delBid);
+        // Só dono do comentário ou gestor do quadro (criador/admin) pode excluir — antes qualquer membro excluía qualquer um
+        $__meIds = array_unique([(int)Session::getLoginUserID(), function_exists('kanpro_acting_user_id') ? (int)kanpro_acting_user_id() : 0]);
+        $__isOwner = in_array((int)($delCrow['users_id'] ?? 0), $__meIds, true);
+        if (!$__isOwner && !kanpro_can_manage_members($__delBid)) jexit(['success'=>false,'msg'=>'Somente o autor ou admin do quadro pode excluir.']);
         $DB->delete('glpi_plugin_kanpro_comments', ['id'=>$id]);
         if ($delCrow) kanpro_touch_card((int)$delCrow['plugin_kanpro_cards_id']);
         jexit(['success'=>true]);
@@ -3852,6 +4003,7 @@ switch ($action) {
     // --- BOARD ACTIVITY ---
     case 'get_board_activity':
         $bid = (int)($_REQUEST['boards_id'] ?? 0);
+        kanpro_require_board_view($bid);
         $acts = PluginKanproActivity::getForBoard($bid, 50);
         jexit(['success'=>true,'data'=>$acts]);
 

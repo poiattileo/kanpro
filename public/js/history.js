@@ -45,8 +45,10 @@
     var fd = new FormData();
     fd.append('action', action);
     for (var k in params) { if (params[k] !== undefined && params[k] !== null && params[k] !== '') fd.append(k, params[k]); }
+    var tok = csrf();
+    if (tok && !fd.has('_glpi_csrf_token')) fd.append('_glpi_csrf_token', tok);
     return fetch(ajaxUrl(), {method:'POST', body:fd, credentials:'same-origin',
-      headers:{'X-Requested-With':'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf()}})
+      headers:{'X-Requested-With':'XMLHttpRequest', 'X-Glpi-Csrf-Token': tok}})
       .then(function(r){ return r.text(); })
       .then(function(t){ try { return JSON.parse(t); } catch(e){ return {success:false, msg:'Resposta inesperada'}; } })
       .catch(function(e){ return {success:false, msg:e.message}; });

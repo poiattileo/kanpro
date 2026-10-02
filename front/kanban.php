@@ -382,6 +382,30 @@ $acting_user_id_json = function_exists('kanpro_acting_user_id') ? (int) kanpro_a
 $history_btn = !empty($__histAdmin)
     ? '<button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>'
     : '';
+
+// Família de quadros: pai + irmãos + filhos ao lado do nome (troca rápida). Só o que pode ver.
+$family_html = '';
+try {
+    if (function_exists('kanpro_ensure_family_column')) kanpro_ensure_family_column();
+    if (function_exists('kanpro_get_board_family')) {
+        $__fam = kanpro_get_board_family($boards_id);
+        if (!empty($__fam)) {
+            $chips = [];
+            foreach ($__fam as $__f) {
+                $__fname = htmlspecialchars(mb_strimwidth($__f['name'], 0, 24, '…'), ENT_QUOTES);
+                $__furl = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/kanban.php?boards_id=' . (int)$__f['id'];
+                $__relIcon = ($__f['rel'] === 'parent') ? '⬆ ' : (($__f['rel'] === 'child') ? '⬇ ' : '');
+                if (!empty($__f['current'])) {
+                    $chips[] = "<span title='Quadro atual' style='background:#fff;color:#172b4d;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:800;box-shadow:0 1px 4px rgba(0,0,0,.3)'>{$__relIcon}{$__fname}</span>";
+                } else {
+                    $chips[] = "<a href='{$__furl}' title='Abrir: " . htmlspecialchars($__f['name'], ENT_QUOTES) . "' style='background:rgba(255,255,255,.2);color:#fff;padding:4px 10px;border-radius:12px;font-size:12px;text-decoration:none;font-weight:600' onmouseover=\"this.style.background='rgba(255,255,255,.4)'\" onmouseout=\"this.style.background='rgba(255,255,255,.2)'\">{$__relIcon}{$__fname}</a>";
+                }
+            }
+            $family_html = "<span id='kanpro-family' title='Família de quadros' style='display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);padding:4px 8px;border-radius:14px'><span style='font-size:11px;opacity:.9'>🔗</span>" . implode('', $chips) . "</span>";
+        }
+    }
+} catch (Throwable $e) {}
+$board_name_esc = htmlspecialchars($board->fields['name'] ?? '', ENT_QUOTES);
 // Botão WhatsApp no header do quadro (visibilidade via JS: só se whatsapp_notify ligado e membro/admin)
 $zap_btn = '<button id="kanpro-zap-btn" onclick="Kanpro.sendBoardWhatsapp()" title="Avisar no WhatsApp" style="display:none;background:#25d366;border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700"><i class="ti ti-brand-whatsapp"></i> 📲 Notificar WhatsApp</button>';
 
@@ -404,7 +428,8 @@ echo <<<HTML
   <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(0,0,0,.15);backdrop-filter:blur(6px);color:#fff;gap:12px;flex-wrap:wrap">
     <div style="display:flex;align-items:center;gap:12px">
       <a href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/board.php" style="color:#fff;text-decoration:none;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 10px;border-radius:4px"><i class="ti ti-arrow-left"></i> Quadros</a>
-      <h1 id="board-title" style="margin:0;font-size:18px;font-weight:700;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:4px;cursor:pointer" onclick="Kanpro.renameBoard()" title="Clique para renomear">{$board->fields['name']}</h1>
+      <h1 id="board-title" style="margin:0;font-size:18px;font-weight:700;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:4px;cursor:pointer" onclick="Kanpro.renameBoard()" title="Clique para renomear">{$board_name_esc}</h1>
+      {$family_html}
       <button onclick="Kanpro.toggleStar()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Favoritar">⭐</button>
       <span style="background:rgba(255,255,255,.2);padding:4px 8px;border-radius:12px;font-size:12px"><i class="ti ti-lock"></i> {$board->fields['visibility']}</span>
     </div>
@@ -428,6 +453,7 @@ echo <<<HTML
     <button id="kanpro-filter-btn" onclick="Kanpro.openFilterMenu()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-filter"></i> Filtrar</button>
     <button id="kanpro-calendar-btn" onclick="Kanpro.showCalendarView()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-calendar"></i> Calendário</button>
     <button id="kanpro-report-btn" onclick="Kanpro.openBoardReport()" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-chart-bar"></i> Relatório</button>
+    <button id="kanpro-butler-btn" onclick="window.KanproButler&&KanproButler.open()" title="Automações: quando entrar na lista, faz sozinho" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d">⚡ Automações</button>
     <button id="kanpro-retirada-btn" onclick="Kanpro.openRetiradaNotify()" title="Escolas com cards na coluna Retirada (avisar retirada)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-bell"></i> Avisar retiradas</button>
     <button id="kanpro-show-hidden-btn" onclick="Kanpro.toggleShowHidden()" title="Exibir listas invisíveis (sem os cards)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-eye"></i> Exibir invisíveis</button>
     {$history_btn}

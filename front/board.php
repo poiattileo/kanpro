@@ -312,6 +312,7 @@ window.KanproBoards = (function(){
     var fd = new FormData();
     fd.append('action', action);
     for (var k in params) { if (params[k] !== undefined && params[k] !== null) fd.append(k, params[k]); }
+    if (csrf && !fd.has('_glpi_csrf_token')) fd.append('_glpi_csrf_token', csrf);
     return fetch(ajaxUrl, {
       method: 'POST', body: fd, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf }
@@ -390,6 +391,38 @@ window.KanproBoards = (function(){
           + '<button onclick="KanproBoards.addProfile(this)" style="background:#0050b3;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Adicionar perfil</button>';
       }
       html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
+        + '<div style="font-size:13px;font-weight:700;color:#172b4d">🔗 Família de quadros</div>'
+        + '<div style="font-size:11px;color:#5e6c84">Quadros da família aparecem como botões ao lado do nome no kanban (pai, irmãos e filhos) — clique troca rápido. Quadros já criados entram aqui.</div>'
+        + (function(){
+          var fam = d.family || {parent_id:0, parent_name:'', children:[], candidates:[]};
+          var opts = '<option value="0">— Nenhum (quadro raiz) —</option>';
+          var seen = {};
+          if (fam.parent_id) {
+            opts += '<option value="' + fam.parent_id + '" selected>🔗 ' + esc(fam.parent_name || ('Quadro #' + fam.parent_id)) + ' (atual)</option>';
+            seen[fam.parent_id] = true;
+          }
+          (fam.candidates || []).forEach(function(c){
+            if (seen[c.id]) return;
+            opts += '<option value="' + c.id + '">🔗 ' + esc(c.name) + '</option>';
+          });
+          var kids = '';
+          if ((fam.children || []).length) {
+            kids = '<div style="display:grid;gap:6px;margin-top:8px">' + fam.children.map(function(k){
+              var unlink = d.can_manage && k.can_manage
+                ? ' <button onclick="KanproBoards.unlinkChild(' + k.id + ')" title="Desvincular (vira raiz)" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px">desvincular</button>'
+                : '';
+              return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f7ff;border:1px solid #91d5ff;padding:8px 12px;border-radius:8px;gap:10px;font-size:13px"><span>⬇ ' + esc(k.name) + '</span>' + unlink + '</div>';
+            }).join('') + '</div>';
+          } else {
+            kids = '<div style="font-size:11px;color:#5e6c84;margin-top:6px">Nenhum filho — outros quadros podem escolher este como pai.</div>';
+          }
+          return '<label style="font-size:12px;font-weight:600;color:#5e6c84">Quadro pai '
+            + '<select id="kpb-parent" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">' + opts + '</select></label>'
+            + '<button onclick="KanproBoards.setParent(this)" style="background:#6554c0;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:6px">Salvar família</button>'
+            + '<div style="font-size:12px;font-weight:600;color:#5e6c84;margin-top:8px">Filhos deste quadro (' + (fam.children || []).length + ')</div>'
+            + kids;
+        })()
+        + '<hr style="border:none;border-top:1px solid #dfe1e6">'
         + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado '
         + '<select id="kpb-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
         + '<option value="admin">⭐ Administrador — pode adicionar pessoas</option>'
@@ -526,6 +559,24 @@ window.KanproBoards = (function(){
         state.dirty = true;
         reload();
       });
+    },
+    setParent: function(btn){
+      var sel = document.getElementById('kpb-parent');
+      if (!sel) return;
+      if (btn) { btn.disabled = true; btn.textContent = '...'; }
+      post('set_board_parent', {boards_id: state.boardId, parent_boards_id: sel.value}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); if (btn) { btn.disabled = false; btn.textContent = 'Salvar família'; } return; }
+        state.dirty = true;
+        reload();
+      });
+    },
+    unlinkChild: function(kid){
+      if (!confirm('Desvincular este filho? Ele vira quadro raiz.')) return;
+      post('set_board_parent', {boards_id: kid, parent_boards_id: 0}).then(function(res){
+        if (!res.success) { alert(res.msg || 'Erro'); return; }
+        state.dirty = true;
+        reload();
+      });
     }
   };
 })();
@@ -540,6 +591,7 @@ window.KanproGroups = (function(){
     var fd = new FormData();
     fd.append('action', action);
     for (var k in params) { if (params[k] !== undefined && params[k] !== null) fd.append(k, params[k]); }
+    if (csrf && !fd.has('_glpi_csrf_token')) fd.append('_glpi_csrf_token', csrf);
     return fetch(ajaxUrl, {
       method: 'POST', body: fd, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf }

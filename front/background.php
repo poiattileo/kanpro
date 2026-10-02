@@ -1,6 +1,7 @@
 <?php
 // Serve imagem de fundo do quadro (tema)
 include('../../../inc/includes.php');
+include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
 Session::checkRight('plugin_kanpro', READ);
 
 $boards_id = (int)($_GET['boards_id'] ?? $_GET['id'] ?? 0);
@@ -14,7 +15,12 @@ if (!$board->getFromDB($boards_id)) {
     http_response_code(404);
     die('Quadro não encontrado');
 }
-if (!$board->canViewItem()) {
+// IDOR: canViewItem() checa só READ global — exige acesso real ao quadro (membro/perfil/legado aberto)
+if (!function_exists('kanpro_can_view_board') || !kanpro_can_view_board($boards_id)) {
+    if (!$board->canViewItem()) {
+        http_response_code(403);
+        die('Sem permissão');
+    }
     http_response_code(403);
     die('Sem permissão');
 }

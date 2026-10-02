@@ -26,11 +26,13 @@ function plugin_kanpro_install(): bool {
                 `generate_term`   TINYINT(1)   NOT NULL DEFAULT '0',
                 `visibility`      VARCHAR(20)  NOT NULL DEFAULT 'private',
                 `whatsapp_notify` TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp do quadro ligada',
+                `parent_boards_id` INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quadro pai (0=raiz)',
                 `users_id`        INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`   DATETIME     DEFAULT NULL,
                 `date_mod`        DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
                 KEY `entities_id` (`entities_id`),
+                KEY `parent_boards_id` (`parent_boards_id`),
                 KEY `users_id` (`users_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
@@ -53,6 +55,13 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'whatsapp_notify')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp do quadro ligada' AFTER `visibility`");
         }
+        // familia de quadros: quadro filho de outro (0=raiz)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `parent_boards_id` INT NOT NULL DEFAULT '0' COMMENT 'quadro pai (0=raiz)' AFTER `whatsapp_notify`");
+        }
+        try {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD KEY `parent_boards_id` (`parent_boards_id`)");
+        } catch (Throwable $e) {}
     }
     // Migração: amplia color para suportar degradês (linear-gradient) — 255 chars
     try {
@@ -528,6 +537,28 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- RULES (Butler-like: quando entrar na lista X -> ação automática) ---
+    // trigger: 'enter_list' | action: 'add_label','assign_member','set_due_days' | params: JSON
+    if (!$DB->tableExists('glpi_plugin_kanpro_rules')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_rules` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `trigger`                     VARCHAR(30)  NOT NULL DEFAULT 'enter_list',
+                `plugin_kanpro_lists_id`      INT {$sign} NOT NULL DEFAULT '0' COMMENT 'lista gatilho',
+                `action`                      VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'add_label,assign_member,set_due_days',
+                `params`                      VARCHAR(255) DEFAULT NULL COMMENT 'label_id | users_id | dias',
+                `is_active`                   TINYINT(1)   NOT NULL DEFAULT '1',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem criou a regra',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`),
+                KEY `plugin_kanpro_lists_id` (`plugin_kanpro_lists_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     // --- BOARD GROUPS (grupos pessoais: cada usuário organiza seus quadros do seu jeito) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_board_groups')) {
         $DB->doQuery("
@@ -588,6 +619,7 @@ function plugin_kanpro_uninstall(): bool {
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
 
     $tables = [
+        'glpi_plugin_kanpro_rules',
         'glpi_plugin_kanpro_maintenance_zaplog',
         'glpi_plugin_kanpro_board_groups_items',
         'glpi_plugin_kanpro_board_groups',

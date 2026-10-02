@@ -173,14 +173,18 @@
 
     ajax(action, data={}, isFormData=false) {
       const fd = isFormData ? data : new FormData();
-      // csrf_compliant=true no setup.php, então NÃO enviamos token (token de uso único quebrava 2º clique)
+      const tok = this.csrf();
+      // Envia token no body + header (GLPI 11 exige header; checkCSRF explícito lê body).
+      // Backend usa preserve=true, então reutilizar o mesmo token N vezes é seguro.
       if (!isFormData) {
         fd.append('action', action);
         for (let k in data) {
           if (data[k] !== undefined && data[k] !== null) fd.append(k, data[k]);
         }
+        if (tok && !fd.has('_glpi_csrf_token')) fd.append('_glpi_csrf_token', tok);
       } else {
         data.append('action', action);
+        if (tok && !data.has('_glpi_csrf_token')) data.append('_glpi_csrf_token', tok);
       }
             return fetch(this.ajax_url, {
         method:'POST',
@@ -188,7 +192,7 @@
         credentials:'same-origin',
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
-          'X-Glpi-Csrf-Token': this.csrf()
+          'X-Glpi-Csrf-Token': tok
         }
       })
         .then(async r=>{

@@ -190,6 +190,64 @@ if (!function_exists('kanpro_can_view_board')) {
     }
 }
 
+if (!function_exists('kanpro_my_board_role')) {
+    // Papel direto do visualizador no quadro (observer < member < admin; vale pessoa + sessão + perfil GLPI).
+    // Movido de front/ajax.php p/ a lib compartilhada (vale no form, kanban e gear).
+    function kanpro_my_board_role($bid) {
+        global $DB;
+        $best = null;
+        $rank = ['observer' => 1, 'member' => 2, 'admin' => 3];
+        try {
+            foreach (array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]) as $uid) {
+                if ($uid <= 0) continue;
+                $row = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'users_id' => $uid]])->current();
+                if ($row) {
+                    $r = $row['role'] ?? 'member';
+                    if ($best === null || ($rank[$r] ?? 0) > ($rank[$best] ?? 0)) $best = $r;
+                }
+            }
+        } catch (Throwable $e) {}
+        try {
+            $prof = function_exists('kanpro_board_profile_role') ? kanpro_board_profile_role($bid) : null;
+            if ($prof !== null && ($best === null || ($rank[$prof] ?? 0) > ($rank[$best] ?? 0))) $best = $prof;
+        } catch (Throwable $e) {}
+        return $best;
+    }
+}
+
+if (!function_exists('kanpro_is_board_creator')) {
+    function kanpro_is_board_creator($bid) {
+        $b = new PluginKanproBoard();
+        if (!$b->getFromDB($bid)) return false;
+        $creator = (int)($b->fields['users_id'] ?? 0);
+        if ($creator <= 0) return false;
+        try {
+            if ($creator === (int)Session::getLoginUserID()) return true;
+            if (function_exists('kanpro_acting_user_id') && $creator === (int)kanpro_acting_user_id()) return true;
+        } catch (Throwable $e) {
+            if ($creator === (int)Session::getLoginUserID()) return true;
+        }
+        return false;
+    }
+}
+
+if (!function_exists('kanpro_can_manage_members')) {
+    // Quem pode gerenciar acesso/família: criador, admin do quadro ou UPDATE global em legado aberto.
+    function kanpro_can_manage_members($bid) {
+        if (kanpro_is_board_creator($bid)) return true;
+        if (kanpro_my_board_role($bid) === 'admin') return true;
+        if (Session::haveRight('plugin_kanpro', UPDATE)) {
+            try {
+                global $DB;
+                $hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
+                $hasP = $DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
+                if (!$hasM && !$hasP) return true;
+            } catch (Throwable $e) {}
+        }
+        return false;
+    }
+}
+
 if (!function_exists('kanpro_board_is_restricted')) {
     // O quadro tem controle de acesso configurado (membros ou perfis)?
     function kanpro_board_is_restricted($bid): bool {
@@ -380,8 +438,113 @@ if (!function_exists('kanpro_board_has_list_restrictions')) {
     }
 }
 
-if (!function_exists('kanpro_split_visible_hidden_lists')) {
+if (!function_exists('kanpro_board_id_for_list')) {
+    // Resolve boards_id a partir de lists_id (0 se não achar). Sem query pesada.
+    function kanpro_board_id_for_list(int $lists_id): int {
+        global $DB;
+        try {
+            if ($lists_id <= 0) return 0;
+            $r = $DB->request(['SELECT' => ['plugin_kanpro_boards_id'], 'FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['id' => $lists_id]])->current();
+            return (int)($r['plugin_kanpro_boards_id'] ?? 0);
+        } catch (Throwable $e) { return 0; }
+    }
+}
+
+if (!function_exists('kanpro_board_id_for_card')) {
+    // Resolve boards_id a partir de cards_id (0 se não achar).
+    function kanpro_board_id_for_card(int $cards_id): int {
+        global $DB;
+        try {
+            if ($cards_id <= 0) return 0;
+            $r = $DB->request(['SELECT' => ['plugin_kanpro_boards_id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['id' => $cards_id]])->current();
+            return (int)($r['plugin_kanpro_boards_id'] ?? 0);
+        } catch (Throwable $e) { return 0; }
+    }
+}
+
+if (!function_exists('kanpro_csrf_bridge')) {
+    // GLPI 11 valida via header X-Glpi-Csrf-Token no CheckCsrfListener, mas Session::checkCSRF()
+    // lê de $_POST. Copia o header p/ $_POST/$_REQUEST p/ validação explícita funcionar no AJAX.
+    // Também corrige '+' truncado como espaço no FormData.
+    function kanpro_csrf_bridge(): void {
+        try {
+            $h = $_SERVER['HTTP_X_GLPI_CSRF_TOKEN'] ?? '';
+            if ($h !== '' && !isset($_POST['_glpi_csrf_token'])) {
+                $_POST['_glpi_csrf_token'] = $h;
+            }
+            if ($h !== '' && !isset($_REQUEST['_glpi_csrf_token'])) {
+                $_REQUEST['_glpi_csrf_token'] = $h;
+            }
+            foreach (['_glpi_csrf_token'] as $k) {
+                if (isset($_POST[$k]) && is_string($_POST[$k]) && strpos($_POST[$k], ' ') !== false) {
+                    $_POST[$k] = str_replace(' ', '+', $_POST[$k]);
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+}
+
+if (!function_exists('kanpro_clean_text')) {
+    // Texto puro (título, nome): sem HTML, sem controle, com limite. Previne stored XSS.
+    function kanpro_clean_text($s, int $max = 255): string {
+        $s = (string)($s ?? '');
+        $s = trim(strip_tags($s));
+        // remove controles (exceto \n\t)
+        $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $s);
+        if (function_exists('mb_substr')) $s = mb_substr($s, 0, $max);
+        else $s = substr($s, 0, $max);
+        return $s;
+    }
+}
+
+if (!function_exists('kanpro_clean_rich')) {
+    // HTML rico (descrição, comentário com markdown?): permite formatação segura, remove script/eventos.
+    // Usa o cleaner do GLPI quando disponível; senão cai p/ texto puro.
+    function kanpro_clean_rich($html): string {
+        $html = (string)($html ?? '');
+        try {
+            if (class_exists('Sanitizer') && method_exists('Sanitizer', 'sanitize')) {
+                return (string)Sanitizer::sanitize($html, false);
+            }
+        } catch (Throwable $e) {}
+        try {
+            if (class_exists('Html') && method_exists('Html', 'clean')) {
+                return (string)Html::clean($html);
+            }
+        } catch (Throwable $e) {}
+        return kanpro_clean_text($html, 65535);
+    }
+}
+
+if (!function_exists('kanpro_readonly_actions')) {
+    // Actions que só LEEM (sem CSRF explícito, mas ainda exigem kanpro_can_view_board).
+    // Todo o resto é mutação: exige POST + CSRF.
+    function kanpro_readonly_actions(): array {
+        return [
+            'presence_heartbeat', // heartbeat escreve last_seen mas é idempotente/polling — CSRF via framework
+            'get_board_stamp',
+            'get_board_snapshot',
+            'get_card',
+            'get_history',
+            'get_board_members',
+            'search_board_users',
+            'global_search_cards',
+            'search_cards',
+            'get_list_viewers',
+            'get_board_activity',
+            'get_board_report',
+            'get_retirada_schools',
+            'list_entities',
+            'get_card_term',
+            'my_board_groups',
+            'get_trash',
+            'zap_lembrete_diagnose',
+            'rule_list',
+        ];
+    }
+}
     // Separa [visíveis, fantasmas]. Fantasma = metadados sem cards (id, nome, tipo, qtd viewers, can_manage).
+if (!function_exists('kanpro_split_visible_hidden_lists')) {
     function kanpro_split_visible_hidden_lists(array $lists): array {
         $vis = [];
         $hid = [];
@@ -409,5 +572,207 @@ if (!function_exists('kanpro_split_visible_hidden_lists')) {
             }
         } catch (Throwable $e) { return [$lists, []]; }
         return [$vis, $hid];
+    }
+}
+
+if (!function_exists('kanpro_ensure_family_column')) {
+    // Garante parent_boards_id sem reinstalar (1x por request; ALTER só roda 1x na vida).
+    function kanpro_ensure_family_column(): void {
+        global $DB;
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_boards')) return;
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) {
+                $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD `parent_boards_id` INT NOT NULL DEFAULT '0' COMMENT 'quadro pai (0=raiz)'");
+            }
+            try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_boards` ADD KEY `parent_boards_id` (`parent_boards_id`)"); } catch (Throwable $e) {}
+        } catch (Throwable $e) {}
+    }
+}
+
+if (!function_exists('kanpro_board_parent_id')) {
+    function kanpro_board_parent_id(int $bid): int {
+        global $DB;
+        try {
+            if ($bid <= 0) return 0;
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) return 0;
+            $r = $DB->request(['SELECT' => ['parent_boards_id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['id' => $bid]])->current();
+            return (int)($r['parent_boards_id'] ?? 0);
+        } catch (Throwable $e) { return 0; }
+    }
+}
+
+if (!function_exists('kanpro_board_descendant_ids')) {
+    // Todos os descendentes (proteção contra ciclo: pai nunca pode ser filho/neto).
+    function kanpro_board_descendant_ids(int $bid): array {
+        global $DB;
+        $out = [];
+        try {
+            if ($bid <= 0) return [];
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) return [];
+            $queue = [$bid];
+            $seen = [$bid => true];
+            while (!empty($queue)) {
+                $cur = array_shift($queue);
+                foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['parent_boards_id' => $cur]]) as $r) {
+                    $id = (int)$r['id'];
+                    if (isset($seen[$id])) continue;
+                    $seen[$id] = true;
+                    $out[] = $id;
+                    $queue[] = $id;
+                }
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+}
+
+if (!function_exists('kanpro_get_board_family')) {
+    // Família p/ o switcher do header: pai + irmãos + filhos, só o que pode ver.
+    // Retorna lista ordenada [pai, eu, irmãos..., filhos...] com ['id','name','color','current'=>0/1,'rel'=>'parent|self|sibling|child'].
+    function kanpro_get_board_family(int $bid): array {
+        global $DB;
+        $fam = [];
+        try {
+            if ($bid <= 0) return [];
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) return [];
+            $me = $DB->request(['FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['id' => $bid]])->current();
+            if (!$me) return [];
+            $pid = (int)($me['parent_boards_id'] ?? 0);
+            $ids = [$bid];
+            $rel = [$bid => 'self'];
+            if ($pid > 0) {
+                $ids[] = $pid;
+                $rel[$pid] = 'parent';
+                // irmãos: filhos do mesmo pai
+                foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['parent_boards_id' => $pid]]) as $r) {
+                    $sid = (int)$r['id'];
+                    if ($sid !== $bid && !isset($rel[$sid])) { $ids[] = $sid; $rel[$sid] = 'sibling'; }
+                }
+            }
+            // filhos
+            foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['parent_boards_id' => $bid]]) as $r) {
+                $cid = (int)$r['id'];
+                if (!isset($rel[$cid])) { $ids[] = $cid; $rel[$cid] = 'child'; }
+            }
+            if (count($ids) <= 1) return []; // sem família: não mostra nada
+            $rows = [];
+            foreach ($DB->request(['SELECT' => ['id', 'name', 'color'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['id' => $ids]]) as $r) {
+                $rows[(int)$r['id']] = $r;
+            }
+            // ordena: pai, eu, irmãos (nome), filhos (nome)
+            $order = [];
+            if ($pid > 0 && isset($rows[$pid])) $order[] = $pid;
+            $order[] = $bid;
+            $sibs = [];
+            $kids = [];
+            foreach ($ids as $id) {
+                if ($id === $bid || $id === $pid) continue;
+                if (($rel[$id] ?? '') === 'child') $kids[] = $id;
+                else $sibs[] = $id;
+            }
+            $byName = function ($a, $b) use ($rows) { return strcasecmp((string)($rows[$a]['name'] ?? ''), (string)($rows[$b]['name'] ?? '')); };
+            usort($sibs, $byName);
+            usort($kids, $byName);
+            $order = array_merge($order, $sibs, $kids);
+            foreach ($order as $id) {
+                if (!isset($rows[$id])) continue;
+                if (function_exists('kanpro_can_view_board') && !kanpro_can_view_board($id)) continue;
+                $fam[] = [
+                    'id' => $id,
+                    'name' => (string)($rows[$id]['name'] ?? ('#' . $id)),
+                    'color' => (string)($rows[$id]['color'] ?? '#0079bf'),
+                    'current' => $id === $bid ? 1 : 0,
+                    'rel' => $rel[$id] ?? '',
+                ];
+            }
+            if (count($fam) <= 1) return []; // só eu visível: esconde
+        } catch (Throwable $e) { return []; }
+        return $fam;
+    }
+}
+
+if (!function_exists('kanpro_family_candidates')) {
+    // Quadros que podem virar pai: vejo + não sou eu + não é meu descendente + não arquivado.
+    function kanpro_family_candidates(int $bid): array {
+        global $DB;
+        $out = [];
+        try {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_boards', 'parent_boards_id')) return [];
+            $desc = $bid > 0 ? kanpro_board_descendant_ids($bid) : [];
+            $skip = array_flip(array_merge([$bid], $desc));
+            foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['is_archived' => 0], 'ORDER' => 'name ASC']) as $r) {
+                $id = (int)$r['id'];
+                if (isset($skip[$id])) continue;
+                if (function_exists('kanpro_can_view_board') && !kanpro_can_view_board($id)) continue;
+                $out[] = ['id' => $id, 'name' => (string)($r['name'] ?? ('#' . $id))];
+                if (count($out) >= 200) break;
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+}
+
+if (!function_exists('kanpro_set_board_parent')) {
+    // Troca o pai do quadro. Exige gerenciar o quadro MOVIDO + ver o novo pai. Retorna [ok, msg].
+    function kanpro_set_board_parent(int $bid, int $parentId): array {
+        global $DB;
+        try {
+            if ($bid <= 0) return [false, 'Quadro inválido'];
+            kanpro_ensure_family_column();
+            $b = new PluginKanproBoard();
+            if (!$b->getFromDB($bid)) return [false, 'Quadro não encontrado'];
+            if ($parentId === $bid) return [false, 'Um quadro não pode ser filho dele mesmo.'];
+            if ($parentId > 0) {
+                $p = new PluginKanproBoard();
+                if (!$p->getFromDB($parentId)) return [false, 'Quadro pai não encontrado'];
+                if (function_exists('kanpro_can_view_board') && !kanpro_can_view_board($parentId)) {
+                    return [false, 'Você não tem acesso ao quadro pai.'];
+                }
+                $desc = kanpro_board_descendant_ids($bid);
+                if (in_array($parentId, $desc, true)) return [false, 'Ciclo detectado: o pai não pode ser um descendente.'];
+            }
+            $DB->update('glpi_plugin_kanpro_boards', ['parent_boards_id' => $parentId, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $bid]);
+            if ($DB->error()) return [false, 'Erro ao salvar: ' . $DB->error()];
+            return [true, ''];
+        } catch (Throwable $e) {
+            return [false, 'Erro ao salvar'];
+        }
+    }
+}
+
+if (!function_exists('kanpro_run_rules')) {
+    // Butler-like MVP: ao entrar na lista, executa regras ativas do quadro (add_label, assign_member, set_due_days).
+    function kanpro_run_rules(int $bid, int $cid, int $lists_id): void {
+        global $DB;
+        try {
+            if ($bid <= 0 || $cid <= 0 || $lists_id <= 0) return;
+            if (!$DB->tableExists('glpi_plugin_kanpro_rules')) return;
+            $rules = $DB->request(['FROM' => 'glpi_plugin_kanpro_rules', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'plugin_kanpro_lists_id' => $lists_id, 'trigger' => 'enter_list', 'is_active' => 1]]);
+            foreach ($rules as $ru) {
+                $act = (string)($ru['action'] ?? '');
+                $par = trim((string)($ru['params'] ?? ''));
+                try {
+                    if ($act === 'add_label' && $par !== '') {
+                        $lid = (int)$par;
+                        $lok = $DB->request(['FROM' => 'glpi_plugin_kanpro_labels', 'WHERE' => ['id' => $lid, 'plugin_kanpro_boards_id' => $bid]])->current();
+                        if ($lok && !countElementsInTable('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id' => $cid, 'plugin_kanpro_labels_id' => $lid])) {
+                            $DB->insert('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id' => $cid, 'plugin_kanpro_labels_id' => $lid]);
+                        }
+                    } elseif ($act === 'assign_member' && $par !== '') {
+                        $uid = (int)$par;
+                        if ($uid > 0 && !countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cid, 'users_id' => $uid])) {
+                            $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cid, 'users_id' => $uid]);
+                        }
+                    } elseif ($act === 'set_due_days' && is_numeric($par)) {
+                        $days = (int)$par;
+                        $due = date('Y-m-d H:i:s', strtotime("+{$days} days"));
+                        $DB->update('glpi_plugin_kanpro_cards', ['due_date' => $due, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $cid]);
+                    }
+                } catch (Throwable $e) {}
+            }
+        } catch (Throwable $e) {}
     }
 }
