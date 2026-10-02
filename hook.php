@@ -484,6 +484,23 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- CHAMADO UPDATES (Anotações do fluxo Abrir/Em andamento Chamado -> GLPI) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_chamado_updates` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `note`                        TEXT         DEFAULT NULL COMMENT 'o que foi realizado',
+                `status`                      VARCHAR(20)  NOT NULL DEFAULT 'pendente' COMMENT 'pendente,finalizado',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
+                KEY `date_creation` (`date_creation`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     // --- CARD TEMPLATES (Modelos de cartão) ---
     // boards_id = 0 → modelo global (todos os quadros); >0 → só naquele quadro
     if (!$DB->tableExists('glpi_plugin_kanpro_templates')) {
@@ -620,6 +637,7 @@ function plugin_kanpro_uninstall(): bool {
 
     $tables = [
         'glpi_plugin_kanpro_rules',
+        'glpi_plugin_kanpro_chamado_updates',
         'glpi_plugin_kanpro_maintenance_zaplog',
         'glpi_plugin_kanpro_board_groups_items',
         'glpi_plugin_kanpro_board_groups',

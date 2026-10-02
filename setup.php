@@ -29,6 +29,7 @@ function plugin_init_kanpro() {
         $__kpVer('public/js/kanpro.dnd.js'),
         $__kpVer('public/js/kanpro.maintenance.js'),
         $__kpVer('public/js/kanpro.butler.js'),
+        $__kpVer('public/js/kanpro.chamado.js'),
         $__kpVer('public/js/history.js'),
     ];
 

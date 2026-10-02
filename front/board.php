@@ -145,6 +145,9 @@ if (count($iterator) === 0) {
                 elseif ($lnorm === 'em andamento') $ltype = 'andamento';
                 elseif ($lnorm === 'retirada') $ltype = 'retirada';
                 elseif (strpos($lnorm, 'pendencia') !== false && strpos($lnorm, 'chamado') !== false) $ltype = 'pend_chamado';
+                elseif ($lnorm === 'abrir chamado') $ltype = 'abrir_chamado';
+                elseif ($lnorm === 'em andamento chamado') $ltype = 'andamento_chamado';
+                elseif ($lnorm === 'chamado finalizado' || $lnorm === 'chamados finalizados') $ltype = 'chamado_finalizado';
             }
             if ($ltype === 'todo') {
                 $badge = 'background:#ffab00;color:#172b4d'; // A Fazer = amarela
@@ -164,6 +167,12 @@ if (count($iterator) === 0) {
                 $badge = 'background:#00b8d9;color:#fff'; // Retirada = ciano
             } elseif ($ltype === 'pend_chamado') {
                 $badge = 'background:#e1316f;color:#fff'; // Pendência Chamado = rosa
+            } elseif ($ltype === 'abrir_chamado') {
+                $badge = 'background:#00875a;color:#fff'; // Abrir chamado = verde-escuro
+            } elseif ($ltype === 'andamento_chamado') {
+                $badge = 'background:#403294;color:#fff'; // Em Andamento Chamado = índigo
+            } elseif ($ltype === 'chamado_finalizado') {
+                $badge = 'background:#006644;color:#fff'; // Chamado finalizado = verde-fechado
             } else {
                 $badge = 'background:rgba(0,0,0,.35);color:#fff';
             }

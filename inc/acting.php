@@ -540,6 +540,7 @@ if (!function_exists('kanpro_readonly_actions')) {
             'get_trash',
             'zap_lembrete_diagnose',
             'rule_list',
+            'chamado_detail',
         ];
     }
 }

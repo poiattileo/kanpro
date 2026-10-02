@@ -6558,12 +6558,15 @@
       andamento: {label: 'Em Andamento',       color: '#0052cc', fg: '#fff',    dot: '🔷'},
       retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
       pend_chamado: {label: 'Pendência Chamado', color: '#e1316f', fg: '#fff', dot: '📞'},
+      abrir_chamado: {label: 'Abrir chamado', color: '#00875a', fg: '#fff', dot: '📩'},
+      andamento_chamado: {label: 'Em Andamento Chamado', color: '#403294', fg: '#fff', dot: '🔄'},
+      chamado_finalizado: {label: 'Chamado finalizado', color: '#006644', fg: '#fff', dot: '✅'},
     },
     // estas categorias só notificam no Seus Quadros — no kanban ficam invisíveis
     LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, pend_chamado: 1},
     // categorias de ajuste: o cartão entra sozinho pelo fluxo (Solicitar Chamado / Pegar /
-    // Notificado / Finalizar) — nunca se cria cartão novo aqui
-    LIST_CREATE_BLOCKED: {andamento: 1, retirada: 1, done: 1, pend_chamado: 1},
+    // Notificado / Finalizar / fluxo Abrir Chamado) — nunca se cria cartão novo aqui
+    LIST_CREATE_BLOCKED: {andamento: 1, retirada: 1, done: 1, abrir_chamado: 1, andamento_chamado: 1, chamado_finalizado: 1},
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
@@ -6580,6 +6583,9 @@
       if(n === 'em andamento') return Object.assign({code: 'andamento'}, this.LIST_TYPES.andamento);
       if(n === 'retirada') return Object.assign({code: 'retirada'}, this.LIST_TYPES.retirada);
       if(n === 'pendencia chamado' || n === 'pendencia chamados' || n === 'pendencia de chamado') return Object.assign({code: 'pend_chamado'}, this.LIST_TYPES.pend_chamado);
+      if(n === 'abrir chamado') return Object.assign({code: 'abrir_chamado'}, this.LIST_TYPES.abrir_chamado);
+      if(n === 'em andamento chamado') return Object.assign({code: 'andamento_chamado'}, this.LIST_TYPES.andamento_chamado);
+      if(n === 'chamado finalizado' || n === 'chamados finalizados') return Object.assign({code: 'chamado_finalizado'}, this.LIST_TYPES.chamado_finalizado);
       return null;
     },
     listTypeChip(list, small, clickable){
