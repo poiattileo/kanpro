@@ -2648,6 +2648,21 @@ switch ($action) {
         }
         $cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => $cards_where, 'ORDER' => 'rank ASC']);
         foreach ($cards_iter as $c) $all_cards[] = $c;
+        try {
+            $__cloneStBySrc2 = [];
+            foreach ($all_cards as $__cc2) {
+                $__src2 = (int)($__cc2['chamado_source_id'] ?? 0);
+                if ($__src2 > 0) $__cloneStBySrc2[$__src2] = (string)($__cc2['chamado_status'] ?? '');
+            }
+            foreach ($all_cards as $__k2 => $__cc2) {
+                $__srcSelf2 = (int)($__cc2['chamado_source_id'] ?? 0);
+                if ($__srcSelf2 === 0 && isset($__cloneStBySrc2[(int)$__cc2['id']])) {
+                    $all_cards[$__k2]['chamado_blocked'] = ($__cloneStBySrc2[(int)$__cc2['id']] !== 'liberado') ? 1 : 0;
+                } else {
+                    $all_cards[$__k2]['chamado_blocked'] = 0;
+                }
+            }
+        } catch (Throwable $__e2) {}
 
         $card_labels_map = [];
         $cl_iter = $DB->request([

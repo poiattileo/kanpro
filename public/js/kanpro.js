@@ -1098,6 +1098,16 @@
         div.style.background = '#fff5f5';
         badges.push(`<span class="kp-badge" style="background:#eb5a46;color:#fff;font-weight:700"><i class="ti ti-alert-triangle"></i> URGENTE</span>`);
       }
+      // Chamado bloqueado: card cadeado — visual imediato só de bater o olho
+      try {
+        if (Number(card.chamado_blocked || 0) === 1) {
+          div.style.borderColor = '#eb5a46';
+          div.style.borderWidth = '2px';
+          div.style.background = '#fff8f7';
+          div.style.boxShadow = '0 0 0 2px rgba(235,90,70,.15), 0 1px 3px rgba(0,0,0,.12)';
+          div.title = '🔒 Bloqueado — aguarde o "Chamado aberto" em Abrir chamado';
+        }
+      } catch(_){}
       // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
       const tStat = this.transferStatus && this.transferStatus[card.id];
       if (tStat) {
@@ -1198,6 +1208,15 @@
         if (chSt === 'liberado') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">📞 Chamado criado ✓</span>`);
         else badges.push(`<span class="kp-badge" style="background:#e1316f;color:#fff;font-weight:800;border:1px solid #e1316f">📞 Pendência Chamado</span>`);
       }
+      // Em Andamento Chamado bloqueado — cadeado visível só de bater o olho
+      try {
+        const isAndCh = chType && chType.code === 'andamento_chamado';
+        const blocked = Number(card.chamado_blocked || 0) === 1;
+        if (isAndCh) {
+          if (blocked) badges.push(`<span class="kp-badge" title="Bloqueado — aguarde o Chamado aberto em Abrir chamado" style="background:#ffebe6;color:#bf2600;font-weight:800;border:1px solid #eb5a46">🔒 Bloqueado</span>`);
+          else badges.push(`<span class="kp-badge" title="Liberado para execução" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">✅ Liberado</span>`);
+        }
+      } catch(_){}
       if (members.length) {
         // members avatars handled separately
       }
@@ -6425,20 +6444,20 @@
           try {
           let ctrl = '';
           if(m.is_creator){
-            ctrl = '<small style="color:#5e6c84;font-size:12px">acesso total</small>';
+            ctrl = '<small style="color:#5e6c84;font-size:12px;flex-shrink:0">acesso total</small>';
           } else if(canM){
-            ctrl = `<span style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-              <select onchange="Kanpro.setBoardMemberRole(${m.users_id}, this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff">
+            ctrl = `<span style="display:flex;gap:6px;align-items:center;flex:0 0 auto">
+              <select onchange="Kanpro.setBoardMemberRole(${m.users_id}, this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">
                 <option value="admin"${m.role==='admin'?' selected':''}>⭐ Admin</option>
                 <option value="member"${m.role==='member'?' selected':''}>👤 Membro</option>
                 <option value="observer"${m.role==='observer'?' selected':''}>👁️ Observador</option>
               </select>
-              <button onclick="Kanpro.removeBoardMember(${m.users_id})" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer">✕</button>
+              <button onclick="Kanpro.removeBoardMember(${m.users_id})" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer;flex-shrink:0">✕</button>
             </span>`;
           }
-          return `<div style="display:flex;justify-content:space-between;align-items:center;background:#f9fafb;border:1px solid #dfe1e6;padding:10px 12px;border-radius:8px;gap:10px">
-            <span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${this.escape(m.initials||'?')}</span>
-            <span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(m.name||('Usuário #'+m.users_id))}</span> ${badge(m)}</span>
+          return `<div style="display:flex;justify-content:space-between;align-items:center;background:#f9fafb;border:1px solid #dfe1e6;padding:10px 12px;border-radius:8px;gap:10px;line-height:1.4;box-sizing:border-box">
+            <span style="display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;overflow:hidden"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${this.escape(m.initials||'?')}</span>
+            <span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:1.4">${this.escape(m.name||('Usuário #'+m.users_id))}</span><span style="flex:0 0 auto;white-space:nowrap">${badge(m)}</span></span>
             ${ctrl}</div>`;
           } catch(e){ return ''; }
         }).join('') || '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhum membro ainda.</div>';
@@ -6518,21 +6537,25 @@
       });
     },
     setBoardMemberRole(uid, role){
-      if(!confirm('Alterar papel desta pessoa?')){ this.openBoardMembersManager(); return; }
-      this.ajax('set_member_role', {boards_id: this.board.id, users_id: uid, role}).then(res=>{
-        if(!res.success) alert(res.msg || 'Erro');
-        else this.showToast('Papel atualizado!');
-        this.openBoardMembersManager();
-        this.pollBoardUpdates();
+      this.showConfirm('Alterar papel desta pessoa?', 'Acesso ao quadro', 'Alterar papel').then(ok=>{
+        if(!ok){ this.openBoardMembersManager(); return; }
+        this.ajax('set_member_role', {boards_id: this.board.id, users_id: uid, role}).then(res=>{
+          if(!res.success) alert(res.msg || 'Erro');
+          else this.showToast('Papel atualizado!');
+          this.openBoardMembersManager();
+          this.pollBoardUpdates();
+        });
       });
     },
     removeBoardMember(uid){
-      if(!confirm('Remover esta pessoa do quadro?')) return;
-      this.ajax('remove_member', {boards_id: this.board.id, users_id: uid}).then(res=>{
-        if(!res.success){ alert(res.msg || 'Erro'); return; }
-        this.showToast('Membro removido');
-        this.openBoardMembersManager();
-        this.pollBoardUpdates();
+      this.showConfirm('Remover esta pessoa do quadro?', 'Acesso ao quadro', 'Remover').then(ok=>{
+        if(!ok) return;
+        this.ajax('remove_member', {boards_id: this.board.id, users_id: uid}).then(res=>{
+          if(!res.success){ alert(res.msg || 'Erro'); return; }
+          this.showToast('Membro removido');
+          this.openBoardMembersManager();
+          this.pollBoardUpdates();
+        });
       });
     },
     cardLabelsCount(labelId){

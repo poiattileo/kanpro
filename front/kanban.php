@@ -173,6 +173,24 @@ foreach ($cards_iter as $c) {
     $all_cards[] = $c;
     $cards_by_list[$c['plugin_kanpro_lists_id']][] = $c;
 }
+// Flag visual de bloqueio do Chamado: original em Andamento com clone ainda não liberado.
+// Evita N+1 no JS: o card já chega com chamado_blocked=1 e o kanban mostra o cadeado.
+try {
+    $__cloneStBySrc = [];
+    foreach ($all_cards as $__cc) {
+        $__src = (int)($__cc['chamado_source_id'] ?? 0);
+        if ($__src > 0) $__cloneStBySrc[$__src] = (string)($__cc['chamado_status'] ?? '');
+    }
+    foreach ($all_cards as $__k => $__cc) {
+        $__srcSelf = (int)($__cc['chamado_source_id'] ?? 0);
+        // só o original (não é clone) pode estar bloqueado
+        if ($__srcSelf === 0 && isset($__cloneStBySrc[(int)$__cc['id']])) {
+            $all_cards[$__k]['chamado_blocked'] = ($__cloneStBySrc[(int)$__cc['id']] !== 'liberado') ? 1 : 0;
+        } else {
+            $all_cards[$__k]['chamado_blocked'] = 0;
+        }
+    }
+} catch (Throwable $__e) {}
 $cards_json = json_encode($all_cards, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 
 // Card-labels e card-members mapas (schema em hook.php — sem DDL aqui)

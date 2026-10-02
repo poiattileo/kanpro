@@ -75,11 +75,20 @@
       });
     },
     headHtml(d, badge){
+      let ticketHtml = '<span>sem ticket vinculado</span>';
+      if (d.tickets_id) {
+        let tkUrl = '';
+        try {
+          const root = (K.ajax_url || '').replace(/\/plugins\/kanpro\/front\/ajax\.php$/, '');
+          tkUrl = root + '/front/ticket.form.php?id=' + d.tickets_id;
+        } catch(_) { tkUrl = '/front/ticket.form.php?id=' + d.tickets_id; }
+        ticketHtml = `<a href="${tkUrl}" target="_blank" rel="noopener" title="Abrir chamado #${d.tickets_id} no GLPI em nova aba" style="background:#e6fcff;border:1px solid #00b8d9;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🎫 Ticket #${d.tickets_id} <span style="font-size:11px">↗</span></a>`;
+      }
       return `<div style="display:grid;gap:8px">
         <div style="font-size:15px;font-weight:800;color:#172b4d">${esc(d.name)}</div>
         ${d.description ? `<div style="font-size:13px;color:#172b4d;background:#f4f5f7;border-radius:6px;padding:10px;white-space:pre-wrap">${esc(d.description)}</div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:#5e6c84">
-          ${d.tickets_id ? `<span style="background:#e6fcff;border:1px solid #00b8d9;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">🎫 Ticket #${d.tickets_id}</span>` : '<span>sem ticket vinculado</span>'}
+          ${ticketHtml}
           ${badge || ''}
         </div>`;
     },
@@ -193,9 +202,18 @@
     },
     renderAndamento(d, updates, sibling){
       const liberado = sibling && sibling.status === 'liberado';
+      this._andamentoLocked = !liberado;
       const badge = liberado
         ? '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Liberado</span>'
-        : '<span style="background:#fffae6;border:1px solid #ffab00;color:#975500;padding:2px 10px;border-radius:10px;font-weight:700">⏳ Aguardando "Chamado aberto"</span>';
+        : '<span style="background:#ffebe6;border:1px solid #eb5a46;color:#bf2600;padding:2px 10px;border-radius:10px;font-weight:800">🔒 Bloqueado — aguarde "Chamado aberto"</span>';
+      const lockBanner = liberado ? '' : `
+        <div style="display:flex;align-items:center;gap:10px;background:#ffebe6;border:1px solid #eb5a46;border-radius:8px;padding:10px 12px">
+          <span style="font-size:22px">🔒</span>
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:800;color:#bf2600">Card bloqueado</div>
+            <div style="font-size:11px;color:#5e6c84;margin-top:2px">Só de bater o olho: está <strong>cadeado</strong> até alguém clicar em <strong>"Chamado aberto"</strong> no card de <strong>Abrir chamado</strong>. Nada aqui pode ser alterado por enquanto.</div>
+          </div>
+        </div>`;
       let hist = '<div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em">ATUALIZAÇÕES</div>';
       if (!updates.length) hist += '<div style="font-size:12px;color:#5e6c84">Nenhuma ainda.</div>';
       else hist += updates.map(u=>
@@ -204,20 +222,24 @@
         + `<div style="white-space:pre-wrap">${esc(u.note)}</div>`
         + (u.status === 'finalizado' ? '<div style="margin-top:4px;color:#006644;font-weight:700">✅ finalizado</div>' : '')
         + `</div>`).join('');
+      const dis = liberado ? '' : 'disabled';
+      const disStyle = liberado ? '' : 'opacity:.55;background:#f4f5f7;cursor:not-allowed;';
       picker('🔄 Em Andamento Chamado', this.headHtml(d, badge) + `
+        ${lockBanner}
         <div style="display:grid;gap:6px;max-height:220px;overflow-y:auto">${hist}</div>
         <label style="font-size:12px;font-weight:700;color:#172b4d">O que foi realizado
-          <textarea id="kc-note" rows="3" placeholder="Descreva..." style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:13px;font-family:inherit"></textarea></label>
+          <textarea id="kc-note" rows="3" placeholder="${liberado ? 'Descreva...' : '🔒 Bloqueado — aguarde o Chamado aberto'}" ${dis} style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:13px;font-family:inherit;${disStyle}"></textarea></label>
         <label style="font-size:12px;font-weight:700;color:#172b4d">Status
-          <select id="kc-status" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px">
+          <select id="kc-status" ${dis} style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;${disStyle}">
             <option value="pendente">🕐 Pendente (só anota)</option>
             <option value="finalizado">✅ Finalizado (encerra e move)</option>
           </select></label>
-        ${liberado ? '' : '<div style="font-size:11px;color:#975500">⚠️ Finalizar exige o "Chamado aberto" em Abrir chamado. Pendente pode anotar à vontade.</div>'}
-        <button onclick="KanproChamado.saveUpdate(${d.id}, this)" style="background:#403294;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">Atualizar card</button>
+        ${liberado ? '' : '<div style="font-size:11px;color:#bf2600;font-weight:700">🔒 Finalizar e anotar exigem o "Chamado aberto" em Abrir chamado.</div>'}
+        <button onclick="KanproChamado.saveUpdate(${d.id}, this)" ${dis} title="${liberado ? 'Registrar atualização' : 'Bloqueado — aguarde o Chamado aberto'}" style="background:${liberado ? '#403294' : '#97a0af'};color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:${liberado ? 'pointer' : 'not-allowed'};font-weight:800">${liberado ? 'Atualizar card' : '🔒 Bloqueado — aguarde Chamado aberto'}</button>
       </div>`);
     },
     saveUpdate(cardId, btn){
+      if (this._andamentoLocked) { alert('🔒 Card bloqueado — aguarde o "Chamado aberto" em Abrir chamado.'); return; }
       const note = document.getElementById('kc-note')?.value.trim() || '';
       const status = document.getElementById('kc-status')?.value || 'pendente';
       if (!note) { alert('Escreva o que foi realizado.'); return; }

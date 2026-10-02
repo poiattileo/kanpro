@@ -293,6 +293,19 @@ $__kpb_csrf = Session::getNewCSRFToken();
 echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; window.KANPRO_HISTORY_CSRF = " . json_encode($__kpb_csrf) . ";</script>";
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
+<style>
+  /* Isola o modal do CSS global do GLPI: sem isso small/span/select herdavam line-height e sobrepunham */
+  #kpb-overlay { line-height: 1.4; }
+  #kpb-overlay *, #kpb-overlay *::before, #kpb-overlay *::after { box-sizing: border-box; }
+  #kpb-overlay small { position: static !important; transform: none !important; float: none !important; line-height: 1.4 !important; white-space: nowrap; }
+  #kpb-body { word-break: normal; overflow-wrap: normal; }
+  .kpb-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .kpb-row-left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .kpb-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .kpb-row-badge { flex: 0 0 auto; }
+  .kpb-row-ctrl { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
+  .kpb-confirm-ov { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 30001; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+</style>
 <div id="kpb-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;align-items:center;justify-content:center;padding:16px">
   <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);width:min(760px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #dfe1e6;flex-shrink:0">
@@ -340,6 +353,34 @@ window.KanproBoards = (function(){
     if (p.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
     return '<small style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">🎭 MEMBRO</small>';
   }
+  // Confirmação padrão do plugin/GLPI (mesmo visual do Kanpro.showConfirm do kanban) — substitui confirm() nativo.
+  // Retorna Promise<boolean>. Fica acima do overlay do Acesso (z 30001 > 20000).
+  function kpbConfirm(message, title, okLabel){
+    return new Promise(function(resolve){
+      try { document.querySelector('.kpb-confirm-ov')?.remove(); } catch(e){}
+      var ov = document.createElement('div');
+      ov.className = 'kpb-confirm-ov';
+      var t = esc(title || 'Atenção');
+      var m = esc(message || '');
+      var ok = esc(okLabel || 'Confirmar');
+      ov.innerHTML = '<div style="background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.35);max-width:480px;width:100%;overflow:hidden">'
+        + '<div style="padding:14px 16px;border-bottom:1px solid #dfe1e6;font-weight:800;font-size:14px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">⚠️</span><span>' + t + '</span></div>'
+        + '<div style="padding:16px;font-size:13px;color:#172b4d;white-space:pre-line;line-height:1.6">' + m + '</div>'
+        + '<div style="padding:12px 16px;background:#f4f5f7;display:flex;gap:8px;justify-content:flex-end">'
+        + '<button data-a="no" class="btn btn-outline-secondary btn-sm" style="padding:8px 20px;font-weight:700">Cancelar</button>'
+        + '<button data-a="yes" class="btn btn-primary btn-sm" style="padding:8px 20px;font-weight:700;background:#0052cc;border-color:#0052cc">' + ok + '</button>'
+        + '</div></div>';
+      document.body.appendChild(ov);
+      var done = function(v){ try { ov.remove(); } catch(e){} resolve(v); };
+      ov.addEventListener('click', function(e){ if (e.target === ov) done(false); });
+      ov.querySelector('[data-a="no"]').addEventListener('click', function(){ done(false); });
+      ov.querySelector('[data-a="yes"]').addEventListener('click', function(){ done(true); });
+      function onEsc(e){ if (e.key === 'Escape') { e.stopPropagation(); document.removeEventListener('keydown', onEsc); done(false); } }
+      document.addEventListener('keydown', onEsc);
+      setTimeout(function(){ try { ov.querySelector('[data-a="yes"]').focus(); } catch(e){} }, 30);
+    });
+  }
+  try { window.kpbConfirm = kpbConfirm; } catch(e) {}
   function render(){
     var d = state.data;
     var body = document.getElementById('kpb-body');
@@ -349,22 +390,22 @@ window.KanproBoards = (function(){
       try {
       var ctrl;
       if (m.is_creator) {
-        ctrl = '<small style="color:#5e6c84;font-size:12px">acesso total</small>';
+        ctrl = '<small style="color:#5e6c84;font-size:12px;flex-shrink:0">acesso total</small>';
       } else if (d.can_manage) {
-        ctrl = '<span style="display:flex;gap:6px;align-items:center">'
-          + '<select onchange="KanproBoards.setRole(' + m.users_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff">'
+        ctrl = '<span class="kpb-row-ctrl">'
+          + '<select onchange="KanproBoards.setRole(' + m.users_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">'
           + '<option value="admin"' + (m.role==='admin'?' selected':'') + '>⭐ Admin</option>'
           + '<option value="member"' + (m.role==='member'?' selected':'') + '>👤 Membro</option>'
           + '<option value="observer"' + (m.role==='observer'?' selected':'') + '>👁️ Observador</option>'
           + '</select>'
-          + '<button onclick="KanproBoards.remove(' + m.users_id + ')" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer">✕</button>'
+          + '<button onclick="KanproBoards.remove(' + m.users_id + ')" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer;flex-shrink:0">✕</button>'
           + '</span>';
       } else {
         ctrl = '';
       }
-      return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f9fafb;border:1px solid #dfe1e6;padding:10px 12px;border-radius:8px;gap:10px">'
-        + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">' + esc(m.initials) + '</span>'
-        + '<span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</span> ' + roleBadge(m) + '</span>'
+      return '<div class="kpb-row" style="background:#f9fafb;border:1px solid #dfe1e6;padding:10px 12px;border-radius:8px">'
+        + '<span class="kpb-row-left"><span style="width:32px;height:32px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">' + esc(m.initials) + '</span>'
+        + '<span class="kpb-row-name">' + esc(m.name) + '</span><span class="kpb-row-badge">' + roleBadge(m) + '</span></span>'
         + ctrl + '</div>';
       } catch(e){ return ''; }
     }).join('') : '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px;background:#f9fafb;border:1px dashed #dfe1e6;border-radius:8px">Nenhum membro ainda — adicione abaixo.</div>');
@@ -375,16 +416,16 @@ window.KanproBoards = (function(){
         + '<div style="font-size:13px;font-weight:700;color:#172b4d">🎭 Perfis do GLPI com acesso (' + ((d.profiles||[]).length) + ')</div>'
         + '<div style="font-size:11px;color:#5e6c84">Todos os usuários vinculados ao perfil passam a ver este quadro.</div>'
         + '<div style="display:grid;gap:6px;align-content:start;min-height:20px">' + (d.profiles || []).map(function(p){
-          var ctrl = '<span style="display:flex;gap:6px;align-items:center">'
-            + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff">'
+          var ctrl = '<span class="kpb-row-ctrl">'
+            + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">'
             + '<option value="admin"' + (p.role==='admin'?' selected':'') + '>⭐ Admin</option>'
             + '<option value="member"' + (p.role==='member'?' selected':'') + '>🎭 Membro</option>'
             + '</select>'
-            + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer">✕</button>'
+            + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer;flex-shrink:0">✕</button>'
             + '</span>';
-          return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f7ff;border:1px solid #91d5ff;padding:10px 12px;border-radius:8px;gap:10px">'
-            + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:32px;height:32px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">🎭</span>'
-            + '<span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.name) + '</span> ' + profileBadge(p) + '</span>'
+          return '<div class="kpb-row" style="background:#f0f7ff;border:1px solid #91d5ff;padding:10px 12px;border-radius:8px">'
+            + '<span class="kpb-row-left"><span style="width:32px;height:32px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">🎭</span>'
+            + '<span class="kpb-row-name">' + esc(p.name) + '</span><span class="kpb-row-badge">' + profileBadge(p) + '</span></span>'
             + ctrl + '</div>';
         }).join('') + '</div>';
       if ((d.available_profiles || []).length) {
@@ -418,9 +459,9 @@ window.KanproBoards = (function(){
           if ((fam.children || []).length) {
             kids = '<div style="display:grid;gap:6px;margin-top:8px">' + fam.children.map(function(k){
               var unlink = d.can_manage && k.can_manage
-                ? ' <button onclick="KanproBoards.unlinkChild(' + k.id + ')" title="Desvincular (vira raiz)" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px">desvincular</button>'
+                ? '<button onclick="KanproBoards.unlinkChild(' + k.id + ')" title="Desvincular (vira raiz)" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px;flex-shrink:0">desvincular</button>'
                 : '';
-              return '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f7ff;border:1px solid #91d5ff;padding:8px 12px;border-radius:8px;gap:10px;font-size:13px"><span>⬇ ' + esc(k.name) + '</span>' + unlink + '</div>';
+              return '<div class="kpb-row" style="background:#f0f7ff;border:1px solid #91d5ff;padding:8px 12px;border-radius:8px;font-size:13px"><span class="kpb-row-name">⬇ ' + esc(k.name) + '</span>' + unlink + '</div>';
             }).join('') + '</div>';
           } else {
             kids = '<div style="font-size:11px;color:#5e6c84;margin-top:6px">Nenhum filho — outros quadros podem escolher este como pai.</div>';
@@ -451,10 +492,10 @@ window.KanproBoards = (function(){
     if (!box) return;
     if (!list.length) { box.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhuma pessoa encontrada — refine a busca (vale nome, sobrenome ou login, sem acento)</div>'; return; }
     box.innerHTML = list.slice(0, 60).map(function(u){
-      return '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;gap:10px">'
-        + '<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:34px;height:34px;border-radius:50%;background:#dfe1e6;color:#172b4d;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">' + esc(u.initials) + '</span>'
-        + '<span style="min-width:0"><span style="display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(u.name) + '</span>'
-        + '<span style="display:block;font-size:12px;color:#5e6c84">@' + esc(u.login) + '</span></span></span>'
+      return '<div class="kpb-row" style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px">'
+        + '<span class="kpb-row-left"><span style="width:34px;height:34px;border-radius:50%;background:#dfe1e6;color:#172b4d;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">' + esc(u.initials) + '</span>'
+        + '<span style="flex:1 1 auto;min-width:0;overflow:hidden"><span style="display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">' + esc(u.name) + '</span>'
+        + '<span style="display:block;font-size:12px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">@' + esc(u.login) + '</span></span></span>'
         + '<button onclick="KanproBoards.add(' + u.id + ', this)" style="background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0">Adicionar</button></div>';
     }).join('') + (list.length > 60 ? '<div style="text-align:center;font-size:12px;color:#5e6c84;padding:6px">+' + (list.length - 60) + ' — refine a busca</div>' : '');
   }
@@ -527,19 +568,23 @@ window.KanproBoards = (function(){
       });
     },
     setRole: function(uid, role){
-      if (!confirm('Alterar papel desta pessoa?')) { reload(); return; }
-      post('set_member_role', {boards_id: state.boardId, users_id: uid, role: role}).then(function(res){
-        if (!res.success) alert(res.msg || 'Erro');
-        else state.dirty = true;
-        reload();
+      kpbConfirm('Alterar papel desta pessoa?', 'Acesso ao quadro', 'Alterar papel').then(function(ok){
+        if (!ok) { reload(); return; }
+        post('set_member_role', {boards_id: state.boardId, users_id: uid, role: role}).then(function(res){
+          if (!res.success) alert(res.msg || 'Erro');
+          else state.dirty = true;
+          reload();
+        });
       });
     },
     remove: function(uid){
-      if (!confirm('Remover esta pessoa do quadro?')) return;
-      post('remove_member', {boards_id: state.boardId, users_id: uid}).then(function(res){
-        if (!res.success) { alert(res.msg || 'Erro'); return; }
-        state.dirty = true;
-        reload();
+      kpbConfirm('Remover esta pessoa do quadro?', 'Acesso ao quadro', 'Remover').then(function(ok){
+        if (!ok) return;
+        post('remove_member', {boards_id: state.boardId, users_id: uid}).then(function(res){
+          if (!res.success) { alert(res.msg || 'Erro'); return; }
+          state.dirty = true;
+          reload();
+        });
       });
     },
     addProfile: function(btn){
@@ -554,19 +599,23 @@ window.KanproBoards = (function(){
       });
     },
     setProfileRole: function(pid, role){
-      if (!confirm('Alterar papel deste perfil?')) { reload(); return; }
-      post('set_profile_role', {boards_id: state.boardId, profiles_id: pid, role: role}).then(function(res){
-        if (!res.success) alert(res.msg || 'Erro');
-        else state.dirty = true;
-        reload();
+      kpbConfirm('Alterar papel deste perfil?', 'Acesso ao quadro', 'Alterar papel').then(function(ok){
+        if (!ok) { reload(); return; }
+        post('set_profile_role', {boards_id: state.boardId, profiles_id: pid, role: role}).then(function(res){
+          if (!res.success) alert(res.msg || 'Erro');
+          else state.dirty = true;
+          reload();
+        });
       });
     },
     removeProfile: function(pid){
-      if (!confirm('Remover este perfil do quadro? Todos os usuários dele perdem o acesso (exceto quem tem acesso direto).')) return;
-      post('remove_profile', {boards_id: state.boardId, profiles_id: pid}).then(function(res){
-        if (!res.success) { alert(res.msg || 'Erro'); return; }
-        state.dirty = true;
-        reload();
+      kpbConfirm('Remover este perfil do quadro? Todos os usuários dele perdem o acesso (exceto quem tem acesso direto).', 'Acesso ao quadro', 'Remover').then(function(ok){
+        if (!ok) return;
+        post('remove_profile', {boards_id: state.boardId, profiles_id: pid}).then(function(res){
+          if (!res.success) { alert(res.msg || 'Erro'); return; }
+          state.dirty = true;
+          reload();
+        });
       });
     },
     setParent: function(btn){
@@ -580,11 +629,13 @@ window.KanproBoards = (function(){
       });
     },
     unlinkChild: function(kid){
-      if (!confirm('Desvincular este filho? Ele vira quadro raiz.')) return;
-      post('set_board_parent', {boards_id: kid, parent_boards_id: 0}).then(function(res){
-        if (!res.success) { alert(res.msg || 'Erro'); return; }
-        state.dirty = true;
-        reload();
+      kpbConfirm('Desvincular este filho? Ele vira quadro raiz.', 'Família de quadros', 'Desvincular').then(function(ok){
+        if (!ok) return;
+        post('set_board_parent', {boards_id: kid, parent_boards_id: 0}).then(function(res){
+          if (!res.success) { alert(res.msg || 'Erro'); return; }
+          state.dirty = true;
+          reload();
+        });
       });
     }
   };
@@ -729,7 +780,18 @@ window.KanproGroups = (function(){
       });
     },
     remove: function(gid){
-      if (!confirm('Excluir este grupo? Os quadros dele ficam "Sem grupo".')) return;
+      var __cf = (typeof kpbConfirm === 'function') ? kpbConfirm : ((typeof window.kpbConfirm === 'function') ? window.kpbConfirm : null);
+      if (!__cf) { if (!confirm('Excluir este grupo? Os quadros dele ficam "Sem grupo".')) return; }
+      else {
+        __cf('Excluir este grupo? Os quadros dele ficam "Sem grupo".', 'Grupos', 'Excluir').then(function(ok){
+          if (!ok) return;
+          post('delete_board_group', {id: gid}).then(function(res){
+            if (!res.success) { alert(res.msg || 'Erro'); return; }
+            location.reload();
+          });
+        });
+        return;
+      }
       post('delete_board_group', {id: gid}).then(function(res){
         if (!res.success) { alert(res.msg || 'Erro'); return; }
         location.reload();

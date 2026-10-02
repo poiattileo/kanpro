@@ -3,9 +3,9 @@
 # Destinatários fixos: leonardo.facao@apoiofde.sp.gov.br e cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
 # Placeholders: {card_id} {card_nome} {descricao} {quadro} {ticket} {autor} {data}
 
-🔔 *NOVO CHAMADO EM ABRIR CHAMADO*
+🔔 *NOVA SOLICITAÇÃO PARA ABRIR CHAMADO*
 
-Apareceu *1 novo chamado* em *Abrir chamado* aguardando abertura.
+Apareceu *1 novo card chamado* aguardando abertura de chamado.
 
 📋 Card *#{card_id} "{card_nome}"*
 📝 {descricao}
