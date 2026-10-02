@@ -3509,7 +3509,10 @@
       if (lockedFinal) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#e6f4ff;border:2px solid #0052cc;border-radius:10px;padding:14px;text-align:center">
           <div style="font-size:11px;font-weight:800;color:#0052cc;letter-spacing:.06em;margin-bottom:8px">ATENDIMENTO CONCLUÍDO</div>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:12px 32px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px"><i class="ti ti-file-text"></i> Visualizar Termo</button>
+          <button onclick="Kanpro.viewCardSignature(${termCid})" title="Abrir a tela de Assinatura deste termo para coletar assinatura" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;padding:12px 32px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 2px 6px rgba(79,70,229,.3)"><i class="ti ti-signature"></i> Assinatura</button>
+          </div>
         </div>`;
       } else if (cardPending) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
@@ -5072,6 +5075,22 @@
           return;
         }
         window.open(res.pdf_url, '_blank');
+      });
+    },
+    viewCardSignature(cardId){
+      const cid = cardId || this.currentCardId;
+      if(!cid) return;
+      this.showToast('Buscando assinatura...');
+      this.ajax('get_card_term', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){
+          try { if(this.transferStatus && this.transferStatus[cid]){ delete this.transferStatus[cid]; this.renderBoard(); } } catch(e){}
+          this.showAlert((res.msg || 'Nenhum termo encontrado para este card.') + '\n\nSe a assinatura não foi criada, clique em FINALIZAR novamente para gerar.', 'Assinatura');
+          try { this.refreshCardModal(); } catch(e){}
+          return;
+        }
+        if(res.assinatura_url) window.open(res.assinatura_url, '_blank');
+        else if(res.pdf_url) window.open(res.pdf_url, '_blank');
+        else this.showAlert('Assinatura indisponível para este card.', 'Assinatura');
       });
     },
     explainMissingStatus(missingSeqs){
