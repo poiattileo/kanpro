@@ -3541,6 +3541,9 @@
             <button onclick="Kanpro.bulkSetNeeds(1)" title="Marca as selecionadas como 'precisa inventariar'" style="background:#ede9fe;border:1px solid #6554c0;color:#5e35b1;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">📋 Precisa inventariar</button>
             <button onclick="Kanpro.bulkSetInventoried(1)" title="Marca as selecionadas como inventariadas (já marca 'precisa' junto)" style="background:#61bd4f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">✓ Inventariado</button>
             <button onclick="Kanpro.bulkSetInventoried(0)" title="Desmarca inventariado das selecionadas" style="background:#fff;border:1px solid #dfe1e6;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px">○ Desmarcar inv.</button>
+            <span style="width:1px;height:20px;background:#b3f0ff;display:inline-block"></span>
+            <input id="maint-bulk-diary" type="text" placeholder="📝 Relatório/diário p/ todas as selecionadas..." title="Mesmo texto para todas as selecionadas (sobrescreve)" style="flex:1;min-width:200px;padding:5px 10px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;background:#fff">
+            <button onclick="Kanpro.bulkApplyDiary()" title="Aplica o mesmo relatório/diário para todas as selecionadas" style="background:#ff991f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">Aplicar diário</button>
           </div>`:""}
           ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
           ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
@@ -4667,6 +4670,24 @@
       if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), is_done: val}).then(res=>{
         if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas atualizadas`);
+        else this.showToast(res.msg||'Erro');
+      });
+    },
+    bulkApplyDiary(){
+      if(this.finalizedGuard()) return;
+      const ids = this.maintSelectedIds();
+      if(!ids.length){ this.showToast('Selecione ao menos uma máquina'); return; }
+      const inp = document.getElementById('maint-bulk-diary');
+      const txt = (inp?.value || '');
+      if(!txt.trim()){ this.showToast('Escreva o relatório/diário para aplicar'); if(inp) inp.focus(); return; }
+      // avisa se vai sobrescrever diários diferentes já preenchidos
+      try {
+        const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+        const clash = ms.filter(m=> ids.includes(String(m.id)) && (m.diary||'').trim() !== '' && (m.diary||'').trim() !== txt.trim());
+        if(clash.length && !confirm(`Atenção: ${clash.length} máquina(s) selecionada(s) já tem relatório preenchido.\n\nDeseja SOBRESCREVER com o novo texto para todas as ${ids.length}?`)) return;
+      } catch(e){}
+      this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), diary: txt}).then(res=>{
+        if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas: diário aplicado`);
         else this.showToast(res.msg||'Erro');
       });
     },

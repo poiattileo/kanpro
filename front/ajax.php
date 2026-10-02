@@ -5234,7 +5234,11 @@ switch ($action) {
         if (array_key_exists('is_inventoried', $_POST)) $invVal = ((int)$_POST['is_inventoried'] ? 1 : 0);
         elseif (array_key_exists('inventoried', $_POST)) $invVal = ((int)$_POST['inventoried'] ? 1 : 0);
         else $invVal = null;
-        if (!$applyStatus && !$applyDone && !$applyNeeds && !$applyInv) jexit(['success'=>false,'msg'=>'Nada para aplicar']);
+        // diário/relatório em massa: mesmo texto para todas as selecionadas (sobrescreve)
+        $applyDiary = array_key_exists('diary', $_POST);
+        $diaryVal = $applyDiary ? (string)($_POST['diary'] ?? '') : null;
+        if ($applyDiary && trim($diaryVal) === '') jexit(['success'=>false,'msg'=>'Escreva o relatório/diário para aplicar em massa.']);
+        if (!$applyStatus && !$applyDone && !$applyNeeds && !$applyInv && !$applyDiary) jexit(['success'=>false,'msg'=>'Nada para aplicar']);
         $rows = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$ids,'plugin_kanpro_cards_id'=>$cid]]);
         $n = 0; $skippedLocked = 0;
         foreach ($rows as $r) {
@@ -5259,6 +5263,7 @@ switch ($action) {
                     $u['is_inventoried'] = 0;
                 }
             }
+            if ($applyDiary) $u['diary'] = $diaryVal;
             $DB->update('glpi_plugin_kanpro_maintenance_machines', $u, ['id'=>$r['id']]);
             $n++;
         }
@@ -5270,6 +5275,11 @@ switch ($action) {
             if ($applyDone) $bits[] = $doneVal ? "marcadas como FEITAS" : "desmarcadas (não feitas)";
             if ($applyNeeds) $bits[] = $needsVal ? "marcadas como PRECISA INVENTARIAR" : "marcadas como NÃO precisa inventariar";
             if ($applyInv) $bits[] = $invVal ? "marcadas como INVENTARIADAS" : "inventário desmarcado";
+            if ($applyDiary) {
+                $prev = trim($diaryVal);
+                $prev = function_exists('mb_substr') ? mb_substr($prev, 0, 80) : substr($prev, 0, 80);
+                $bits[] = "diário/relatório aplicado (" . mb_strlen(trim($diaryVal)) . " chars): \"" . $prev . (mb_strlen(trim($diaryVal)) > 80 ? "…" : "") . "\"";
+            }
             $tid = kanpro_card_ticket_id($cid);
             if ($tid) {
                 $msg = "⚙ [KanPro] Atualização em massa\n\n{$n} máquina(s): " . implode(' | ', $bits);
