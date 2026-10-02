@@ -1711,7 +1711,8 @@
           html: `
             <div style="display:grid;gap:6px">
               <div style="font-size:12px;color:#5e6c84">🔒 Você não vê os cards. ${canM ? 'Como você gerencia, pode ajustar quem vê.' : 'Peça a um admin para te incluir.'}</div>
-              ${canM ? `<button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> Quem pode ver</button>`
+              ${canM ? `<button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> Quem pode ver</button>
+                     <button class="kp-picker-item" onclick="Kanpro.openListTypePicker(${listId})"><i class="ti ti-tag"></i> Mudar categoria da lista</button>`
                      : `<div style="font-size:11px;color:#975500;background:#fffae6;border:1px solid #ffab00;border-radius:6px;padding:6px 8px">Sem acesso a esta lista — você não pode ver quem tem acesso.</div>`}
             </div>`
         });
@@ -1722,7 +1723,7 @@
       const apprBtn = this.isBoardAdmin()
         ? `<button class="kp-picker-item" onclick="Kanpro.setListApproval(${listId}, ${list.require_approval?0:1})"><i class="ti ti-shield-check"></i> ${list.require_approval?'Desativar aprovação do admin':'Exigir aprovação do admin'}</button>` : '';
       const curType = this.listTypeOf(list);
-      const typeBtn = `<button class="kp-picker-item" onclick="Kanpro.openListTypePicker(${listId})"><i class="ti ti-tag"></i> Categoria da lista${curType ? ' (' + this.escape(curType.label) + ')' : ''}</button>`;
+      const typeBtn = `<button class="kp-picker-item" onclick="Kanpro.openListTypePicker(${listId})"><i class="ti ti-tag"></i> Mudar categoria da lista${curType ? ' (atual: ' + this.escape(curType.label) + ')' : ' (atual: Normal)'}</button>`;
       const isRestricted = !!(list.is_restricted || (list.viewer_ids && list.viewer_ids.length));
       const visLabel = isRestricted ? `Quem pode ver (${(list.viewer_ids||[]).length} 🔒)` : 'Quem pode ver (todos)';
       const visBtn = `<button class="kp-picker-item" onclick="Kanpro.openListVisibility(${listId})"><i class="ti ti-eye"></i> ${visLabel}</button>`;
@@ -1864,7 +1865,8 @@
       });
     },
     openListTypePicker(listId){
-      const list = this.lists.find(l=> l.id==listId);
+      const found = this.findListAny ? this.findListAny(listId) : {list: (this.lists||[]).find(l=> l.id==listId)};
+      const list = found && found.list ? found.list : null;
       const curRaw = String(list?.list_type || '');
       const cur = (curRaw === '' ? 'none' : curRaw);
       const opts = [{code:'none', label:'Normal (sem categoria)', color:'#dfe1e6', fg:'#5e6c84', dot:'—'}]
@@ -1883,8 +1885,10 @@
       this.ajax('set_list_type', {id: listId, list_type: type}).then(res=>{
         this.closePicker();
         if(res.success){
-          const l = this.lists.find(x=> x.id==listId);
+          const l = (this.lists||[]).find(x=> x.id==listId);
           if(l) l.list_type = res.list_type || '';
+          const h = (this.hiddenLists||[]).find(x=> x.id==listId);
+          if(h) h.list_type = res.list_type || '';
           const t = (res.list_type && res.list_type !== 'none') ? this.LIST_TYPES[res.list_type] : null;
           this.showToast(t ? `Lista marcada como "${t.label}"` : 'Categoria removida (lista normal)');
           this.renderBoard();
