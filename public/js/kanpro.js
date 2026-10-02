@@ -381,14 +381,10 @@
         const snapshotJson = JSON.stringify(snapshot);
         if(snapshotJson === this._lastSnapshotJson){
           if(stamp) this._lastStamp = stamp; // já espelha o selo: em dia
-          // selo mudou mas snapshot igual (ex: servidor antigo sem maintHash ou conteúdo fora do snapshot):
-          // ainda assim atualiza o modal aberto (diário/relatório) se não estiver digitando
+          // selo mudou mas snapshot igual: ainda assim atualiza o modal aberto
+          // (render preserva digitação + foco, então é seguro mesmo digitando)
           try {
-            if(this.currentCardId){
-              const focused = document.activeElement;
-              const isTyping = focused && (focused.tagName==='TEXTAREA' || focused.tagName==='INPUT');
-              if(!isTyping) this.refreshCardModal();
-            }
+            if(this.currentCardId) this.refreshCardModal();
           } catch(e){}
           return; // nada mudou no quadro em si
         }
@@ -469,9 +465,8 @@
         }
 
         if(this.currentCardId){
-          const focused = document.activeElement;
-          const isTyping = focused && (focused.tagName==='TEXTAREA' || focused.tagName==='INPUT');
-          if(!isTyping) this.refreshCardModal();
+          // render preserva diário/bulk digitado + foco — pode atualizar mesmo digitando
+          this.refreshCardModal();
         }
       }).catch(()=>{});
     },
@@ -3447,6 +3442,11 @@
       wrap.querySelectorAll('textarea[id^="maint-diary-"]').forEach(ta=>{
         pendingDiaries[ta.id.replace('maint-diary-','')] = ta.value;
       });
+      // preserva campo de diário em massa (ainda não aplicado)
+      const pendingBulkDiary = (()=>{
+        const b = document.getElementById('maint-bulk-diary');
+        return b ? b.value : null;
+      })();
       // preserva foco + posição do cursor (re-render não pode tirar o usuário do relatório)
       const ae = document.activeElement;
       const focusId = (ae && wrap.contains(ae) && ae.id) ? ae.id : null;
@@ -3670,6 +3670,10 @@
           this._diaryTimers[mid] = setTimeout(()=> this.autoSaveDiary(mid), 600);
         }
       });
+      if(pendingBulkDiary !== null){
+        const b = document.getElementById('maint-bulk-diary');
+        if(b && b.value !== pendingBulkDiary) b.value = pendingBulkDiary;
+      }
       // restaura foco + cursor de onde o usuário estava digitando
       if(focusId){
         const el = document.getElementById(focusId);
