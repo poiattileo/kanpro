@@ -2666,10 +2666,16 @@ switch ($action) {
         $cards_iter = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => $cards_where, 'ORDER' => 'rank ASC']);
         foreach ($cards_iter as $c) $all_cards[] = $c;
         try {
+            // clones buscados direto no banco (vale lista oculta p/ o usuário): senão a tag
+            // saía "Liberado" p/ quem não vê Abrir chamado e "Bloqueado" p/ o admin
             $__cloneStBySrc2 = [];
-            foreach ($all_cards as $__cc2) {
-                $__src2 = (int)($__cc2['chamado_source_id'] ?? 0);
-                if ($__src2 > 0) $__cloneStBySrc2[$__src2] = (string)($__cc2['chamado_status'] ?? '');
+            $__visIds2 = [];
+            foreach ($all_cards as $__cc2) $__visIds2[] = (int)$__cc2['id'];
+            if (!empty($__visIds2)) {
+                foreach ($DB->request(['SELECT' => ['chamado_source_id','chamado_status'], 'FROM' => 'glpi_plugin_kanpro_cards',
+                    'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'chamado_source_id' => $__visIds2], 'ORDER' => 'id ASC']) as $__cl2) {
+                    $__cloneStBySrc2[(int)$__cl2['chamado_source_id']] = (string)($__cl2['chamado_status'] ?? '');
+                }
             }
             foreach ($all_cards as $__k2 => $__cc2) {
                 $__srcSelf2 = (int)($__cc2['chamado_source_id'] ?? 0);

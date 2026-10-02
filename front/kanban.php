@@ -175,11 +175,17 @@ foreach ($cards_iter as $c) {
 }
 // Flag visual de bloqueio do Chamado: original em Andamento com clone ainda não liberado.
 // Evita N+1 no JS: o card já chega com chamado_blocked=1 e o kanban mostra o cadeado.
+// Busca os clones DIRETO no banco (não só nos cards visíveis): quem não vê a lista
+// Abrir chamado não recebe o clone no snapshot e a tag saía "Liberado" errada.
 try {
     $__cloneStBySrc = [];
-    foreach ($all_cards as $__cc) {
-        $__src = (int)($__cc['chamado_source_id'] ?? 0);
-        if ($__src > 0) $__cloneStBySrc[$__src] = (string)($__cc['chamado_status'] ?? '');
+    $__visIds = [];
+    foreach ($all_cards as $__cc) $__visIds[] = (int)$__cc['id'];
+    if (!empty($__visIds)) {
+        foreach ($DB->request(['SELECT' => ['chamado_source_id','chamado_status'], 'FROM' => 'glpi_plugin_kanpro_cards',
+            'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'chamado_source_id' => $__visIds], 'ORDER' => 'id ASC']) as $__cl) {
+            $__cloneStBySrc[(int)$__cl['chamado_source_id']] = (string)($__cl['chamado_status'] ?? '');
+        }
     }
     foreach ($all_cards as $__k => $__cc) {
         $__srcSelf = (int)($__cc['chamado_source_id'] ?? 0);
