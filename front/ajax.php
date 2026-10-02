@@ -804,12 +804,33 @@ function kanpro_card_is_locked(int $cards_id): bool {
 }
 // $allowBoardAdmin = true libera a ação travada para o criador/admin do quadro (ex.: excluir).
 function kanpro_need_card_editable(int $cards_id, bool $allowBoardAdmin = false) {
+    // trava do fluxo Chamado vale em todos os pontos que já checam editabilidade
+    kanpro_need_chamado_released($cards_id);
     if (!kanpro_card_is_locked($cards_id)) return;
     if ($allowBoardAdmin) {
         $c = new PluginKanproCard();
         if ($c->getFromDB($cards_id) && kanpro_can_manage_members((int)($c->fields['plugin_kanpro_boards_id'] ?? 0))) return;
     }
     jexit(['success'=>false,'msg'=>'Cartão da lista Pendente é travado: foi criado como Manutenção e o nome vem da entidade. Nada pode ser alterado dentro dele.']);
+}
+// Fluxo Chamado: original em "Em Andamento Chamado" fica BLOQUEADO (sem alterações)
+// enquanto o clone em "Abrir chamado" não for liberado ("Chamado aberto").
+function kanpro_chamado_original_blocked(int $cards_id): bool {
+    global $DB;
+    if ($cards_id <= 0) return false;
+    try {
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return false;
+        if (kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)) !== 'andamento_chamado') return false;
+        $sib = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $cards_id], 'ORDER' => 'id DESC', 'LIMIT' => 1])->current();
+        if (!$sib) return false; // sem clone: fail-open (legado)
+        return (($sib['chamado_status'] ?? '') !== 'liberado');
+    } catch (Throwable $e) { return false; }
+}
+function kanpro_need_chamado_released(int $cards_id) {
+    if (kanpro_chamado_original_blocked($cards_id)) {
+        jexit(['success'=>false,'msg'=>'Card bloqueado — aguarde o "Chamado aberto" em Abrir chamado.','chamado_blocked'=>true]);
+    }
 }
 // Card finalizado = já foi para Assinatura (existe transferência KanPro).
 // Depois do Finalizar não pode mais editar/adicionar/remover máquinas — só visualizar.
@@ -3297,6 +3318,7 @@ switch ($action) {
         needEdit();
         kanpro_ensure_board_extras();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_chamado_released($cid);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
         if (!$row) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         $new = !empty($row['is_pinned']) ? 0 : 1;
@@ -3405,7 +3427,12 @@ switch ($action) {
             kanpro_run_rules($bid, $cloneId, (int)$abrir['id']);
         }
         PluginKanproBoard::logActivity($bid, $origId, (int)$andam['id'], 'chamado_created', "Chamado #{$tickets_id} criado: clone #{$cloneId} em Abrir chamado, original em Em Andamento");
-        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id]);
+        // zap p/ os responsáveis (não trava o fluxo se falhar)
+        $zapRes = ['ok' => false];
+        try {
+            if (class_exists('PluginKanproMaintenanceZap')) $zapRes = PluginKanproMaintenanceZap::sendChamadoAbrir($cloneId);
+        } catch (Throwable $e) { $zapRes = ['ok' => false, 'error' => $e->getMessage()]; }
+        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'zap_ok'=>!empty($zapRes['ok'])]);
 
     case 'chamado_mark_open':
         // Botão "Chamado aberto" (card clone em Abrir chamado): libera p/ ser realizado.
@@ -3419,6 +3446,11 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Este botão só existe em Abrir chamado.']);
         }
         if (($cc->fields['chamado_status'] ?? '') === 'liberado') jexit(['success'=>true,'already'=>true]);
+        // autenticação por palavra-desafio (igual Manutenção): sem a palavra não libera
+        $confirm = (string)($_POST['confirm_text'] ?? '');
+        if (!function_exists('kanpro_maint_challenge_ok') || !kanpro_maint_challenge_ok($confirm)) {
+            jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida.','need_confirm'=>true]);
+        }
         $DB->update('glpi_plugin_kanpro_cards', ['chamado_status'=>'liberado','date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]);
         $tid = (int)($cc->fields['tickets_id'] ?? 0);
         if ($tid > 0) {
@@ -3443,6 +3475,8 @@ switch ($action) {
         if (!$cu->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         $bidU = (int)$cu->fields['plugin_kanpro_boards_id'];
         kanpro_require_board_edit($bidU);
+        // bloqueado até o "Chamado aberto" (vale p/ anotar e p/ finalizar)
+        kanpro_need_chamado_released($cid);
         if (kanpro_list_category((int)$cu->fields['plugin_kanpro_lists_id']) !== 'andamento_chamado') {
             jexit(['success'=>false,'msg'=>'Este botão só existe em Em Andamento Chamado.']);
         }
@@ -3680,6 +3714,7 @@ switch ($action) {
     case 'copy_card':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_chamado_released($cid);
         $target_list = isset($_POST['target_lists_id']) ? (int)$_POST['target_lists_id'] : null;
         $new_id = PluginKanproCard::duplicate($cid, $target_list);
         jexit(['success'=>true,'id'=>$new_id]);
@@ -3742,6 +3777,37 @@ switch ($action) {
             ]);
         } catch (Throwable $e) {}
         PluginKanproBoard::logActivity($bidD, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', "Pendência #{$pid} auto-excluída 30s após Chamado criado");
+        $pc->delete(['id'=>$pid], true);
+        jexit(['success'=>true,'deleted'=>true]);
+
+    case 'chamado_prune_open':
+        // Auto-exclusão 30s após "Chamado aberto": clone liberado em Abrir chamado.
+        // Mesmo nível de quem abriu (edit no quadro) — snapshot vai p/ lixeira.
+        needEdit();
+        $pid = (int)($_POST['cards_id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>true,'already_deleted'=>true]);
+        if (kanpro_list_category((int)$pc->fields['plugin_kanpro_lists_id']) !== 'abrir_chamado') {
+            jexit(['success'=>false,'msg'=>'Só Abrir chamado se auto-exclui']);
+        }
+        if ((int)($pc->fields['chamado_source_id'] ?? 0) <= 0) jexit(['success'=>false,'msg'=>'Só clone do fluxo se auto-exclui']);
+        if (($pc->fields['chamado_status'] ?? '') !== 'liberado') jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado aberto)']);
+        $bidP = (int)$pc->fields['plugin_kanpro_boards_id'];
+        kanpro_require_board_edit($bidP);
+        $full = PluginKanproCard::getFullData($pid);
+        $ll = new PluginKanproList();
+        $lname = $ll->getFromDB((int)$pc->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
+        try {
+            $DB->insert('glpi_plugin_kanpro_trash', [
+                'plugin_kanpro_boards_id'=>$bidP,
+                'plugin_kanpro_lists_id'=>(int)$pc->fields['plugin_kanpro_lists_id'],
+                'list_name'=>$lname, 'card_name'=>$pc->fields['name'],
+                'snapshot'=>json_encode($full, JSON_UNESCAPED_UNICODE),
+                'users_id'=>kanpro_acting_user_id(), 'date_creation'=>date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {}
+        PluginKanproBoard::logActivity($bidP, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', "Abrir chamado #{$pid} auto-excluído 30s após Chamado aberto");
         $pc->delete(['id'=>$pid], true);
         jexit(['success'=>true,'deleted'=>true]);
 
@@ -4093,6 +4159,7 @@ switch ($action) {
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
         kanpro_require_board_edit(kanpro_board_id_for_card($cid));
+        kanpro_need_chamado_released($cid);
         $content = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['content'] ?? '') : trim(strip_tags($_POST['content'] ?? ''));
         $content = trim($content);
         if (!$content) jexit(['success'=>false]);
@@ -4108,6 +4175,7 @@ switch ($action) {
         $content = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['content'] ?? '') : trim(strip_tags($_POST['content'] ?? ''));
         $content = trim($content);
         $upRow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
+        if ($upRow) kanpro_need_chamado_released((int)$upRow['plugin_kanpro_cards_id']);
         $DB->update('glpi_plugin_kanpro_comments', ['content'=>$content,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$id,'users_id'=>[Session::getLoginUserID(), kanpro_acting_user_id()]]);
         if ($upRow) kanpro_touch_card((int)$upRow['plugin_kanpro_cards_id']);
         jexit(['success'=>true]);
@@ -4117,6 +4185,7 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $delCrow = $DB->request(['SELECT' => ['plugin_kanpro_cards_id', 'users_id'], 'FROM' => 'glpi_plugin_kanpro_comments', 'WHERE' => ['id' => $id]])->current();
         if (!$delCrow) jexit(['success'=>false,'msg'=>'Comentário não encontrado']);
+        kanpro_need_chamado_released((int)($delCrow['plugin_kanpro_cards_id'] ?? 0));
         $__delBid = kanpro_board_id_for_card((int)($delCrow['plugin_kanpro_cards_id'] ?? 0));
         kanpro_require_board_view($__delBid);
         // Só dono do comentário ou gestor do quadro (criador/admin) pode excluir — antes qualquer membro excluía qualquer um
@@ -4133,6 +4202,7 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_comments','WHERE'=>['id'=>$id]])->current();
         if (!$row) jexit(['success'=>false,'msg'=>'Comentário não encontrado']);
+        kanpro_need_chamado_released((int)($row['plugin_kanpro_cards_id'] ?? 0));
         $new = !empty($row['is_pinned']) ? 0 : 1;
         $DB->update('glpi_plugin_kanpro_comments', ['is_pinned'=>$new], ['id'=>$id]);
         kanpro_touch_card((int)($row['plugin_kanpro_cards_id'] ?? 0));
@@ -4142,6 +4212,7 @@ switch ($action) {
     case 'upload_attachment':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
+        kanpro_need_chamado_released($cid);
         if (!isset($_FILES['file'])) jexit(['success'=>false,'msg'=>'Nenhum arquivo']);
         $id = PluginKanproAttachment::handleUpload($cid, $_FILES['file']);
         kanpro_touch_member($cid);
@@ -4153,6 +4224,7 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_attachments','WHERE'=>['id'=>$id]])->current();
         $attCid = (int)($row['plugin_kanpro_cards_id'] ?? 0);
+        kanpro_need_chamado_released($attCid);
         if ($row && !empty($row['filepath'])) {
             $path = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $row['filepath'];
             if (file_exists($path)) @unlink($path);
@@ -4196,6 +4268,7 @@ switch ($action) {
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
         if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        kanpro_need_chamado_released($cid);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
         if (!$row) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         $new = !empty($row['is_notified']) ? 0 : 1;

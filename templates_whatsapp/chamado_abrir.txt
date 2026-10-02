@@ -1,0 +1,19 @@
+# KanPro • WhatsApp de CHAMADO EM ABRIR CHAMADO (texto puro, sem HTML)
+# Gatilho: add_chamado_card (1 card novo clonado para Abrir chamado)
+# Destinatários fixos: leonardo.facao@apoiofde.sp.gov.br e cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
+# Placeholders: {card_id} {card_nome} {descricao} {quadro} {ticket} {autor} {data}
+
+🔔 *NOVO CHAMADO EM ABRIR CHAMADO*
+
+Apareceu *1 novo chamado* em *Abrir chamado* aguardando abertura.
+
+📋 Card *#{card_id} "{card_nome}"*
+📝 {descricao}
+🖥️ Quadro: *{quadro}*
+🎫 Ticket GLPI: *#{ticket}*
+👤 Criado por: *{autor}*
+🕐 Em: *{data}*
+
+⏳ Abra o card e clique em *"Chamado aberto"* para liberar a execução.
+
+_Manutenção de TI - URE Jales_

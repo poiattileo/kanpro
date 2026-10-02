@@ -7221,6 +7221,8 @@
   };
 
   window.Kanpro = Kanpro;
+  // lista de palavras-desafio exposta p/ os módulos (chamado usa a mesma autenticação)
+  try { Kanpro.CHALLENGE_WORDS = MAINT_CHALLENGE_WORDS; } catch(_){}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=> Kanpro.init());
   else Kanpro.init();
 

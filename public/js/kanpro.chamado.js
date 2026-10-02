@@ -60,7 +60,7 @@
           return;
         }
         try { K.closePicker && K.closePicker(); } catch(_){}
-        K.showToast && K.showToast('📞 Chamado #' + res.tickets_id + ' criado e distribuído');
+        K.showToast && K.showToast('📞 Chamado #' + res.tickets_id + ' criado e distribuído' + (res.zap_ok ? '' : ' (zap pode ter falhado — ver atividade)'));
         try { K.forceSync && K.forceSync(); } catch(_){}
       });
     },
@@ -93,13 +93,101 @@
         ${opened ? '' : `<button onclick="KanproChamado.markOpen(${d.id}, this)" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">✔ Chamado aberto</button>`}
       </div>`);
     },
-    markOpen(cardId, btn){
-      if (!confirm('Confirma que o chamado foi aberto? Isso libera a execução.')) return;
-      if (btn) { btn.disabled = true; btn.textContent = '...'; }
-      K.ajax('chamado_mark_open', {cards_id: cardId}).then(res=>{
+    markOpen(cardId){
+      // autenticação por palavra-desafio (igual Manutenção) — sem confirm() nativo
+      const words = (K.CHALLENGE_WORDS && K.CHALLENGE_WORDS.length ? K.CHALLENGE_WORDS : ['CHAMADO','ABRIR','LIBERAR','EXECUTAR','CONFIRMAR']);
+      const specials = ['PAIVA','MASSON','FERRARI','MORANGO','SAWATA'];
+      let challenge;
+      if (Math.random() < 0.10) challenge = specials[Math.floor(Math.random()*specials.length)];
+      else {
+        const others = words.filter(w=> !specials.includes(w));
+        challenge = (others.length ? others : words)[Math.floor(Math.random()*((others.length ? others : words).length))];
+      }
+      this._openCardId = cardId;
+      this._openChallenge = challenge;
+      picker('📩 Chamado aberto — confirmação', `
+        <style>
+          .kc-grid{display:grid;gap:14px;min-width:min(440px,82vw)}
+          .kc-banner{background:linear-gradient(135deg,#00875a 0%,#006644 100%);border-radius:10px;padding:14px 16px;color:#fff;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+          .kc-label{font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px}
+          .kc-field{width:100%;padding:9px 12px;border:2px solid #00875a;border-radius:8px;box-sizing:border-box;font-size:15px;outline:none;background:#fff;text-transform:uppercase;letter-spacing:.06em;text-align:center;font-weight:700}
+          .kc-field:focus{box-shadow:0 0 0 3px #00875a33}
+          .kc-confirm{background:#00875a;color:#fff;border:none;padding:12px 16px;border-radius:8px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.2);flex:1}
+          .kc-confirm:hover{filter:brightness(1.08)}
+          .kc-confirm:disabled{opacity:.6;cursor:wait}
+          .kc-cancel{background:#fff;border:1px solid #dfe1e6;padding:12px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d;flex:0 0 110px}
+        </style>
+        <div class="kc-grid">
+          <div class="kc-banner">
+            <span style="font-size:26px">📩</span>
+            <div style="min-width:0"><div style="font-size:15px;font-weight:800">Confirmar abertura</div>
+            <div style="font-size:11px;opacity:.9;margin-top:2px">Libera a execução do card em <strong>Em Andamento Chamado</strong></div></div>
+          </div>
+          <div><div class="kc-label">DIGITE A PALAVRA ABAIXO</div>
+            <div style="background:#091e42;color:#fff;padding:10px;border-radius:8px;text-align:center;letter-spacing:0.08em">
+              <div style="font-size:22px;font-weight:800;margin-top:2px">${esc(challenge)}</div>
+            </div>
+            <input id="kc-open-input" type="text" placeholder="${esc(challenge)}" autocomplete="off" autocapitalize="characters" class="kc-field" style="margin-top:8px">
+            <div id="kc-open-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px;margin-top:4px"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" class="kc-cancel">Cancelar</button>
+            <button id="kc-open-btn" onclick="KanproChamado.confirmOpenChallenge()" class="kc-confirm">✔ Chamado aberto</button>
+          </div>
+          <div style="text-align:center"><a href="#" onclick="KanproChamado.markOpen(${Number(cardId)});return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+        </div>`);
+      const pk = document.getElementById('kanpro-picker');
+      if (pk) { pk.style.maxWidth = '500px'; pk.style.width = 'min(500px, 94vw)'; }
+      setTimeout(()=>{
+        const inp = document.getElementById('kc-open-input');
+        if (inp) {
+          inp.focus();
+          inp.addEventListener('keydown', e=>{ if (e.key === 'Enter') KanproChamado.confirmOpenChallenge(); });
+        }
+      }, 30);
+    },
+    confirmOpenChallenge(){
+      const inp = document.getElementById('kc-open-input');
+      const err = document.getElementById('kc-open-error');
+      const btn = document.getElementById('kc-open-btn');
+      const norm = (s)=>{ try { return K.normText(s).toUpperCase(); } catch(e) { return String(s || '').trim().toUpperCase(); } };
+      const val = norm(inp?.value);
+      const challenge = norm(this._openChallenge);
+      if (!val || val !== challenge) {
+        if (err) { err.textContent = `Digite exatamente "${this._openChallenge}" para continuar.`; err.style.display = 'block'; }
+        if (inp) { inp.style.borderColor = '#eb5a46'; inp.focus(); inp.select(); }
+        return;
+      }
+      if (err) err.style.display = 'none';
+      if (btn) { btn.disabled = true; btn.textContent = 'Abrindo...'; }
+      const cardId = this._openCardId;
+      K.ajax('chamado_mark_open', {cards_id: cardId, confirm_text: challenge}).then(res=>{
         if (!res || !res.success) { alert((res && res.msg) || 'Erro'); if (btn) { btn.disabled = false; btn.textContent = '✔ Chamado aberto'; } return; }
         K.showToast && K.showToast('✅ Liberado para execução');
-        this.open(cardId);
+        this.autoDeleteCountdown(cardId, 30);
+        try { K.forceSync && K.forceSync(); } catch(_){}
+      });
+    },
+    // Contagem 30s no picker e auto-exclusão do clone em Abrir chamado
+    autoDeleteCountdown(cardId, seconds){
+      picker('✅ Chamado aberto', `
+        <div style="display:grid;gap:10px;text-align:center;padding:8px 0">
+          <div style="font-size:15px;font-weight:800;color:#006644">Liberado para execução ✅</div>
+          <div style="font-size:12px;color:#5e6c84">Este card se auto-exclui em <strong id="kc-autodel-count">${seconds}s</strong>.<br>O acompanhamento continua no card em <strong>Em Andamento Chamado</strong> e no ticket do GLPI.</div>
+          <button onclick="KanproChamado.pruneNow(${Number(cardId)})" style="background:#f4f5f7;border:1px solid #dfe1e6;color:#5e6c84;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Excluir agora</button>
+        </div>`);
+      const tick = (remain)=>{
+        const el = document.getElementById('kc-autodel-count');
+        if (!el) return; // picker fechado/trocado: cancela
+        if (remain <= 0) { this.pruneNow(cardId); return; }
+        el.textContent = remain + 's';
+        setTimeout(()=> tick(remain - 1), 1000);
+      };
+      setTimeout(()=> tick(seconds - 1), 1000);
+    },
+    pruneNow(cardId){
+      K.ajax('chamado_prune_open', {cards_id: cardId}).then(()=>{
+        try { K.closePicker && K.closePicker(); } catch(_){}
         try { K.forceSync && K.forceSync(); } catch(_){}
       });
     },

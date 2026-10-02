@@ -33,7 +33,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete', 'card_alerta', 'quadro_alerta'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir'];
     }
 
     /** Login/e-mail do aprovador fixo da Pendência Chamado */
@@ -651,6 +651,71 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 ? "WhatsApp card_alerta enviado para {$phone} (aprovador)"
                 : "WhatsApp card_alerta FALHOU para {$phone}: " . ($res['error'] ?? ''));
             return $res + ['phone' => $phone];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Aviso de novo chamado em Abrir chamado: 1 msg por clone novo, com dados do
+     * card + quem criou, para os 2 responsáveis fixos.
+     * Trava de duplicado por clone (milestone chamado_abrir). Nunca joga exceção.
+     */
+    static function chamadoAbrirRecipients(): array {
+        return ['leonardo.facao@apoiofde.sp.gov.br', 'cristian.sawata@educacao.sp.gov.br'];
+    }
+
+    static function sendChamadoAbrir(int $cloneId): array {
+        try {
+            if ($cloneId <= 0) return ['ok' => false, 'error' => 'Card inválido'];
+            if (self::alreadySent($cloneId, 'chamado_abrir')) return ['ok' => false, 'error' => 'duplicate'];
+            $clone = new PluginKanproCard();
+            if (!$clone->getFromDB($cloneId)) return ['ok' => false, 'error' => 'Card não encontrado'];
+            $cardNome = trim((string)($clone->fields['name'] ?? ''));
+            if ($cardNome === '') $cardNome = 'Card #' . $cloneId;
+            $desc = trim(strip_tags((string)($clone->fields['description'] ?? '')));
+            if ($desc === '') $desc = '(sem descrição)';
+            if (function_exists('mb_substr')) $desc = mb_substr($desc, 0, 500);
+            else $desc = substr($desc, 0, 500);
+            $boardNome = '';
+            $b = new PluginKanproBoard();
+            if ($b->getFromDB((int)($clone->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
+            $ticket = (int)($clone->fields['tickets_id'] ?? 0);
+            // autor = quem criou o card original (users_id do clone)
+            $autor = 'desconhecido';
+            try {
+                $au = new User();
+                if ($au->getFromDB((int)($clone->fields['users_id'] ?? 0))) {
+                    $autor = $au->getFriendlyName();
+                    if (trim($autor) === '') $autor = (string)($au->fields['name'] ?? 'desconhecido');
+                }
+            } catch (Throwable $e) {}
+            $txt = self::renderTxt('chamado_abrir', [
+                'card_id'   => (string)$cloneId,
+                'card_nome' => $cardNome,
+                'descricao' => $desc,
+                'quadro'    => $boardNome,
+                'ticket'    => $ticket > 0 ? (string)$ticket : '-',
+                'autor'     => $autor,
+                'data'      => date('d/m/Y H:i'),
+            ]);
+            if ($txt === null || $txt === '') {
+                $txt = "Novo chamado em Abrir chamado: #{$cloneId} \"{$cardNome}\" (ticket #{$ticket}), criado por {$autor}";
+            }
+            $sent = 0; $errors = []; $phones = [];
+            foreach (self::chamadoAbrirRecipients() as $login) {
+                $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
+                if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
+                $res = self::evoSend($phone, $txt, 20);
+                self::markSent($cloneId, 'chamado_abrir', $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+                if (!empty($res['ok'])) { $sent++; $phones[] = $phone; }
+                else $errors[] = $login . ': ' . ($res['error'] ?? 'falha');
+            }
+            self::logCard($cloneId, $sent > 0
+                ? "WhatsApp chamado_abrir enviado para " . implode(',', $phones) . " ({$sent}/2)"
+                : "WhatsApp chamado_abrir FALHOU: " . implode('; ', $errors));
+            if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
+            return ['ok' => true, 'phones' => $phones];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
