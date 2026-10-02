@@ -39,7 +39,9 @@
   border-radius: 12px;
   width: 272px;
   min-width: 272px;
-  max-height: calc(100vh - 160px);
+  /* cabe inteiro na tela (GLPI tem topo alto + board corta overflow-y): header e botão sempre visíveis */
+  max-height: calc(100vh - 230px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   box-shadow: var(--kp-shadow);
@@ -99,24 +101,21 @@
 .kp-list-actions-btn:hover { background: rgba(9,30,66,.08); color: var(--kp-text); }
 
 .kp-list-cards {
-  flex: 1;
-  /* trava direta aqui (não depende do flex-shrink da lista): header + botão sempre visíveis */
-  max-height: calc(100vh - 300px);
+  flex: 1 1 auto;
+  min-height: 40px; /* lista vazia mantém área de drop */
+  /* sem max-height fixo: o flex encolhe até o limite da lista e rola aqui dentro —
+     header + botão Criar ficam sempre visíveis, mesmo com 200 cards */
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior-y: contain;
   padding: 0 8px 4px;
   display: grid;
   gap: 8px;
   align-content: start;
-  min-height: 20px;
   scrollbar-width: thin;
 }
 .kp-list-cards::-webkit-scrollbar { width: 6px; }
 .kp-list-cards::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 6px; }
-/* composer aberto ocupa ~170px embaixo: encolhe a área rolável para continuar visível */
-.kp-list.composer-open .kp-list-cards {
-  max-height: calc(100vh - 400px);
-}
 .kp-list-cards.drag-over { background: rgba(9,30,66,.04); border-radius: 8px; }
 
 /* Add card / Add list */
