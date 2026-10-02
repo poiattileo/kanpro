@@ -690,6 +690,97 @@
       } catch(e){}
       return true;
     },
+    /* ---------- filtro do Chamado finalizado (por usuário e data) ---------- */
+    finFilterFor(listId){
+      this._finFilter = this._finFilter || {};
+      if(!this._finFilter[listId]) this._finFilter[listId] = {user:'', from:'', to:''};
+      return this._finFilter[listId];
+    },
+    finFilterPass(list, card){
+      try {
+        const lt = this.listTypeOf ? this.listTypeOf(list) : null;
+        if(!lt || lt.code !== 'chamado_finalizado') return true;
+        const f = this.finFilterFor(list.id);
+        if(!f.user && !f.from && !f.to) return true;
+        // usuário: membro do card ou criador
+        if(f.user){
+          const uid = String(f.user);
+          const mine = String(card.users_id || '');
+          let ok = (mine !== '' && mine === uid);
+          if(!ok){
+            const mems = (this.cardMembers && this.cardMembers[card.id]) || [];
+            ok = mems.some(m=> String(m.users_id) === uid);
+          }
+          if(!ok) return false;
+        }
+        // data: compara o dia da finalização (date_mod; cai p/ criação se vazio)
+        if(f.from || f.to){
+          const raw = String(card.date_mod || card.date_creation || '').slice(0, 10);
+          if(!raw) return false;
+          if(f.from && raw < f.from) return false;
+          if(f.to && raw > f.to) return false;
+        }
+        return true;
+      } catch(e){ return true; }
+    },
+    finFilterOptions(listId){
+      // opções: membros do quadro + criadores que aparecem nos finalizados
+      const seen = new Map();
+      (this.members || []).forEach(m=> { if(m.users_id != null) seen.set(String(m.users_id), m.name || ('#' + m.users_id)); });
+      (this.cards || []).forEach(c=>{
+        if(c.plugin_kanpro_lists_id != listId || c.is_archived == 1) return;
+        const mems = (this.cardMembers && this.cardMembers[c.id]) || [];
+        mems.forEach(m=> { if(m.users_id != null && !seen.has(String(m.users_id))) seen.set(String(m.users_id), m.name || ('#' + m.users_id)); });
+      });
+      return [...seen.entries()].sort((a,b)=> String(a[1]).localeCompare(String(b[1])));
+    },
+    renderFinFilter(list){
+      const self = this;
+      const f = this.finFilterFor(list.id);
+      const opts = this.finFilterOptions(list.id).map(function(op){
+        const sel = (String(f.user) === String(op[0])) ? ' selected' : '';
+        return '<option value="' + Number(op[0]) + '"' + sel + '>' + self.escape(op[1]) + '</option>';
+      }).join('');
+      let html = '<div class="kp-fin-filter" style="display:grid;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-radius:6px;padding:8px;margin:0 8px 8px;font-size:12px">';
+      html += '<label style="display:grid;gap:2px;color:#5e6c84;font-weight:700">👤 Usuário';
+      html += '<select onchange="Kanpro.setFinFilter(' + list.id + ', \'user\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px">';
+      html += '<option value="">Todos</option>' + opts + '</select></label>';
+      html += '<div style="display:flex;gap:6px">';
+      html += '<label style="flex:1;display:grid;gap:2px;color:#5e6c84;font-weight:700">📅 De';
+      html += '<input type="date" value="' + this.escape(f.from || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'from\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;box-sizing:border-box"></label>';
+      html += '<label style="flex:1;display:grid;gap:2px;color:#5e6c84;font-weight:700">Até';
+      html += '<input type="date" value="' + this.escape(f.to || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'to\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;box-sizing:border-box"></label>';
+      html += '</div>';
+      if (f.user || f.from || f.to) html += '<button onclick="Kanpro.clearFinFilter(' + list.id + ')" style="background:none;border:none;color:#0052cc;cursor:pointer;font-size:12px;font-weight:700;text-align:left;padding:0">✕ Limpar filtro</button>';
+      html += '</div>';
+      return html;
+    },
+    setFinFilter(listId, field, value){
+      const f = this.finFilterFor(listId);
+      f[field] = value || '';
+      this.renderBoard();
+      this.refreshFinFilterBar(listId);
+    },
+    clearFinFilter(listId){
+      this._finFilter = this._finFilter || {};
+      this._finFilter[listId] = {user:'', from:'', to:''};
+      this.renderBoard();
+      this.refreshFinFilterBar(listId);
+    },
+    refreshFinFilterBar(listId){
+      try {
+        const list = (this.lists || []).find(l=> l.id == listId);
+        if(!list) return;
+        const el = this._listEls && this._listEls[listId];
+        if(!el || !el.isConnected) return;
+        const old = el.querySelector('.kp-fin-filter');
+        if(!old) return;
+        const tmp = document.createElement('div');
+        tmp.innerHTML = this.renderFinFilter(list);
+        const fresh = tmp.firstElementChild;
+        if(fresh) old.replaceWith(fresh);
+      } catch(e){}
+    },
     // ---------- BOARD ----------
     renderBoard(){
       const board = $('#kanpro-board');
@@ -746,7 +837,7 @@
 
       this.lists.forEach(list=>{
         if(list.is_archived==1) return;
-        let cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c));
+        let cardsInList = this.cards.filter(c=> c.plugin_kanpro_lists_id==list.id && c.is_archived==0 && this.isCardVisible(c) && this.finFilterPass(list, c));
         // Retirada: não-notificados primeiro, depois A-Z (ignora rank manual)
         try {
           const lt = this.listTypeOf(list);
@@ -987,6 +1078,7 @@
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
+        ${(code0 === 'chamado_finalizado' ? this.renderFinFilter(list) : '')}
         <div class="kp-list-cards" data-list-id="${list.id}">
         </div>
         ${addCardHtml}
