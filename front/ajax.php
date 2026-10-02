@@ -3027,6 +3027,40 @@ switch ($action) {
             $viewers[] = ['users_id' => $uid, 'name' => $uname, 'initials' => $initials];
         }
 
+        // últimas atividades p/ toast "quem alterou" (5 últimas, com nome Nome+Sobrenome)
+        $recent_activity = [];
+        try {
+            $aiter = $DB->request([
+                'SELECT' => ['a.id', 'a.action', 'a.details', 'a.users_id', 'a.plugin_kanpro_cards_id', 'a.date_creation', 'u.firstname', 'u.realname', 'c.name AS card_name'],
+                'FROM'   => 'glpi_plugin_kanpro_activities AS a',
+                'LEFT JOIN' => [
+                    'glpi_users AS u' => ['ON' => ['u' => 'id', 'a' => 'users_id']],
+                    'glpi_plugin_kanpro_cards AS c' => ['ON' => ['c' => 'id', 'a' => 'plugin_kanpro_cards_id']],
+                ],
+                'WHERE'  => ['a.plugin_kanpro_boards_id' => $boards_id],
+                'ORDER'  => 'a.id DESC',
+                'LIMIT'  => 5,
+            ]);
+            foreach ($aiter as $ra) {
+                $rn = trim(($ra['firstname'] ?? '') . ' ' . ($ra['realname'] ?? ''));
+                if ($rn === '') $rn = 'Sistema';
+                $det = preg_replace('/^\[from:\d+\]\s*/', '', (string)($ra['details'] ?? ''));
+                if (function_exists('mb_substr') ? mb_strlen($det, 'UTF-8') > 120 : strlen($det) > 120) {
+                    $det = (function_exists('mb_substr') ? mb_substr($det, 0, 120, 'UTF-8') : substr($det, 0, 120)) . '…';
+                }
+                $recent_activity[] = [
+                    'id' => (int)($ra['id'] ?? 0),
+                    'action' => (string)($ra['action'] ?? ''),
+                    'details' => $det,
+                    'users_id' => (int)($ra['users_id'] ?? 0),
+                    'user' => $rn,
+                    'card_id' => (int)($ra['plugin_kanpro_cards_id'] ?? 0),
+                    'card_name' => (string)($ra['card_name'] ?? ''),
+                    'date' => (string)($ra['date_creation'] ?? ''),
+                ];
+            }
+        } catch (Throwable $e) {}
+
         $transfer_status = [];
         if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
             foreach ($all_cards as $c) {
@@ -3060,6 +3094,7 @@ switch ($action) {
             'members' => $members_list,
             'viewers' => $viewers,
             'transferStatus' => $transfer_status,
+            'recentActivity' => ($recent_activity ?? []),
         ]);
 
     case 'global_search_cards':
@@ -4243,6 +4278,11 @@ switch ($action) {
         $fcard = (int)($_REQUEST['card_id'] ?? 0);
         if ($fcard > 0) $where['a.plugin_kanpro_cards_id'] = $fcard;
         $fmach = (int)($_REQUEST['machine'] ?? $_REQUEST['machine_seq'] ?? 0);
+        $fmodel = trim((string)($_REQUEST['model'] ?? ''));
+        if (function_exists('mb_substr') ? mb_strlen($fmodel, 'UTF-8') > 80 : strlen($fmodel) > 80) {
+            $fmodel = function_exists('mb_substr') ? mb_substr($fmodel, 0, 80, 'UTF-8') : substr($fmodel, 0, 80);
+        }
+        $fmodelNorm = ($fmodel !== '' && function_exists('kanpro_norm_text')) ? kanpro_norm_text($fmodel) : mb_strtolower($fmodel, 'UTF-8');
         $kanpro_norm_date = function ($v) {
             $v = trim((string)($v ?? ''));
             if (preg_match('/^\d{4}-\d{2}-\d{2}/', $v)) return substr($v, 0, 10);
@@ -4282,6 +4322,10 @@ switch ($action) {
                 $det = (string)($a['details'] ?? '');
                 if (!preg_match('/m[aá]quina\s*#\s*' . $fmach . '\b/iu', $det)) continue;
             }
+            if ($fmodelNorm !== '') {
+                $detN = function_exists('kanpro_norm_text') ? kanpro_norm_text((string)($a['details'] ?? '')) : mb_strtolower((string)($a['details'] ?? ''), 'UTF-8');
+                if (strpos($detN, $fmodelNorm) === false) continue;
+            }
             $uname = trim(($a['firstname'] ?? '') . ' ' . ($a['realname'] ?? ''));
             if ($uname === '') $uname = $a['user_name'] ?? 'Sistema';
             $rows[] = ['id'=>(int)$a['id'], 'date'=>$d, 'user'=>$uname,
@@ -4290,7 +4334,7 @@ switch ($action) {
                 'card_id'=>(int)($a['plugin_kanpro_cards_id'] ?? 0), 'card_name'=>($a['card_name'] ?? '')];
         }
         jexit(['success'=>true, 'board_id'=>$bid, 'board_name'=>($bchk->fields['name'] ?? ''),
-            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'faction'=>$faction,'card_id'=>$fcard,'machine'=>$fmach,'date_from'=>$ffrom,'date_to'=>$fto]]);
+            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'faction'=>$faction,'card_id'=>$fcard,'machine'=>$fmach,'model'=>$fmodel,'date_from'=>$ffrom,'date_to'=>$fto]]);
         } catch (Throwable $e) {
             error_log('[KanPro] ' . 'KanPro get_history: ' . $e->getMessage());
             jexit(['success'=>false,'msg'=>'Falha ao carregar histórico']);

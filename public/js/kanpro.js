@@ -376,7 +376,7 @@
           cardLabels: res.cardLabels, cardMembers: res.cardMembers,
           checkProgress: res.checkProgress, maintenanceProgress: res.maintenanceProgress, commentCounts: res.commentCounts,
           attCounts: res.attCounts, members: res.members, transferStatus: res.transferStatus || {},
-          maintHash: res.maintHash || ''
+          maintHash: res.maintHash || '', recentActivity: res.recentActivity || []
         };
         const snapshotJson = JSON.stringify(snapshot);
         if(snapshotJson === this._lastSnapshotJson){
@@ -424,6 +424,33 @@
         this.members = res.members || [];
         this.transferStatus = res.transferStatus || {};
         this.maintHash = res.maintHash || '';
+        // aviso "quem alterou": toast com a última mudança de OUTRA pessoa (cooldown 15s p/ não spammar)
+        try {
+          const acts = Array.isArray(res.recentActivity) ? res.recentActivity : [];
+          const maxId = acts.reduce((m,a)=> Math.max(m, Number(a.id||0)), Number(this._lastSeenActivityId||0));
+          const first = !this._lastSeenActivityId;
+          const me = parseInt((window.KANPRO && (window.KANPRO.actingUserId || window.KANPRO.currentUserId)) || 0);
+          const fresh = acts.filter(a=> Number(a.id||0) > Number(this._lastSeenActivityId||0) && Number(a.users_id||0) !== me && Number(a.users_id||0) > 0);
+          this._lastSeenActivityId = maxId || this._lastSeenActivityId;
+          if(!first && fresh.length && !document.hidden){
+            const now = Date.now();
+            if(!this._lastChangeToastAt || (now - this._lastChangeToastAt) > 15000){
+              this._lastChangeToastAt = now;
+              const verbs = {card_create:'criou o cartão', card_move:'moveu o cartão', card_archive:'arquivou', maintenance_setup:'configurou máquinas', maintenance_update:'atualizou máquina', maintenance_diary:'atualizou o relatório', maintenance_finalize:'finalizou manutenção', chamado_created:'criou pendência', chamado_released:'liberou chamado'};
+              const fmt = (a)=>{
+                const v = verbs[a.action] || String(a.action||'atualizou');
+                const c = a.card_id ? ('#' + a.card_id + (a.card_name ? ' ' + a.card_name : '')) : '';
+                const d = a.details ? (' • ' + String(a.details).slice(0,80)) : '';
+                return `${a.user} ${v} ${c}${d}`.trim();
+              };
+              if(fresh.length === 1) this.showToast('🔄 ' + fmt(fresh[0]));
+              else {
+                const last = fresh.slice().sort((x,y)=> Number(x.id)-Number(y.id)).pop();
+                this.showToast(`🔄 ${fresh.length} atualizações — última: ` + fmt(last));
+              }
+            }
+          }
+        } catch(e){}
 
         // retoma auto-exclusão de pendências liberadas (mesmo sem abrir o modal — 30s desde date_mod)
         // + zap de liberado (5s desde date_mod). Anti-duplicado no servidor.
