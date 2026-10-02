@@ -4759,7 +4759,25 @@
         if(clash.length && !confirm(`Atenção: ${clash.length} máquina(s) selecionada(s) já tem relatório preenchido.\n\nDeseja SOBRESCREVER com o novo texto para todas as ${ids.length}?`)) return;
       } catch(e){}
       this.ajax('bulk_update_machines', {cards_id: this.currentCardId, ids: JSON.stringify(ids), diary: txt}).then(res=>{
-        if(res.success) this.bulkAfterSuccess(`${res.updated||0} máquinas: diário aplicado`);
+        if(res.success){
+          // Sincroniza DOM + cache ANTES do refresh: o render preserva o que está
+          // digitado nos textareas e reagenda autosave — sem isso o texto velho
+          // da tela sobrescrevia o recém-aplicado e o autosave apagava no banco.
+          try {
+            ids.forEach(id=>{
+              const ta = document.getElementById('maint-diary-'+id);
+              if(ta) ta.value = txt;
+              try { clearTimeout(this._diaryTimers[id]); } catch(e){}
+            });
+            if(this._lastModalData && this._lastModalData.maintenance_machines){
+              this._lastModalData.maintenance_machines.forEach(m=>{
+                if(ids.includes(String(m.id))) m.diary = txt;
+              });
+            }
+            ids.forEach(id=>{ this._lastDiarySaved[id] = txt; });
+          } catch(e){}
+          this.bulkAfterSuccess(`${res.updated||0} máquinas: diário aplicado`);
+        }
         else this.showToast(res.msg||'Erro');
       });
     },
