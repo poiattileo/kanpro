@@ -332,7 +332,7 @@
       var g = function(id){ var el = document.getElementById(id); return el ? el.value : ''; };
       return {users_id: g('kph-f-user'), type: g('kph-f-type'),
         date_from: brToIso(g('kph-f-from')),
-        date_to: brToIso(g('kph-f-to')), card_id: g('kph-f-card')};
+        date_to: brToIso(g('kph-f-to')), card_id: g('kph-f-card'), machine: g('kph-f-machine')};
     },
     reload: function(){
       var self = this;
@@ -340,7 +340,7 @@
       if(body) body.innerHTML = '<div style="text-align:center;color:#5e6c84;padding:24px">Carregando...</div>';
       var f = this.filters();
       post('get_history', {boards_id: this.boardId, users_id: f.users_id, faction: f.type,
-        date_from: f.date_from, date_to: f.date_to, card_id: f.card_id}).then(function(res){
+        date_from: f.date_from, date_to: f.date_to, card_id: f.card_id, machine: f.machine}).then(function(res){
         if(!res.success){ if(body) body.innerHTML = '<div style="color:#bf2600">' + esc(res.msg||'Erro') + '</div>'; return; }
         self.people = res.people || [];
         self.rows = res.rows || [];
@@ -368,6 +368,7 @@
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">De<br><span style="position:relative;display:inline-block"><input id="kph-f-from" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brFrom) + '" style="padding:7px 26px 7px 7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:128px;box-sizing:border-box;cursor:pointer"><span onclick="KanproHistory.calOpen(\'kph-f-from\')" title="Abrir calendário" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;user-select:none;line-height:1">📅</span></span></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Até<br><span style="position:relative;display:inline-block"><input id="kph-f-to" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" autocomplete="off" value="' + esc(brTo) + '" style="padding:7px 26px 7px 7px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;width:128px;box-sizing:border-box;cursor:pointer"><span onclick="KanproHistory.calOpen(\'kph-f-to\')" title="Abrir calendário" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;user-select:none;line-height:1">📅</span></span></label>'
         + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Cartão #<br><input id="kph-f-card" type="number" min="1" placeholder="#" value="' + esc(f.card_id||'') + '" onchange="KanproHistory.reload()" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;width:90px;background:#fff"></label>'
+        + '<label style="font-size:11px;font-weight:600;color:#5e6c84">Máquina #<br><input id="kph-f-machine" type="number" min="1" placeholder="#" value="' + esc(f.machine||'') + '" onchange="KanproHistory.reload()" title="Filtra o nº da máquina no detalhe (ex: Máquina #5)" style="padding:7px;border:1px solid #dfe1e6;border-radius:6px;width:90px;background:#fff"></label>'
         + '<button onclick="KanproHistory.clearFilters()" style="padding:7px 12px;border:1px solid #dfe1e6;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Limpar</button>';
       box.innerHTML = html;
       bindDateMask('kph-f-from');

@@ -313,7 +313,8 @@
         lists: this.lists, hiddenLists: this.hiddenLists, cards: this.cards, labels: this.labels,
         cardLabels: this.cardLabels, cardMembers: this.cardMembers,
         checkProgress: this.checkProgress, maintenanceProgress: this.maintenanceProgress, commentCounts: this.commentCounts,
-        attCounts: this.attCounts, members: this.members, transferStatus: this.transferStatus
+        attCounts: this.attCounts, members: this.members, transferStatus: this.transferStatus,
+        maintHash: this.maintHash || ''
       });
       this._lastStamp = null;
       this._unchangedRounds = 0;
@@ -374,11 +375,21 @@
           lists: res.lists, hiddenLists: res.hiddenLists || [], cards: res.cards, labels: res.labels,
           cardLabels: res.cardLabels, cardMembers: res.cardMembers,
           checkProgress: res.checkProgress, maintenanceProgress: res.maintenanceProgress, commentCounts: res.commentCounts,
-          attCounts: res.attCounts, members: res.members, transferStatus: res.transferStatus || {}
+          attCounts: res.attCounts, members: res.members, transferStatus: res.transferStatus || {},
+          maintHash: res.maintHash || ''
         };
         const snapshotJson = JSON.stringify(snapshot);
         if(snapshotJson === this._lastSnapshotJson){
           if(stamp) this._lastStamp = stamp; // já espelha o selo: em dia
+          // selo mudou mas snapshot igual (ex: servidor antigo sem maintHash ou conteúdo fora do snapshot):
+          // ainda assim atualiza o modal aberto (diário/relatório) se não estiver digitando
+          try {
+            if(this.currentCardId){
+              const focused = document.activeElement;
+              const isTyping = focused && (focused.tagName==='TEXTAREA' || focused.tagName==='INPUT');
+              if(!isTyping) this.refreshCardModal();
+            }
+          } catch(e){}
           return; // nada mudou no quadro em si
         }
         console.log('[KANPRO DEBUG] snapshot mudou, prosseguindo...');
@@ -416,6 +427,7 @@
         this.attCounts = res.attCounts || {};
         this.members = res.members || [];
         this.transferStatus = res.transferStatus || {};
+        this.maintHash = res.maintHash || '';
 
         // retoma auto-exclusão de pendências liberadas (mesmo sem abrir o modal — 30s desde date_mod)
         // + zap de liberado (5s desde date_mod). Anti-duplicado no servidor.

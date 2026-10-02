@@ -2953,6 +2953,19 @@ switch ($action) {
                     } catch (Throwable $e) {}
                 }
             }
+            // fingerprint do conteúdo (diary/status/etc): diary muda sem mudar contadores,
+            // então o snapshot precisa mudar — senão o modal aberto do outro usuário nunca atualiza sem F5
+            $maint_hash = '';
+            try {
+                $fpParts = [];
+                foreach ($maint_by_card as $cid => $machines) {
+                    foreach ($machines as $mm) {
+                        $fpParts[] = (int)($mm['id'] ?? 0) . '|' . (int)($mm['seq'] ?? 0) . '|' . ($mm['model'] ?? '') . '|' . ($mm['status'] ?? '') . '|' . (int)(!empty($mm['is_done'])) . '|' . (int)(!empty($mm['is_ok'])) . '|' . (string)($mm['diary'] ?? '') . '|' . (int)(!empty($mm['is_urgent'])) . '|' . (int)(!empty($mm['is_locked'])) . '|' . (string)($mm['date_mod'] ?? '');
+                    }
+                }
+                sort($fpParts);
+                $maint_hash = sha1(implode("\n", $fpParts));
+            } catch (Throwable $e) { $maint_hash = ''; }
             foreach ($maint_by_card as $cid => $machines) {
                 $total = count($machines);
                 $done = 0;
@@ -3041,6 +3054,7 @@ switch ($action) {
             'cardMembers' => $card_members_map,
             'checkProgress' => $check_progress,
             'maintenanceProgress' => $maintenance_progress,
+            'maintHash' => ($maint_hash ?? ''),
             'commentCounts' => $comment_counts,
             'attCounts' => $att_counts,
             'members' => $members_list,
@@ -4211,7 +4225,10 @@ switch ($action) {
             $seen[$uid] = true;
             $u = new User();
             $name = 'Usuário #' . $uid;
-            if ($u->getFromDB($uid)) $name = $u->getFriendlyName();
+            if ($u->getFromDB($uid)) {
+                $full = trim(($u->fields['firstname'] ?? '') . ' ' . ($u->fields['realname'] ?? ''));
+                $name = $full !== '' ? $full : $u->getFriendlyName();
+            }
             $people[] = ['id'=>$uid, 'name'=>$name, 'extra'=>$extra];
         };
         $addP($__creator, 'criador');
@@ -4225,6 +4242,7 @@ switch ($action) {
         if ($faction !== '') $where['a.action'] = $faction;
         $fcard = (int)($_REQUEST['card_id'] ?? 0);
         if ($fcard > 0) $where['a.plugin_kanpro_cards_id'] = $fcard;
+        $fmach = (int)($_REQUEST['machine'] ?? $_REQUEST['machine_seq'] ?? 0);
         $kanpro_norm_date = function ($v) {
             $v = trim((string)($v ?? ''));
             if (preg_match('/^\d{4}-\d{2}-\d{2}/', $v)) return substr($v, 0, 10);
@@ -4260,7 +4278,11 @@ switch ($action) {
             $d = (string)($a['date_creation'] ?? '');
             if ($ffrom !== '' && substr($d, 0, 10) < $ffrom) continue;
             if ($fto !== '' && substr($d, 0, 10) > $fto) continue;
-            $uname = trim(($a['realname'] ?? '') . ' ' . ($a['firstname'] ?? ''));
+            if ($fmach > 0) {
+                $det = (string)($a['details'] ?? '');
+                if (!preg_match('/m[aá]quina\s*#\s*' . $fmach . '\b/iu', $det)) continue;
+            }
+            $uname = trim(($a['firstname'] ?? '') . ' ' . ($a['realname'] ?? ''));
             if ($uname === '') $uname = $a['user_name'] ?? 'Sistema';
             $rows[] = ['id'=>(int)$a['id'], 'date'=>$d, 'user'=>$uname,
                 'user_id'=>(int)($a['users_id'] ?? 0), 'action'=>($a['action'] ?? ''),
@@ -4268,7 +4290,7 @@ switch ($action) {
                 'card_id'=>(int)($a['plugin_kanpro_cards_id'] ?? 0), 'card_name'=>($a['card_name'] ?? '')];
         }
         jexit(['success'=>true, 'board_id'=>$bid, 'board_name'=>($bchk->fields['name'] ?? ''),
-            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'faction'=>$faction,'card_id'=>$fcard,'date_from'=>$ffrom,'date_to'=>$fto]]);
+            'people'=>$people, 'rows'=>$rows, 'filters'=>['users_id'=>$fuser,'faction'=>$faction,'card_id'=>$fcard,'machine'=>$fmach,'date_from'=>$ffrom,'date_to'=>$fto]]);
         } catch (Throwable $e) {
             error_log('[KanPro] ' . 'KanPro get_history: ' . $e->getMessage());
             jexit(['success'=>false,'msg'=>'Falha ao carregar histórico']);
