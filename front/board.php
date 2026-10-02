@@ -346,12 +346,12 @@ window.KanproBoards = (function(){
   function roleBadge(m){
     if (m.is_creator) return '<small style="background:#0079bf;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">CRIADOR</small>';
     if (m.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
-    if (m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👁️ OBSERVADOR</small>';
-    return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👤 MEMBRO</small>';
+    if (m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">OBSERVADOR</small>';
+    return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">MEMBRO</small>';
   }
   function profileBadge(p){
     if (p.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
-    return '<small style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">🎭 MEMBRO</small>';
+    return '<small style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">MEMBRO</small>';
   }
   // Confirmação padrão do plugin/GLPI (mesmo visual do Kanpro.showConfirm do kanban) — substitui confirm() nativo.
   // Retorna Promise<boolean>. Fica acima do overlay do Acesso (z 30001 > 20000).
@@ -395,8 +395,8 @@ window.KanproBoards = (function(){
         ctrl = '<span class="kpb-row-ctrl">'
           + '<select onchange="KanproBoards.setRole(' + m.users_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">'
           + '<option value="admin"' + (m.role==='admin'?' selected':'') + '>⭐ Admin</option>'
-          + '<option value="member"' + (m.role==='member'?' selected':'') + '>👤 Membro</option>'
-          + '<option value="observer"' + (m.role==='observer'?' selected':'') + '>👁️ Observador</option>'
+          + '<option value="member"' + (m.role==='member'?' selected':'') + '>Membro</option>'
+          + '<option value="observer"' + (m.role==='observer'?' selected':'') + '>Observador</option>'
           + '</select>'
           + '<button onclick="KanproBoards.remove(' + m.users_id + ')" title="Remover" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer;flex-shrink:0">✕</button>'
           + '</span>';
@@ -409,22 +409,22 @@ window.KanproBoards = (function(){
         + ctrl + '</div>';
       } catch(e){ return ''; }
     }).join('') : '<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px;background:#f9fafb;border:1px dashed #dfe1e6;border-radius:8px">Nenhum membro ainda — adicione abaixo.</div>');
-    html += '<div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:2px">👥 Pessoas com acesso (' + ((d.members||[]).length) + ')</div>';
+    html += '<div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:2px">Pessoas com acesso (' + ((d.members||[]).length) + ')</div>';
     html += '<div id="kpb-members-list" style="display:grid;gap:6px;align-content:start;min-height:40px">' + membersHtml + '</div>';
     if (d.can_manage) {
       html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
-        + '<div style="font-size:13px;font-weight:700;color:#172b4d">🎭 Perfis do GLPI com acesso (' + ((d.profiles||[]).length) + ')</div>'
+        + '<div style="font-size:13px;font-weight:700;color:#172b4d">Perfis do GLPI com acesso (' + ((d.profiles||[]).length) + ')</div>'
         + '<div style="font-size:11px;color:#5e6c84">Todos os usuários vinculados ao perfil passam a ver este quadro.</div>'
         + '<div style="display:grid;gap:6px;align-content:start;min-height:20px">' + (d.profiles || []).map(function(p){
           var ctrl = '<span class="kpb-row-ctrl">'
             + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">'
             + '<option value="admin"' + (p.role==='admin'?' selected':'') + '>⭐ Admin</option>'
-            + '<option value="member"' + (p.role==='member'?' selected':'') + '>🎭 Membro</option>'
+            + '<option value="member"' + (p.role==='member'?' selected':'') + '>Membro</option>'
             + '</select>'
             + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer;flex-shrink:0">✕</button>'
             + '</span>';
           return '<div class="kpb-row" style="background:#f0f7ff;border:1px solid #91d5ff;padding:10px 12px;border-radius:8px">'
-            + '<span class="kpb-row-left"><span style="width:32px;height:32px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">🎭</span>'
+            + '<span class="kpb-row-left"><span style="width:32px;height:32px;border-radius:50%;background:#0050b3;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">P</span>'
             + '<span class="kpb-row-name">' + esc(p.name) + '</span><span class="kpb-row-badge">' + profileBadge(p) + '</span></span>'
             + ctrl + '</div>';
         }).join('') + '</div>';
@@ -436,24 +436,24 @@ window.KanproBoards = (function(){
           + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel do perfil '
           + '<select id="kpb-profile-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
           + '<option value="admin">⭐ Administrador</option>'
-          + '<option value="member" selected>🎭 Membro — só visualiza</option>'
+          + '<option value="member" selected>Membro — só visualiza</option>'
           + '</select></label>'
           + '<button onclick="KanproBoards.addProfile(this)" style="background:#0050b3;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Adicionar perfil</button>';
       }
       html += '<hr style="border:none;border-top:1px solid #dfe1e6">'
-        + '<div style="font-size:13px;font-weight:700;color:#172b4d">🔗 Família de quadros</div>'
+        + '<div style="font-size:13px;font-weight:700;color:#172b4d">Família de quadros</div>'
         + '<div style="font-size:11px;color:#5e6c84">Quadros da família aparecem como botões ao lado do nome no kanban (pai, irmãos e filhos) — clique troca rápido. Quadros já criados entram aqui.</div>'
         + (function(){
           var fam = d.family || {parent_id:0, parent_name:'', children:[], candidates:[]};
           var opts = '<option value="0">— Nenhum (quadro raiz) —</option>';
           var seen = {};
           if (fam.parent_id) {
-            opts += '<option value="' + fam.parent_id + '" selected>🔗 ' + esc(fam.parent_name || ('Quadro #' + fam.parent_id)) + ' (atual)</option>';
+            opts += '<option value="' + fam.parent_id + '" selected>' + esc(fam.parent_name || ('Quadro #' + fam.parent_id)) + ' (atual)</option>';
             seen[fam.parent_id] = true;
           }
           (fam.candidates || []).forEach(function(c){
             if (seen[c.id]) return;
-            opts += '<option value="' + c.id + '">🔗 ' + esc(c.name) + '</option>';
+            opts += '<option value="' + c.id + '">' + esc(c.name) + '</option>';
           });
           var kids = '';
           if ((fam.children || []).length) {
@@ -476,10 +476,10 @@ window.KanproBoards = (function(){
         + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado '
         + '<select id="kpb-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
         + '<option value="admin">⭐ Administrador — pode adicionar pessoas</option>'
-        + '<option value="member" selected>👤 Membro — só visualiza</option>'
-        + '<option value="observer">👁️ Observador — só visualiza</option>'
+        + '<option value="member" selected>Membro — só visualiza</option>'
+        + '<option value="observer">Observador — só visualiza</option>'
         + '</select></label>'
-        + '<input id="kpb-search" type="text" placeholder="🔍 Buscar pessoa por nome ou login..." oninput="KanproBoards.filter(this.value)" style="width:100%;padding:10px;border:1px solid #dfe1e6;border-radius:6px;font-size:14px;box-sizing:border-box">'
+        + '<input id="kpb-search" type="text" placeholder="Buscar pessoa por nome ou login..." oninput="KanproBoards.filter(this.value)" style="width:100%;padding:10px;border:1px solid #dfe1e6;border-radius:6px;font-size:14px;box-sizing:border-box">'
         + '<div id="kpb-results" style="display:grid;gap:6px;min-height:200px;max-height:min(46vh,440px);overflow-y:auto;align-content:start"></div>';
     } else {
       html += '<div style="font-size:11px;color:#5e6c84;text-align:center">Você não tem permissão para alterar o acesso.</div>';
