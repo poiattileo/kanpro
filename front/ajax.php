@@ -633,6 +633,16 @@ function kanpro_migrate_schema_once() {
                 $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_maintenance_zaplog` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_cards_id` INT {$sign} NOT NULL DEFAULT '0', `milestone` VARCHAR(30) NOT NULL DEFAULT '', `phone` VARCHAR(30) DEFAULT NULL, `success` TINYINT(1) NOT NULL DEFAULT '0', `detail` VARCHAR(255) DEFAULT NULL, `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`), KEY `milestone` (`milestone`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
             } catch (Throwable $e) {}
         }
+        // atualizações do fluxo Chamado (Em Andamento): autocura sem reinstalar (reinstalar NÃO apaga nada,
+        // só desinstalar apaga — mas aqui nem precisa: cria sozinha no próximo request)
+        if (!$DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_chamado_updates` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_cards_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `note` TEXT DEFAULT NULL, `status` VARCHAR(20) NOT NULL DEFAULT 'pendente', `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`), KEY `date_creation` (`date_creation`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
+        }
         // cron diário do zap de atraso (só cria a linha se não existir)
         if (class_exists('PluginKanproMaintenanceZap')) {
             try { PluginKanproMaintenanceZap::registerCron(); } catch (Throwable $e) {}
@@ -3496,7 +3506,17 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Este botão só existe em Em Andamento Chamado.']);
         }
         if (!$DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
-            jexit(['success'=>false,'msg'=>'Tabela de atualizações ausente (reinstale o plugin).']);
+            // autocura: tenta criar na hora (servidor atualizado via git sem passar no Instalar).
+            // Não apaga nada — CREATE IF NOT EXISTS lógico via tableExists.
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE IF NOT EXISTS `glpi_plugin_kanpro_chamado_updates` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_cards_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `note` TEXT DEFAULT NULL, `status` VARCHAR(20) NOT NULL DEFAULT 'pendente', `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`), KEY `date_creation` (`date_creation`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
+        }
+        if (!$DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
+            jexit(['success'=>false,'msg'=>'Tabela de atualizações ausente (rode Instalar/Atualizar do plugin — não desinstale, não apaga nada).']);
         }
         $actorU = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
         $DB->insert('glpi_plugin_kanpro_chamado_updates', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$actorU,
