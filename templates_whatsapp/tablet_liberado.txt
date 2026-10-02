@@ -1,0 +1,27 @@
+# KanPro • WhatsApp de TABLET LIBERADO (texto puro, sem HTML)
+# Gatilho: confirm_chamado_created + 5s de pendência cuja origem é 100% Tablet/Smartphone/Celular
+# Destinatário: técnico(s) membro(s) do card origem (fone do cadastro GLPI)
+# Placeholders: {tecnico} {escola} {quadro}
+#               {origem_id} {origem_nome} {chamado_id} {chamado_nome}
+#               {quantidade} {maquinas} {solicitado_por} {data}
+# ({card_id}/{card_nome} = pendência interna — NÃO mostrar na mensagem,
+# só o nº do card do usuário = {origem_id}).
+# {tecnico} = nome do técnico membro da origem (mensagem personalizada por técnico).
+
+✅ *Chamado Criado — Card de Tablet*
+
+Olá *{tecnico}*! O chamado do seu card de Tablet foi criado no CRM.
+
+🎫 Chamado *#{chamado_id} "{chamado_nome}"*
+📋 Card *#{origem_id} "{origem_nome}"*
+🏫 Escola: *{escola}* | 🖥️ Quadro: *{quadro}*
+👤 Pego/Solicitado por: *{solicitado_por}* em *{data}*
+
+📦 *{quantidade} aparelho(s) liberado(s):*
+{maquinas}
+
+📱 Pode finalizar novamente no KanPRO para seguir para Assinatura e Retirada.
+
+Boa manutenção! 🛠️
+
+_Manutenção de TI - URE Jales_

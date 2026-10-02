@@ -33,7 +33,26 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir'];
+    }
+
+    /** Detecta se o card origem é 100% Tablet/Smartphone/Celular (fluxo Tablet). */
+    static function isTabletCard(int $cards_id): bool {
+        global $DB;
+        try {
+            if ($cards_id <= 0) return false;
+            if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) return false;
+            $total = 0; $tab = 0;
+            foreach ($DB->request(['SELECT'=>['model'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id]]) as $r) {
+                $total++;
+                $m = (string)($r['model'] ?? '');
+                if (function_exists('mb_strtolower')) $m = mb_strtolower($m, 'UTF-8');
+                else $m = strtolower($m);
+                $m = strtr($m, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+                if (strpos($m, 'tablet') !== false || strpos($m, 'smartphone') !== false || strpos($m, 'smart phone') !== false || strpos($m, 'smartfone') !== false || strpos($m, 'celular') !== false) $tab++;
+            }
+            return ($total > 0 && $tab === $total);
+        } catch (Throwable $e) { return false; }
     }
 
     /** Login/e-mail do aprovador fixo da Pendência Chamado */
@@ -492,9 +511,14 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $dc = (string)($pc->fields['date_creation'] ?? '');
                 if ($dc !== '' && $dc !== '0000-00-00 00:00:00') $solData = (new DateTime($dc))->format('d/m/Y H:i');
             } catch (Throwable $e) {}
+            // Tablet: usa template próprio (avisa CRM + pode finalizar de novo no KanPRO)
+            $isTabletSrc = false;
+            try { $isTabletSrc = self::isTabletCard($srcId); } catch (Throwable $e) {}
+            $tplType = $isTabletSrc ? 'tablet_liberado' : 'liberado';
+            $msPrefix = $isTabletSrc ? 'tablet_liberado_' : 'liberado_';
             $sent = 0; $skipped = 0; $errors = [];
             foreach (array_keys($uids) as $uid) {
-                $ms = 'liberado_' . (int)$uid;
+                $ms = $msPrefix . (int)$uid;
                 if (self::alreadySent($pendenciaId, $ms)) { $skipped++; continue; }
                 $tecNome = 'Técnico';
                 $phone = '';
@@ -527,7 +551,14 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'solicitado_por' => $solNome !== '' ? $solNome : '—',
                     'data'           => $solData,
                 ];
-                $txt = self::renderTxt('liberado', $data);
+                $txt = self::renderTxt($tplType, $data);
+                // fallback: se template tablet ainda não existe, usa liberado + linha extra
+                if (($txt === null || $txt === '') && $isTabletSrc) {
+                    $txt = self::renderTxt('liberado', $data);
+                    if ($txt !== null && $txt !== '') {
+                        $txt .= "\n\n📱 *Card de Tablet*: chamado criado no CRM — pode finalizar novamente no KanPRO para ir à Assinatura/Retirada.";
+                    }
+                }
                 if ($txt === null || $txt === '') {
                     self::markSent($pendenciaId, $ms, $phone, false, 'template vazio');
                     $errors[] = 'template vazio';

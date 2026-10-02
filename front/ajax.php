@@ -383,6 +383,147 @@ function kanpro_parse_maintenance_raw($raw) {
     return $out;
 }
 
+// ---------- Helpers Tablet / Smartphone / Celular ----------
+// Regra: tudo que contém tablet, smartphone ou celular (case/acento-insensitive)
+// vai para card separado. Ex: Tablet Positivo, Tablets Positivo, Tablet Samsung,
+// Tablet Lenovo, Tablet CCE, Smartphone, Celular.
+function kanpro_is_tablet_model($model): bool {
+    $m = (string)($model ?? '');
+    if ($m === '') return false;
+    if (function_exists('mb_strtolower')) $m = mb_strtolower($m, 'UTF-8');
+    else $m = strtolower($m);
+    // remove acentos básicos
+    $m = strtr($m, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+    return (strpos($m, 'tablet') !== false
+        || strpos($m, 'smartphone') !== false
+        || strpos($m, 'smart phone') !== false
+        || strpos($m, 'smartfone') !== false
+        || strpos($m, 'celular') !== false);
+}
+
+// Info de tablet do card: total/tablet/nontab + flags.
+// is_tablet_only = 100% tablet (e tem máquina). is_mixed = tem dos dois tipos.
+function kanpro_card_tablet_info(int $cards_id): array {
+    global $DB;
+    $out = ['total'=>0,'tablet'=>0,'nontab'=>0,'is_tablet_only'=>false,'is_mixed'=>false,'is_empty'=>true];
+    try {
+        if ($cards_id <= 0) return $out;
+        if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) return $out;
+        $total = 0; $tab = 0;
+        foreach ($DB->request(['SELECT'=>['model'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id]]) as $r) {
+            $total++;
+            if (kanpro_is_tablet_model($r['model'] ?? '')) $tab++;
+        }
+        $out['total'] = $total;
+        $out['tablet'] = $tab;
+        $out['nontab'] = $total - $tab;
+        $out['is_empty'] = ($total === 0);
+        $out['is_tablet_only'] = ($total > 0 && $tab === $total);
+        $out['is_mixed'] = ($tab > 0 && $tab < $total);
+    } catch (Throwable $e) {}
+    return $out;
+}
+
+// Status da pendência de um card origem (maintenance): 'liberado' se já teve
+// alguma pendência liberada, 'pendente' se tem pendência aberta, 'none' se nunca teve.
+function kanpro_tablet_pendencia_status(int $src_cards_id): string {
+    global $DB;
+    try {
+        if ($src_cards_id <= 0) return 'none';
+        $hasPend = false; $hasLib = false;
+        foreach ($DB->request(['SELECT'=>['chamado_status'],'FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['chamado_source_id'=>$src_cards_id]]) as $r) {
+            $st = (string)($r['chamado_status'] ?? '');
+            if ($st === 'liberado') $hasLib = true;
+            elseif ($st === 'pendente') $hasPend = true;
+        }
+        if ($hasLib) return 'liberado';
+        if ($hasPend) return 'pendente';
+    } catch (Throwable $e) {}
+    return 'none';
+}
+
+// Split automático: se o card tem mistura tablet + não-tablet, move TODOS os
+// tablets para um novo card (mesmo quadro/lista/nome/entidade, manutenção).
+// Original fica só com não-tablets (re-sequenciado 1..N). Novo fica só tablets.
+// Nome mantém igual (decisão do usuário). Retorna ['new_id'=>int,'moved'=>int,'kept'=>int].
+function kanpro_split_tablet_machines(int $cards_id): array {
+    global $DB;
+    $noop = ['new_id'=>0,'moved'=>0,'kept'=>0];
+    try {
+        if ($cards_id <= 0) return $noop;
+        if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) return $noop;
+        $card = new PluginKanproCard();
+        if (!$card->getFromDB($cards_id)) return $noop;
+        if (empty($card->fields['is_maintenance'])) return $noop;
+        $all = [];
+        foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id],'ORDER'=>'seq ASC']) as $r) $all[] = $r;
+        if (count($all) < 2) return $noop;
+        $tabs = []; $nontabs = [];
+        foreach ($all as $m) {
+            if (kanpro_is_tablet_model($m['model'] ?? '')) $tabs[] = $m;
+            else $nontabs[] = $m;
+        }
+        if (empty($tabs) || empty($nontabs)) return $noop; // puro: nada a separar
+        // cria novo card tablet (mesmo nome da entidade)
+        $bid = (int)($card->fields['plugin_kanpro_boards_id'] ?? 0);
+        $lid = (int)($card->fields['plugin_kanpro_lists_id'] ?? 0);
+        $nm = mb_substr(trim($card->fields['name'] ?? ('Card #' . $cards_id)), 0, 255);
+        $now = date('Y-m-d H:i:s');
+        $actor = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        $nc = new PluginKanproCard();
+        $newId = (int)$nc->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$lid,
+            'name'=>$nm,'description'=>($card->fields['description'] ?? ''),
+            'entities_id'=>(int)($card->fields['entities_id'] ?? 0),
+            'users_id'=>$actor,'date_creation'=>$now,'date_mod'=>$now]);
+        if (!$newId) return $noop;
+        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>$now,'maintenance_by'=>$actor,'date_mod'=>$now], ['id'=>$newId]);
+        // copia membros origem -> novo (técnico acompanha os dois)
+        try {
+            if ($DB->tableExists('glpi_plugin_kanpro_cards_members')) {
+                foreach ($DB->request(['SELECT'=>['users_id'],'FROM'=>'glpi_plugin_kanpro_cards_members','WHERE'=>['plugin_kanpro_cards_id'=>$cards_id]]) as $mr) {
+                    $uid = (int)($mr['users_id'] ?? 0);
+                    if ($uid > 0 && !countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$newId,'users_id'=>$uid])) {
+                        try { $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$newId,'users_id'=>$uid]); } catch (Throwable $e) {}
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+        // move tablets p/ novo card (re-seq 1..N) + re-seq origem
+        $seq = 1;
+        foreach ($tabs as $tm) {
+            $newLabel = "Máquina {$seq} - {$tm['model']}";
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$seq,'label'=>$newLabel,'date_mod'=>$now], ['id'=>(int)$tm['id']]);
+            $seq++;
+        }
+        $seq = 1;
+        foreach ($nontabs as $nm2) {
+            $newLabel = "Máquina {$seq} - {$nm2['model']}";
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel,'date_mod'=>$now], ['id'=>(int)$nm2['id']]);
+            $seq++;
+        }
+        // ticket próprio p/ o card tablet (não quebra se falhar)
+        try {
+            if (class_exists('Ticket') && Session::haveRight('ticket', CREATE)) {
+                kanpro_create_ticket_from_card($newId);
+            }
+        } catch (Throwable $e) {}
+        // followups informativos (não quebram ticket sem utf8mb4: sem emoji 4-byte)
+        try {
+            $tidOrig = function_exists('kanpro_card_ticket_id') ? kanpro_card_ticket_id($cards_id) : 0;
+            if ($tidOrig) kanpro_ticket_followup($tidOrig, "[KanPro] Separacao automatica Tablet\n\n" . count($tabs) . " maquina(s) Tablet/Smartphone/Celular movida(s) para o cartao #{$newId} (mesmo nome). Este cartao ficou com " . count($nontabs) . " maquina(s) nao-tablet.");
+            $tidNew = function_exists('kanpro_card_ticket_id') ? kanpro_card_ticket_id($newId) : 0;
+            if ($tidNew) kanpro_ticket_followup($tidNew, "[KanPro] Cartao Tablet criado por separacao automatica\n\nOrigem: cartao #{$cards_id}. " . count($tabs) . " maquina(s) Tablet/Smartphone/Celular.\n\nFluxo Tablet: Pegar vai direto p/ Em Andamento sem pendencia. 1o Finalizar cria Pendencia Chamado; apos liberado, 2o Finalizar vai p/ Assinatura/Retirada.");
+        } catch (Throwable $e) {}
+        if (function_exists('kanpro_touch_card')) { kanpro_touch_card($cards_id); kanpro_touch_card($newId); }
+        PluginKanproBoard::logActivity($bid, $cards_id, $lid, 'maintenance_tablet_split', "Separação Tablet: " . count($tabs) . " tablet(s) movida(s) para #{$newId} — origem ficou com " . count($nontabs) . " não-tablet(s)");
+        PluginKanproBoard::logActivity($bid, $newId, $lid, 'card_create', "Card Tablet criado por separação automática de #{$cards_id} (" . count($tabs) . " máquina(s))");
+        try { kanpro_sync_inventory_label($cards_id); kanpro_sync_inventory_label($newId); } catch (Throwable $e) {}
+        return ['new_id'=>$newId,'moved'=>count($tabs),'kept'=>count($nontabs)];
+    } catch (Throwable $e) {
+        return $noop;
+    }
+}
+
 function kanpro_ensure_maintenance_tables() {
     static $done = false;
     if ($done) return;
@@ -4771,7 +4912,22 @@ switch ($action) {
         if ($existing == 0 && class_exists('PluginKanproMaintenanceZap')) {
             try { PluginKanproMaintenanceZap::sendOnce('entrada', $cid); } catch (Throwable $e) {}
         }
-        jexit(['success'=>true,'total'=>$total,'created'=>count($created),'machines'=>$all,'progress'=>['total'=>count($all),'done'=>$done,'percent'=> count($all)? round($done/count($all)*100):0,'urgent'=>$urgent]]);
+        // Split automático Tablet/Smartphone/Celular: mistura vira 2 cards
+        $tabletSplit = ['new_id'=>0,'moved'=>0,'kept'=>0];
+        try {
+            if (function_exists('kanpro_split_tablet_machines')) {
+                $tabletSplit = kanpro_split_tablet_machines($cid);
+            }
+        } catch (Throwable $e) {}
+        // recarrega lista do card origem após split (tablets saíram)
+        if (!empty($tabletSplit['new_id'])) {
+            $all = [];
+            $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+            foreach ($iter as $r) $all[] = $r;
+            $done = count(array_filter($all, fn($x)=> $x['is_done']==1));
+            $urgent = count(array_filter($all, fn($x)=> !empty($x['is_urgent'])));
+        }
+        jexit(['success'=>true,'total'=>$total,'created'=>count($created),'machines'=>$all,'progress'=>['total'=>count($all),'done'=>$done,'percent'=> count($all)? round($done/count($all)*100):0,'urgent'=>$urgent],'tablet_split'=>$tabletSplit]);
 
     case 'get_maintenance':
         kanpro_ensure_maintenance_tables();
@@ -5091,7 +5247,19 @@ switch ($action) {
             foreach ($defs as $def) $lst[] = '• ' . $def['qty'] . 'x ' . $def['model'];
             kanpro_ticket_followup($tid, "⚙ [KanPro] Máquinas adicionadas\n\nForam incluídas as seguintes máquinas neste atendimento:\n\n" . implode("\n", array_slice($lst, 0, 20)));
         }
-        jexit(['success'=>true,'machines'=>$all]);
+        // Split automático Tablet (adição posterior também separa)
+        $tabletSplitAdd = ['new_id'=>0,'moved'=>0,'kept'=>0];
+        try {
+            if (function_exists('kanpro_split_tablet_machines')) {
+                $tabletSplitAdd = kanpro_split_tablet_machines($cid);
+            }
+        } catch (Throwable $e) {}
+        if (!empty($tabletSplitAdd['new_id'])) {
+            $all=[];
+            $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+            foreach($iter as $r) $all[]=$r;
+        }
+        jexit(['success'=>true,'machines'=>$all,'tablet_split'=>$tabletSplitAdd]);
 
     case 'delete_maintenance_machine':
         needEdit();
@@ -5471,6 +5639,86 @@ switch ($action) {
         foreach ($nonPending as $m){ if(!empty($m['is_done'])) $doneNon++; }
         $percent = $total? round($done/$total*100):0;
         $percentNon = $nonCount? round($doneNon/$nonCount*100):0;
+        // ---------- FLUXO TABLET (2 finalizares) ----------
+        // Card 100% Tablet/Smartphone/Celular: 1º Finalizar cria Pendência Chamado
+        // (trava + zap), 2º Finalizar (após liberado) vai p/ Assinatura/Retirada.
+        $isTabletOnly = false;
+        try {
+            if (function_exists('kanpro_card_tablet_info')) {
+                $tiFin = kanpro_card_tablet_info($cid);
+                $isTabletOnly = !empty($tiFin['is_tablet_only']);
+            }
+        } catch (Throwable $e) {}
+        if ($isTabletOnly) {
+            $tabPendSt = function_exists('kanpro_tablet_pendencia_status') ? kanpro_tablet_pendencia_status($cid) : 'none';
+            if ($tabPendSt === 'pendente') {
+                jexit(['success'=>false,'msg'=>'Card Tablet aguardando Chamado criado na Pendência Chamado. Libere antes de finalizar novamente.','tablet_waiting'=>true,'tablet'=>true]);
+            }
+            if ($tabPendSt === 'none') {
+                // 1º Finalizar do Tablet: valida como normal, mas cria pendência em vez de termo
+                if ($pendingCount>0 && $nonCount===0) {
+                    // tudo pendente: só separa p/ novo card, sem pendência ainda (novo card sem status)
+                    $origNameT = trim($card->fields['name']);
+                    $newNameT = mb_substr($origNameT, 0, 255);
+                    $newCardT = new PluginKanproCard();
+                    $newIdT = $newCardT->add(['plugin_kanpro_boards_id'=>$card->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$card->fields['plugin_kanpro_lists_id'],'name'=>$newNameT,'description'=>($card->fields['description'] ?? '')]);
+                    if (!$newIdT) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
+                    $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newIdT]);
+                    $seq=1;
+                    foreach ($pendingMachines as $pm) {
+                        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newIdT,'seq'=>$seq,'label'=>"Máquina {$seq} - {$pm['model']}",'is_done'=>0,'is_ok'=>0,'status'=>'','diary'=>'','is_inventoried'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
+                        $seq++;
+                    }
+                    PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newIdT, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card Tablet de pendentes criado a partir de #{$cid} com {$pendingCount} máquinas");
+                    jexit(['success'=>true,'pending_only'=>true,'tablet'=>true,'pending_card_id'=>$newIdT,'pending_count'=>$pendingCount,'msg'=>"Card Tablet: todas como Pendente. Novo card #{$newIdT} criado. Faça a manutenção e finalize novamente.",'progress'=>['total'=>$total,'pending'=>$pendingCount]]);
+                }
+                if ($nonCount>0 && !$force && $doneNon!==$nonCount) {
+                    jexit(['success'=>false,'msg'=>"Card Tablet: conclua 'Feito' de todos os itens antes do 1º Finalizar (não pendentes: {$doneNon}/{$nonCount} • {$percentNon}%). Pendentes ({$pendingCount}) ficarão em novo card.",'need_100'=>true,'tablet'=>true,'progress'=>['total'=>$nonCount,'done'=>$doneNon,'percent'=>$percentNon,'pending'=>$pendingCount]]);
+                }
+                // separa pendentes (se houver) p/ novo card SEM auto-pendência
+                $tabletPendingCardId = null;
+                if ($pendingCount>0) {
+                    $origNameT2 = trim($card->fields['name']);
+                    $newCardT2 = new PluginKanproCard();
+                    $newIdT2 = $newCardT2->add(['plugin_kanpro_boards_id'=>$card->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$card->fields['plugin_kanpro_lists_id'],'name'=>mb_substr($origNameT2,0,255),'description'=>($card->fields['description'] ?? '')]);
+                    if ($newIdT2) {
+                        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newIdT2]);
+                        $seq=1;
+                        foreach ($pendingMachines as $pm) {
+                            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newIdT2,'seq'=>$seq,'label'=>"Máquina {$seq} - {$pm['model']}",'is_done'=>0,'is_ok'=>0,'status'=>'','diary'=>'','is_inventoried'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
+                            $seq++;
+                        }
+                        $tabletPendingCardId = $newIdT2;
+                        PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newIdT2, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card Tablet de pendentes #{$newIdT2} criado com {$pendingCount} máquinas de #{$cid} (1º Finalizar Tablet)");
+                        // re-sequencia origem (só não-pendentes)
+                        $remT = [];
+                        $iterT = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+                        foreach ($iterT as $r) $remT[] = $r;
+                        usort($remT, fn($a,$b)=> $a['seq']<=>$b['seq']);
+                        $s=1;
+                        foreach ($remT as $rm) { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$s,'label'=>"Máquina {$s} - {$rm['model']}"], ['id'=>$rm['id']]); $s++; }
+                    }
+                }
+                // cria Pendência Chamado com as máquinas restantes (trava + zap pendência)
+                $restMids = [];
+                try {
+                    foreach ($DB->request(['SELECT'=>['id'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid]]) as $rm2) $restMids[] = (int)$rm2['id'];
+                } catch (Throwable $e) {}
+                if (empty($restMids)) jexit(['success'=>false,'msg'=>'Nenhuma máquina restante para pendência (verifique o split).']);
+                $tabPend = function_exists('kanpro_create_pendencia_chamado') ? kanpro_create_pendencia_chamado((int)$card->fields['plugin_kanpro_boards_id'], (int)$cid, $restMids, kanpro_acting_user_id(), 'Finalizar Tablet (1º)') : ['pendencia_id'=>0,'warning'=>'fluxo indisponível'];
+                if (empty($tabPend['pendencia_id'])) {
+                    jexit(['success'=>false,'msg'=>'Falha ao criar Pendência Chamado do Tablet: ' . ($tabPend['warning'] ?? $tabPend['zap_error'] ?? 'erro')]);
+                }
+                $finTidTab = function_exists('kanpro_card_ticket_id') ? kanpro_card_ticket_id($cid) : 0;
+                if ($finTidTab) {
+                    try { kanpro_ticket_followup($finTidTab, "[KanPro] Tablet 1o Finalizar\n\nManutencao concluida no KanPro. Pendencia Chamado #{$tabPend['pendencia_id']} criada (" . count($restMids) . " maquina(s)). Aguardando Chamado criado no CRM para liberar e finalizar novamente."); } catch (Throwable $e) {}
+                }
+                $respTab = ['success'=>true,'tablet_first'=>true,'tablet'=>true,'pendencia_id'=>$tabPend['pendencia_id'],'pendencia_locked'=>($tabPend['locked'] ?? count($restMids)),'zap_ok'=>!empty($tabPend['zap_ok']),'zap_error'=>($tabPend['zap_error'] ?? ''),'msg'=>"Tablet: 1º Finalizar criou a Pendência Chamado #{$tabPend['pendencia_id']} (" . count($restMids) . " máquina(s) travadas). Aguarde o Chamado criado no CRM (zap para o técnico) e finalize novamente para ir à Assinatura/Retirada."];
+                if ($tabletPendingCardId) { $respTab['pending_card_id'] = $tabletPendingCardId; $respTab['pending_count'] = $pendingCount; }
+                jexit($respTab);
+            }
+            // 'liberado': cai no fluxo normal abaixo (2º Finalizar -> Assinatura/Retirada)
+        }
         // Se existem pendentes e nenhum item finalizável, apenas cria card de pendentes
         if ($pendingCount>0 && $nonCount===0) {
             // Cria novo card com todos os pendentes (nome igual à entidade, sem sufixo)
@@ -5959,13 +6207,23 @@ switch ($action) {
             }
         } catch (Throwable $e) {}
         kanpro_touch_member($cid, $who);
-        PluginKanproBoard::logActivity($bid, $cid, $destLid, 'card_move', $isAdminPegar ? "Pego por técnico e movido para '{$dest['name']}'" : "Pego por membro (direto, sem Pendência Chamado) e movido para '{$dest['name']}'");
-        // cria pendência com TODAS as máquinas (se for manutenção) e trava tudo — SÓ no pegar do admin.
-        // Membro pega direto: sem Pendência Chamado, sem trava, sem verificação.
+        // Tablet/Smartphone/Celular: vai direto p/ Em Andamento SEM pendência/trava
+        // (mesmo para admin). 1º Finalizar é que cria a Pendência Chamado.
+        $isTabletCard = false;
+        try {
+            if (function_exists('kanpro_card_tablet_info')) {
+                $ti = kanpro_card_tablet_info($cid);
+                $isTabletCard = !empty($ti['is_tablet_only']);
+            }
+        } catch (Throwable $e) {}
+        $effAdminPegar = $isAdminPegar && !$isTabletCard;
+        PluginKanproBoard::logActivity($bid, $cid, $destLid, 'card_move', $isTabletCard ? "Pego (Tablet) e movido direto para '{$dest['name']}' sem Pendência Chamado" : ($isAdminPegar ? "Pego por técnico e movido para '{$dest['name']}'" : "Pego por membro (direto, sem Pendência Chamado) e movido para '{$dest['name']}'"));
+        // cria pendência com TODAS as máquinas (se for manutenção) e trava tudo — SÓ no pegar do admin NÃO-tablet.
+        // Membro pega direto + Tablet pega direto: sem Pendência Chamado, sem trava, sem verificação.
         $pendId = 0; $lockedN = 0;
         $isMaint = !empty($c->fields['is_maintenance']);
         $allM = [];
-        if ($isAdminPegar && $isMaint && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+        if ($effAdminPegar && $isMaint && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']) as $m) $allM[] = $m;
         }
         if (!empty($allM)) {
@@ -6005,7 +6263,7 @@ switch ($action) {
         kanpro_touch_card($cid);
         $fresh = new PluginKanproCard();
         $fresh->getFromDB($cid);
-        $respPeg = ['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'direct'=>!$isAdminPegar,'card'=>$fresh->fields];
+        $respPeg = ['success'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>$pendId,'locked'=>$lockedN,'direct'=>!$effAdminPegar,'is_tablet'=>!empty($isTabletCard) ? 1 : 0,'card'=>$fresh->fields];
         if (isset($zapOk2)) { $respPeg['zap_ok'] = $zapOk2; $respPeg['zap_error'] = $zapErr2; }
         jexit($respPeg);
 

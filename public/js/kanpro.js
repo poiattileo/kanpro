@@ -2513,6 +2513,7 @@
         this.closePicker();
         if(res.warning) alert(res.warning);
         if(res.pendencia_id) this.showToast(`Pego ✓ → Em Andamento + pendência #${res.pendencia_id}`);
+        else if(res.is_tablet) this.showToast('📱 Tablet pego ✓ → Em Andamento (sem pendência — 1º Finalizar cria pendência)');
         else if(res.direct) this.showToast('Pego ✓ → Em Andamento (direto, sem pendência)');
         else this.showToast('Pego ✓ → Em Andamento');
         if(res.zap_error && res.pendencia_id && res.zap_error !== 'duplicate') this.showToast('Zap não enviado: ' + res.zap_error);
@@ -4084,7 +4085,7 @@
       });
     },
     getMaintModels(){
-      const defaults = ["Notebook Positivo","Notebook Multilaser","Notebook Ultra","Notebook Lenovo","Desktop Legado","Desktop","Tablet Positivo","Smartphone"];
+      const defaults = ["Notebook Positivo","Notebook Multilaser","Notebook Ultra","Notebook Lenovo","Desktop Legado","Desktop","Tablet Positivo","Tablets Positivo","Tablet Samsung","Tablet Lenovo","Tablet CCE","Smartphone","Celular"];
       try{
         const custom = JSON.parse(localStorage.getItem("kanpro_custom_models")||"[]");
         if(Array.isArray(custom) && custom.length){
@@ -4342,6 +4343,13 @@
         }
         this.closePicker();
         this.showToast(isAppend ? "Máquinas adicionadas!" : "Checklist gerado: "+(res.total||total)+" máquinas enumeradas");
+        try {
+          const sp = res.tablet_split || res.tabletSplit;
+          if (sp && sp.new_id) {
+            this.showToast(`📱 Tablets separados: ${sp.moved} aparelho(s) foram para o card #${sp.new_id} (mesmo nome).`);
+            setTimeout(()=>{ try { this.renderBoard(); } catch(e){} }, 800);
+          }
+        } catch(e){}
         this.refreshCardModal();
       });
     },
@@ -4951,7 +4959,18 @@
             }
             return;
           }
+          if(res.tablet_waiting){
+            alert(res.msg||"Card Tablet aguardando Chamado criado.");
+            return;
+          }
           alert(res.msg||"Erro ao finalizar");
+          return;
+        }
+        if(res.tablet_first){
+          this.showToast(`📱 Tablet: Pendência Chamado #${res.pendencia_id} criada! Aguarde o liberado e finalize de novo.`);
+          alert(res.msg||`1º Finalizar do Tablet criou a Pendência #${res.pendencia_id}. Aguarde o Chamado criado no CRM (zap para o técnico) e finalize novamente para ir à Assinatura/Retirada.`);
+          this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          try { this.forceSync(); } catch(e){}
           return;
         }
         if(res.pending_only){
