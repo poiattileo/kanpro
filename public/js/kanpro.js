@@ -2083,10 +2083,12 @@
       const isPendChamado = this.isPendenciaCard(data);
       const isPending = this.isCardInListType(data, 'pending');
       const amAdmin = this.isBoardAdmin();
-      // Manutenção: esconde "Chamado" (GLPI) da lateral — ticket é automático
+      // Manutenção: esconde "Chamado" (GLPI) e "Escola" da lateral — ticket é automático e nome vem da entidade
       try {
         const ticBtn = document.querySelector('#kanpro-card-modal button[onclick*="ticketButton"]');
         if(ticBtn) ticBtn.style.display = isMaint ? 'none' : '';
+        const escBtn = document.querySelector('#kanpro-card-modal button[onclick*="editMaintenanceCardTitle"]');
+        if(escBtn) escBtn.style.display = isMaint ? 'none' : '';
       } catch(e){}
       // Pegar: só Pendente; admin (c/ Pendência Chamado) ou membro (direto) — topo + sidebar
       if(isPending && this.canPegar()){
