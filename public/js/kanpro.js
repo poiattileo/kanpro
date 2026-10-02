@@ -1094,7 +1094,7 @@
           <div class="kp-list-title" onclick="Kanpro.editListTitle(${list.id})" title="Clique para editar">${this.escape(list.name)}</div>
           <input class="kp-list-title-input" style="display:none" onkeydown="if(event.key==='Enter') Kanpro.saveListTitle(${list.id}, this)" onblur="Kanpro.saveListTitle(${list.id}, this)">
           <span class="kp-list-count">${cardsInList.length}</span>
-          <span class="kp-ltype-slot" style="display:inline-flex;min-width:0">${this.listTypeChip(list, false, true)}</span>
+          <span class="kp-ltype-slot" style="display:inline-flex;min-width:0;max-width:100%;flex:0 1 auto;overflow:hidden">${this.listTypeChip(list, false, true)}</span>
           ${lockHtml}
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
@@ -6772,17 +6772,18 @@
     listTypeChip(list, small, clickable){
       const t = this.listTypeOf(list);
       const fs = small ? '10px' : '11px';
-      // ellipsis: nome grande não sai pra fora (card estreito / cabeçalho apertado)
-      const base = `display:inline-block;vertical-align:top;box-sizing:border-box;${small ? 'max-width:100%;' : 'max-width:38%;min-width:0;flex-shrink:1;'}overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+      // pílula flex: bolinha nunca amassa, só o texto trunca com "..." (antes o max-width:38% espremia tudo)
+      const base = `display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;max-width:100%;min-width:0;flex:0 1 auto;overflow:hidden;white-space:nowrap;`;
+      const pad = `padding:2px 8px;border-radius:10px;font-size:${fs};font-weight:700;line-height:1.4;`;
       if(!t){
         // lista normal: selo discreto clicável para categorizar (só quem edita vê)
         if(!clickable || !this.canEdit) return '';
-        return `<span onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Definir categoria da lista" style="${base}padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;border:1px dashed #97a0af;color:#5e6c84;cursor:pointer;opacity:.8">＋ categoria</span>`;
+        return `<span onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Definir categoria da lista" style="${base}${pad}border:1px dashed #97a0af;color:#5e6c84;cursor:pointer;opacity:.8;flex-shrink:0">＋ categoria</span>`;
       }
       // estas categorias só notificam no Seus Quadros: no kanban não mostram nada
       if(this.LIST_TYPE_QUIET[t.code]) return '';
-      const click = clickable ? ` onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Categoria: ${this.escape(t.label)} — clique para trocar" style="${base}background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700;cursor:pointer"` : ` title="Categoria: ${this.escape(t.label)}" style="${base}background:${t.color};color:${t.fg};padding:1px 8px;border-radius:10px;font-size:${fs};font-weight:700"`;
-      return `<span${click}>${t.dot} ${this.escape(t.label)}</span>`;
+      const click = clickable ? ` onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Categoria: ${this.escape(t.label)} — clique para trocar" style="${base}${pad}background:${t.color};color:${t.fg};cursor:pointer"` : ` title="Categoria: ${this.escape(t.label)}" style="${base}${pad}background:${t.color};color:${t.fg}"`;
+      return `<span${click}><span style="flex:0 0 auto;line-height:1">${t.dot}</span><span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(t.label)}</span></span>`;
     },
     filterCards(text){
       this.filterText = this.normText(text||'');
