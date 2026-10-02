@@ -201,7 +201,9 @@
       });
     },
     renderAndamento(d, updates, sibling){
-      const liberado = sibling && sibling.status === 'liberado';
+      // Liberado se: clone liberado, OU original já carimbado, OU clone já auto-excluído (sibling null = fail-open igual backend).
+      // Sem isso o cadeado voltava 30s depois do "Chamado aberto".
+      const liberado = (sibling && sibling.status === 'liberado') || (!sibling) || (String(d.chamado_status || '') === 'liberado');
       this._andamentoLocked = !liberado;
       const badge = liberado
         ? '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Liberado</span>'

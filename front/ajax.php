@@ -825,6 +825,8 @@ function kanpro_need_card_editable(int $cards_id, bool $allowBoardAdmin = false)
 }
 // Fluxo Chamado: original em "Em Andamento Chamado" fica BLOQUEADO (sem alterações)
 // enquanto o clone em "Abrir chamado" não for liberado ("Chamado aberto").
+// Após o auto-delete de 30s o clone some: o original carrega chamado_status='liberado'
+// (gravado no mark_open) e permanece liberado — sem voltar a bloquear.
 function kanpro_chamado_original_blocked(int $cards_id): bool {
     global $DB;
     if ($cards_id <= 0) return false;
@@ -832,8 +834,10 @@ function kanpro_chamado_original_blocked(int $cards_id): bool {
         $c = new PluginKanproCard();
         if (!$c->getFromDB($cards_id)) return false;
         if (kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)) !== 'andamento_chamado') return false;
+        // já liberado no próprio original (clone pode ter sido auto-excluído): nunca re-bloqueia
+        if (($c->fields['chamado_status'] ?? '') === 'liberado') return false;
         $sib = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $cards_id], 'ORDER' => 'id DESC', 'LIMIT' => 1])->current();
-        if (!$sib) return false; // sem clone: fail-open (legado)
+        if (!$sib) return false; // sem clone: fail-open (legado / já auto-excluído)
         return (($sib['chamado_status'] ?? '') !== 'liberado');
     } catch (Throwable $e) { return false; }
 }
@@ -2666,7 +2670,9 @@ switch ($action) {
             }
             foreach ($all_cards as $__k2 => $__cc2) {
                 $__srcSelf2 = (int)($__cc2['chamado_source_id'] ?? 0);
-                if ($__srcSelf2 === 0 && isset($__cloneStBySrc2[(int)$__cc2['id']])) {
+                if (($__cc2['chamado_status'] ?? '') === 'liberado') {
+                    $all_cards[$__k2]['chamado_blocked'] = 0;
+                } elseif ($__srcSelf2 === 0 && isset($__cloneStBySrc2[(int)$__cc2['id']])) {
                     $all_cards[$__k2]['chamado_blocked'] = ($__cloneStBySrc2[(int)$__cc2['id']] !== 'liberado') ? 1 : 0;
                 } else {
                     $all_cards[$__k2]['chamado_blocked'] = 0;
@@ -3477,6 +3483,11 @@ switch ($action) {
             jexit(['success'=>false,'msg'=>'Palavra de confirmação inválida. Digite exatamente a palavra desafio exibida.','need_confirm'=>true]);
         }
         $DB->update('glpi_plugin_kanpro_cards', ['chamado_status'=>'liberado','date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]);
+        // marca o original também: o clone se auto-exclui em 30s e sem isso o cadeado voltava
+        try {
+            $srcId = (int)($cc->fields['chamado_source_id'] ?? 0);
+            if ($srcId > 0) $DB->update('glpi_plugin_kanpro_cards', ['chamado_status'=>'liberado','date_mod'=>date('Y-m-d H:i:s')], ['id'=>$srcId]);
+        } catch (Throwable $e) {}
         $tid = (int)($cc->fields['tickets_id'] ?? 0);
         if ($tid > 0) {
             if (function_exists('kanpro_ticket_followup')) kanpro_ticket_followup($tid, "Chamado aberto pelo responsável no KanPro (card #{$cid}). Liberado para execução.");

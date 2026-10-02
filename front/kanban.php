@@ -183,8 +183,11 @@ try {
     }
     foreach ($all_cards as $__k => $__cc) {
         $__srcSelf = (int)($__cc['chamado_source_id'] ?? 0);
-        // só o original (não é clone) pode estar bloqueado
-        if ($__srcSelf === 0 && isset($__cloneStBySrc[(int)$__cc['id']])) {
+        // original já carimbado como liberado nunca re-bloqueia (clone pode ter sido auto-excluído)
+        if (($__cc['chamado_status'] ?? '') === 'liberado') {
+            $all_cards[$__k]['chamado_blocked'] = 0;
+        } elseif ($__srcSelf === 0 && isset($__cloneStBySrc[(int)$__cc['id']])) {
+            // só o original (não é clone) pode estar bloqueado
             $all_cards[$__k]['chamado_blocked'] = ($__cloneStBySrc[(int)$__cc['id']] !== 'liberado') ? 1 : 0;
         } else {
             $all_cards[$__k]['chamado_blocked'] = 0;
