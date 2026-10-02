@@ -234,8 +234,8 @@
           // evita fechar se clique é no botão que abriu (já tratado por showPicker)
           const isPickerBtn = e.target.closest('button');
           if(!isPickerBtn || !isPickerBtn.textContent.match(/Membros|Etiquetas|Datas|Capa|Mover|Filtrar/)){
-            // só fecha se não for dentro do picker
-            if(!picker.contains(e.target)) this.closePicker();
+            // só fecha se for LONGE do picker (margem invisível anti-clique-acidental)
+            if(!picker.contains(e.target) && !this._clickInsideSafeMargin(e, '#kanpro-picker')) this.closePicker();
           }
         }
         const bmenu = document.getElementById('kanpro-board-menu');
@@ -286,9 +286,15 @@
           if(sel) this.openCard(parseInt(sel.dataset.cardId));
         }
       });
-      // clique fora do card-modal (overlay) fecha
+      // clique fora do card-modal (overlay) fecha — SÓ se for longe do card.
+      // Margem invisível (~48px) em volta: clique acidental colado no modal não fecha,
+      // tem que clicar bem pra fora. Evita perder o que estava digitando.
       const m = document.getElementById('kanpro-card-modal');
-      if(m) m.addEventListener('click', e=>{ if(e.target.id==='kanpro-card-modal') this.closeCardModal(); });
+      if(m) m.addEventListener('click', e=>{
+        if(e.target.id!=='kanpro-card-modal') return;
+        if(this._clickInsideSafeMargin(e, '#kp-modal-box')) return;
+        this.closeCardModal();
+      });
       // clique fora do picker também fecha (captura)
       document.addEventListener('mousedown', e=>{
         const picker = document.getElementById('kanpro-picker');
@@ -1292,6 +1298,7 @@
             <div class="kp-card-title" style="font-size:13px"><span style="color:#e1316f;font-weight:800;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
             ${infoLine ? `<div style="margin-top:6px;font-size:11px;color:#5e6c84;line-height:1.5">${infoLine}</div>` : ''}
             ${checkBarHtml}
+            ${membersHtml}
             ${btnMini}
             <button onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="Ver informações" style="margin-top:6px;width:100%;background:#fff;border:1px solid #dfe1e6;color:#5e6c84;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700">👁️ Ver informações</button>
           `;
@@ -2672,6 +2679,19 @@
         if(!res.success){ alert(res.msg); this.closeCardModal(); return; }
         this.renderCardModal(res.data);
       });
+    },
+    // Margem invisível anti-fechamento (~48px): clique fora do modal/picker só fecha
+    // se for LONGE da caixa. Clique colado (acidental) é ignorado — não perde o digitado.
+    // Retorna true se o clique caiu dentro da caixa + margem (não deve fechar).
+    _clickInsideSafeMargin(e, boxSel, margin){
+      try {
+        const m = (margin == null ? 48 : margin);
+        const box = document.querySelector(boxSel);
+        if(!box || !e || e.clientX == null) return false;
+        const r = box.getBoundingClientRect();
+        return (e.clientX >= r.left - m && e.clientX <= r.right + m &&
+                e.clientY >= r.top - m && e.clientY <= r.bottom + m);
+      } catch(_){ return false; }
     },
     closeCardModal(){
       // salva pendências de diário antes de fechar e limpa timers

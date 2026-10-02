@@ -640,7 +640,18 @@ window.KanproBoards = (function(){
     }
   };
 })();
-document.getElementById('kpb-overlay').addEventListener('click', function(e){ if (e.target === this) KanproBoards.close(); });
+document.getElementById('kpb-overlay').addEventListener('click', function(e){
+  if (e.target !== this) return;
+  // margem invisível (~48px): só fecha clicando bem pra fora (igual card-modal/picker)
+  try {
+    var box = document.querySelector('#kpb-overlay > div');
+    if (box && e.clientX != null) {
+      var r = box.getBoundingClientRect(), m = 48;
+      if (e.clientX >= r.left - m && e.clientX <= r.right + m && e.clientY >= r.top - m && e.clientY <= r.bottom + m) return;
+    }
+  } catch(_){}
+  KanproBoards.close();
+});
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && document.getElementById('kpb-overlay').style.display !== 'none') KanproBoards.close(); });
 </script>
 <script>

@@ -114,6 +114,18 @@
         } catch(_) { tkUrl = '/front/ticket.form.php?id=' + d.tickets_id; }
         ticketHtml = `<a href="${tkUrl}" target="_blank" rel="noopener" title="Abrir chamado #${d.tickets_id} no GLPI em nova aba" style="background:#e6fcff;border:1px solid #00b8d9;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🎫 Ticket #${d.tickets_id} <span style="font-size:11px">↗</span></a>`;
       }
+      let membersHtml = '';
+      try {
+        const mems = d.members || [];
+        if (mems.length) {
+          membersHtml = '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:#5e6c84"><span style="font-weight:700">👥</span>' + mems.map(function(m){
+            let av = '';
+            try { av = (K.avatarHtml ? K.avatarHtml(m.picture_url, m.initials, m.name, 'sm') : ''); } catch(_){ av = ''; }
+            if (!av) av = '<span style="width:24px;height:24px;border-radius:50%;background:#0079bf;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700" title="' + esc(m.name || '') + '">' + esc(m.initials || '?') + '</span>';
+            return '<span style="display:inline-flex;align-items:center;gap:4px">' + av + '<span>' + esc(m.name || '') + '</span></span>';
+          }).join('') + '</div>';
+        }
+      } catch(_){ membersHtml = ''; }
       return `<div style="display:grid;gap:8px">
         <div style="font-size:15px;font-weight:800;color:#172b4d">${esc(d.name)}</div>
         ${d.description ? `<div style="font-size:13px;color:#172b4d;background:#f4f5f7;border-radius:6px;padding:10px;white-space:pre-wrap">${esc(d.description)}</div>` : ''}
@@ -121,7 +133,8 @@
           ${ticketHtml}
           ${d.entity_name ? `<span style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 10px;border-radius:10px;font-weight:700">🏫 ${esc(d.entity_name)}</span>` : ''}
           ${badge || ''}
-        </div>`;
+        </div>
+        ${membersHtml}`;
     },
     renderAbrir(d){
       const opened = d.chamado_status === 'liberado';
@@ -346,26 +359,14 @@
       picker('✅ Chamado finalizado', this.headHtml(d, '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Finalizado</span>') + hist
         + `<button onclick="KanproChamado.copyFinalizado(this)" style="background:#0052cc;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">📋 Copiar informações</button></div>`);
     },
-    // Copia tudo que foi lançado no chamado (título, ticket, escola, descrição, atualizações)
+    // Copia só o que foi lançado em "O que foi realizado", em ordem (um por linha)
     copyFinalizado(btn){
       const ref = this._lastFinalizado;
       if (!ref) return;
-      const {d, updates} = ref;
-      const lines = [];
-      lines.push('✅ CHAMADO FINALIZADO');
-      lines.push(`Card #${d.id} "${d.name || ''}"`);
-      if (d.tickets_id) lines.push(`Ticket GLPI: #${d.tickets_id}`);
-      if (d.board_name) lines.push(`Quadro: ${d.board_name}`);
-      if (d.entity_name) lines.push(`Escola/Entidade: ${d.entity_name}`);
-      if (d.creator_name) lines.push(`Solicitado por: ${d.creator_name}${d.date_creation ? ' em ' + fmtDate(d.date_creation) : ''}`);
-      if (d.description) lines.push(`Descrição: ${d.description}`);
-      if ((updates || []).length) {
-        lines.push('', 'Atualizações:');
-        (updates || []).forEach(u=> lines.push(`- ${fmtDate(u.date)} — ${userName(u.users_id)}: ${u.note}`));
-      }
-      lines.push('', 'Manutenção de TI - URE Jales');
-      const txt = lines.join('\n');
-      const done = ()=> { try { K.showToast && K.showToast('📋 Informações copiadas!'); } catch(_){} if (btn) { const o = btn.textContent; btn.textContent = '✓ Copiado!'; setTimeout(()=>{ btn.textContent = o; }, 2000); } };
+      const {updates} = ref;
+      const txt = ((updates || []).map(u=> (u.note || '').trim()).filter(Boolean).join('\n') || '').trim();
+      if (!txt) { alert('Nada para copiar.'); return; }
+      const done = ()=> { try { K.showToast && K.showToast('📋 Copiado!'); } catch(_){} if (btn) { const o = btn.textContent; btn.textContent = '✓ Copiado!'; setTimeout(()=>{ btn.textContent = o; }, 2000); } };
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).then(done).catch(()=> this.copyFallback(txt, done)); }
         else this.copyFallback(txt, done);

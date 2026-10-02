@@ -3468,6 +3468,7 @@ switch ($action) {
             $card->delete(['id'=>$origId], true);
             jexit(['success'=>false,'msg'=>'Falha ao clonar para Abrir chamado']);
         }
+        try { $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cloneId,'users_id'=>$actor]); } catch (Throwable $e) {}
         // original -> Em andamento Chamado (fim da fila)
         try {
             $last = $DB->request(['SELECT' => ['MAX' => 'rank AS m'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => (int)$andam['id']]])->current();
@@ -3662,6 +3663,35 @@ switch ($action) {
         jexit(['success'=>true,'card'=>['id'=>$cid,'name'=>(string)($cd->fields['name'] ?? ''),
             'description'=>(string)($cd->fields['description'] ?? ''),'tickets_id'=>(int)($cd->fields['tickets_id'] ?? 0),
             'chamado_status'=>(string)($cd->fields['chamado_status'] ?? ''),'category'=>$catD,
+            'members'=> (function() use ($cid, $cd) {
+                global $DB; $out = []; $seen = [];
+                try {
+                    $uids = [];
+                    foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => $cid]]) as $__m) $uids[] = (int)($__m['users_id'] ?? 0);
+                    $creator = (int)($cd->fields['users_id'] ?? 0);
+                    if ($creator > 0) $uids[] = $creator;
+                    $uids = array_values(array_unique(array_filter($uids)));
+                    if (!empty($uids)) {
+                        $users = [];
+                        foreach ($DB->request(['SELECT' => ['id','name','realname','firstname','picture'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => $uids]]) as $ur) $users[(int)$ur['id']] = $ur;
+                        $root = $GLOBALS['CFG_GLPI']['root_doc'] ?? '';
+                        foreach ($uids as $uid) {
+                            if (isset($seen[$uid])) continue; $seen[$uid] = true;
+                            $ur = $users[$uid] ?? null;
+                            if ($ur) {
+                                $tmpU = new User(); $tmpU->fields = $ur + ($tmpU->fields ?? []);
+                                $uname = $tmpU->getFriendlyName();
+                                if (trim((string)$uname) === '') $uname = (string)($ur['name'] ?? ('#' . $uid));
+                                $initials = strtoupper(substr($ur['firstname'] ?? $ur['name'] ?? '?', 0, 1));
+                                $pic = $ur['picture'] ?? '';
+                            } else { $uname = '#' . $uid; $initials = '?'; $pic = ''; }
+                            $out[] = ['users_id'=>$uid,'name'=>$uname,'initials'=>$initials,
+                                'picture_url'=>($pic !== '' ? $root . '/front/document.send.php?file=_pictures/' . $pic : '')];
+                        }
+                    }
+                } catch (Throwable $e) {}
+                return $out;
+            })(),
             'board_name'=> (function() use ($bidD) { try { $b = new PluginKanproBoard(); if ($b->getFromDB($bidD)) return (string)($b->fields['name'] ?? ''); } catch (Throwable $e) {} return ''; })(),
             'entity_name'=> (function() use ($cd) { try { global $DB; $eid = (int)($cd->fields['entities_id'] ?? 0); if ($eid <= 0) return ''; $r = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$eid]])->current(); if (!$r) return ''; return trim(($r['completename'] ?? $r['name'] ?? '')); } catch (Throwable $e) { return ''; } })(),
             'creator_id'=>(int)($cd->fields['users_id'] ?? 0),
