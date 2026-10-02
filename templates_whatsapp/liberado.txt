@@ -8,9 +8,9 @@
 # só o nº do card do usuário = {origem_id}).
 # {tecnico} = nome do técnico membro da origem (mensagem personalizada por técnico).
 
-✅ *MÁQUINAS LIBERADAS*
+✅ *Chamado Criado*
 
-Olá *{tecnico}*! Confirmação que o chamado foi criado e maquinas liberadas para realizar a manutenção.
+Olá *{tecnico}*! Confirmação que o chamado foi criado.
 
 🎫 Chamado *#{chamado_id} "{chamado_nome}"*
 📋 Card *#{origem_id} "{origem_nome}"*
