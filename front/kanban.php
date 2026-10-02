@@ -701,6 +701,11 @@ echo <<<HTML
       </div>
     </div>
     <div>
+      <div style="font-weight:600;margin-bottom:8px">Modelos de máquinas</div>
+      <div style="font-size:12px;color:#5e6c84;margin-bottom:8px">Notebook, Tablet, Smartphone... (vale pra equipe — só Admin altera)</div>
+      <button onclick="Kanpro.openMaintModelsManager()" style="background:#fff;border:1px solid #dfe1e6;padding:8px 12px;border-radius:4px;cursor:pointer;width:100%;text-align:left"><i class="ti ti-settings"></i> Gerenciar modelos</button>
+    </div>
+    <div>
       <div style="font-weight:600;margin-bottom:8px">Etiquetas</div>
       <div id="board-menu-labels" style="display:grid;gap:6px"></div>
       <button onclick="Kanpro.addBoardLabel()" style="margin-top:8px;background:#eaecf0;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;width:100%">

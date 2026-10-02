@@ -784,11 +784,48 @@ function kanpro_migrate_schema_once() {
                 $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_chamado_updates` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_cards_id` INT {$sign} NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `note` TEXT DEFAULT NULL, `status` VARCHAR(20) NOT NULL DEFAULT 'pendente', `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`), KEY `date_creation` (`date_creation`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
             } catch (Throwable $e) {}
         }
+        // modelos de máquinas (gerenciável pela equipe): cria + seed sem reinstalar
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_models')) {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_maintenance_models` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `name` VARCHAR(80) NOT NULL DEFAULT '', `rank` DOUBLE NOT NULL DEFAULT '0', `users_id` INT {$sign} NOT NULL DEFAULT '0', `date_creation` DATETIME DEFAULT NULL, `date_mod` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), UNIQUE KEY `uniq_name` (`name`), KEY `rank` (`rank`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            }
+            if ($DB->tableExists('glpi_plugin_kanpro_maintenance_models') && countElementsInTable('glpi_plugin_kanpro_maintenance_models') == 0) {
+                $rk = 1024; $nowSeed = date('Y-m-d H:i:s');
+                foreach (kanpro_maintenance_model_defaults() as $sm) {
+                    try { $DB->insert('glpi_plugin_kanpro_maintenance_models', ['name'=>$sm,'rank'=>$rk,'users_id'=>0,'date_creation'=>$nowSeed,'date_mod'=>$nowSeed]); } catch (Throwable $e) {}
+                    $rk += 1024;
+                }
+            }
+        } catch (Throwable $e) {}
         // cron diário do zap de atraso (só cria a linha se não existir)
         if (class_exists('PluginKanproMaintenanceZap')) {
             try { PluginKanproMaintenanceZap::registerCron(); } catch (Throwable $e) {}
         }
     } catch (Throwable $e) {}
+}
+// Padrões de modelos (seed + fallback se tabela vazia/offline)
+function kanpro_maintenance_model_defaults(): array {
+    return ['Notebook Positivo','Notebook Multilaser','Notebook Ultra','Notebook Lenovo','Desktop Legado','Desktop','Tablet Positivo','Tablets Positivo','Tablet Samsung','Tablet Lenovo','Tablet CCE','Smartphone','Celular'];
+}
+// Lista ordenada (só nomes). Fallback p/ padrões se tabela indisponível/vazia.
+function kanpro_list_maintenance_models(): array {
+    global $DB;
+    try {
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_models')) {
+            $out = [];
+            foreach ($DB->request(['SELECT'=>['id','name'],'FROM'=>'glpi_plugin_kanpro_maintenance_models','ORDER'=>['rank ASC','name ASC']]) as $r) {
+                $nm = trim((string)($r['name'] ?? ''));
+                if ($nm !== '') $out[] = ['id'=>(int)$r['id'],'name'=>$nm];
+            }
+            if (!empty($out)) return $out;
+        }
+    } catch (Throwable $e) {}
+    $out = [];
+    foreach (kanpro_maintenance_model_defaults() as $nm) $out[] = ['id'=>0,'name'=>$nm];
+    return $out;
 }
 // Migration em runtime: garante coluna do chamado vinculado sem depender do update do plugin
 function kanpro_ensure_v11() {
@@ -4945,6 +4982,79 @@ switch ($action) {
         $done = 0; $ok = 0;
         foreach ($machines as $m) { if ($m['is_done']) $done++; if ($m['is_ok'] || $m['status']==='ok') $ok++; }
         jexit(['success'=>true,'is_maintenance'=>$isMaint,'card'=>$card->fields,'machines'=>$machines,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$total?round($done/$total*100):0,'ok'=>$ok]]);
+
+    case 'list_maintenance_models':
+        kanpro_ensure_maintenance_tables();
+        $models = function_exists('kanpro_list_maintenance_models') ? kanpro_list_maintenance_models() : [];
+        $canManage = false;
+        try {
+            $bidM = (int)($_REQUEST['boards_id'] ?? 0);
+            if ($bidM > 0 && function_exists('kanpro_can_manage_members')) $canManage = kanpro_can_manage_members($bidM);
+            elseif (Session::haveRight('plugin_kanpro', UPDATE)) $canManage = true;
+        } catch (Throwable $e) {}
+        jexit(['success'=>true,'models'=>$models,'can_manage'=>$canManage ? 1 : 0]);
+
+    case 'add_maintenance_model':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $bidM = (int)($_POST['boards_id'] ?? 0);
+        if ($bidM > 0) {
+            if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bidM)) jexit(['success'=>false,'msg'=>'Somente Admin do quadro pode gerenciar modelos.']);
+        } elseif (!Session::haveRight('plugin_kanpro', UPDATE)) {
+            jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro).']);
+        }
+        $nm = function_exists('kanpro_clean_text') ? kanpro_clean_text($_POST['name'] ?? '', 80) : trim(strip_tags($_POST['name'] ?? ''));
+        if ($nm === '') jexit(['success'=>false,'msg'=>'Nome obrigatório']);
+        if (function_exists('mb_strlen') ? mb_strlen($nm, 'UTF-8') < 2 : strlen($nm) < 2) jexit(['success'=>false,'msg'=>'Nome muito curto']);
+        try {
+            if (countElementsInTable('glpi_plugin_kanpro_maintenance_models', ['name'=>$nm]) > 0) jexit(['success'=>false,'msg'=>'Modelo já existe']);
+            $last = $DB->request(['SELECT'=>['MAX'=>'rank AS m'],'FROM'=>'glpi_plugin_kanpro_maintenance_models'])->current();
+            $rk = (float)($last['m'] ?? 0) + 1024;
+            if ($rk <= 0) $rk = 1024;
+            $now = date('Y-m-d H:i:s');
+            $nid = $DB->insert('glpi_plugin_kanpro_maintenance_models', ['name'=>$nm,'rank'=>$rk,'users_id'=>kanpro_acting_user_id(),'date_creation'=>$now,'date_mod'=>$now]);
+            if (!$nid) {
+                $rw = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_models','WHERE'=>['name'=>$nm]])->current();
+                $nid = (int)($rw['id'] ?? 0);
+            }
+            if (!$nid) jexit(['success'=>false,'msg'=>'Não foi possível salvar']);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Modelo já existe ou falha ao salvar']); }
+        jexit(['success'=>true,'id'=>(int)$nid,'models'=>kanpro_list_maintenance_models()]);
+
+    case 'rename_maintenance_model':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $bidM = (int)($_POST['boards_id'] ?? 0);
+        if ($bidM > 0) {
+            if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bidM)) jexit(['success'=>false,'msg'=>'Somente Admin do quadro pode gerenciar modelos.']);
+        } elseif (!Session::haveRight('plugin_kanpro', UPDATE)) {
+            jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro).']);
+        }
+        $mid = (int)($_POST['id'] ?? 0);
+        $nm = function_exists('kanpro_clean_text') ? kanpro_clean_text($_POST['name'] ?? '', 80) : trim(strip_tags($_POST['name'] ?? ''));
+        if (!$mid || $nm === '') jexit(['success'=>false,'msg'=>'Dados inválidos']);
+        $rowM = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_models','WHERE'=>['id'=>$mid]])->current();
+        if (!$rowM) jexit(['success'=>false,'msg'=>'Modelo não encontrado']);
+        $oldNm = (string)($rowM['name'] ?? '');
+        try {
+            if ($oldNm !== $nm && countElementsInTable('glpi_plugin_kanpro_maintenance_models', ['name'=>$nm]) > 0) jexit(['success'=>false,'msg'=>'Já existe um modelo com esse nome']);
+            $DB->update('glpi_plugin_kanpro_maintenance_models', ['name'=>$nm,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$mid]);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Falha ao renomear']); }
+        jexit(['success'=>true,'models'=>kanpro_list_maintenance_models()]);
+
+    case 'delete_maintenance_model':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $bidM = (int)($_POST['boards_id'] ?? 0);
+        if ($bidM > 0) {
+            if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bidM)) jexit(['success'=>false,'msg'=>'Somente Admin do quadro pode gerenciar modelos.']);
+        } elseif (!Session::haveRight('plugin_kanpro', UPDATE)) {
+            jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro).']);
+        }
+        $mid = (int)($_POST['id'] ?? 0);
+        if (!$mid) jexit(['success'=>false,'msg'=>'Modelo inválido']);
+        $DB->delete('glpi_plugin_kanpro_maintenance_models', ['id'=>$mid]);
+        jexit(['success'=>true,'models'=>kanpro_list_maintenance_models()]);
 
     case 'update_maintenance_machine':
         needEdit();

@@ -541,6 +541,7 @@ if (!function_exists('kanpro_readonly_actions')) {
             'zap_lembrete_diagnose',
             'rule_list',
             'chamado_detail',
+            'list_maintenance_models',
         ];
     }
 }

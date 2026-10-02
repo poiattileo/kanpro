@@ -210,6 +210,7 @@
     init(){
       this.applyBoardBackground();
       try { this._showHidden = localStorage.getItem(this.showHiddenKey()) === '1'; } catch(e){}
+      try{ this.loadMaintModels(); }catch(e){}
       this.renderBoard();
       this.updateShowHiddenBtn();
       this.renderMemberAvatars();
@@ -4089,6 +4090,17 @@
       });
     },
     getMaintModels(){
+      // fonte servidor (equipe) com fallback offline
+      if (Array.isArray(this._maintModels) && this._maintModels.length) {
+        return this._maintModels.map(m=> m.name);
+      }
+      try{
+        const cached = JSON.parse(localStorage.getItem("kanpro_server_models")||"[]");
+        if(Array.isArray(cached) && cached.length){
+          const names = cached.map(x=> typeof x === 'string' ? x : (x.name||'')).map(s=> String(s||'').trim()).filter(Boolean);
+          if(names.length) return names;
+        }
+      }catch(e){}
       const defaults = ["Notebook Positivo","Notebook Multilaser","Notebook Ultra","Notebook Lenovo","Desktop Legado","Desktop","Tablet Positivo","Tablets Positivo","Tablet Samsung","Tablet Lenovo","Tablet CCE","Smartphone","Celular"];
       try{
         const custom = JSON.parse(localStorage.getItem("kanpro_custom_models")||"[]");
@@ -4103,7 +4115,28 @@
       }catch(e){}
       return defaults;
     },
+    loadMaintModels(force){
+      if(this._maintModelsLoading) return this._maintModelsLoading;
+      if(!force && Array.isArray(this._maintModels) && this._maintModels.length) return Promise.resolve(this._maintModels);
+      const bid = (this.board && this.board.id) || 0;
+      this._maintModelsLoading = this.ajax('list_maintenance_models', {boards_id: bid}).then(res=>{
+        this._maintModelsLoading = null;
+        if(res && res.success && Array.isArray(res.models) && res.models.length){
+          this._maintModels = res.models;
+          this._maintModelsCanManage = !!res.can_manage;
+          try{ localStorage.setItem("kanpro_server_models", JSON.stringify(res.models)); }catch(e){}
+          try{ this.refreshMaintModelSelects(); }catch(e){}
+        }
+        return this._maintModels;
+      }).catch(()=>{ this._maintModelsLoading = null; return null; });
+      return this._maintModelsLoading;
+    },
+    canManageMaintModels(){
+      if(this._maintModelsCanManage) return true;
+      try{ return !!(this.isBoardAdmin && this.isBoardAdmin()); }catch(e){ return false; }
+    },
     saveCustomModel(model){
+      // legado local (só usado offline): online o add é via servidor (só admin)
       const m = String(model).trim();
       if(!m) return false;
       if(m.length>80) return false;
@@ -4118,6 +4151,78 @@
         try{ localStorage.setItem("kanpro_custom_models", JSON.stringify([m])); return true; }catch(_){ return false; }
       }
     },
+    openMaintModelsManager(){
+      const canM = this.canManageMaintModels();
+      const models = this.getMaintModels();
+      const rows = models.map(nm=>{
+        const esc = this.escape(nm);
+        const id = (()=>{
+          const f = (this._maintModels||[]).find(x=> x.name === nm);
+          return f ? Number(f.id||0) : 0;
+        })();
+        return `<div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px 10px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${esc}</span>
+          ${canM ? `<button onclick="Kanpro.renameMaintModel(${id})" title="Renomear" style="background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:6px 10px;cursor:pointer">✏️</button>
+          <button onclick="Kanpro.deleteMaintModel(${id})" title="Excluir" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;border-radius:6px;padding:6px 10px;cursor:pointer">🗑️</button>` : ''}
+        </div>`;
+      }).join('');
+      this.showPicker({
+        title: 'Modelos de máquinas',
+        html: `<div style="display:grid;gap:10px;min-width:min(420px,84vw)">
+          <div style="font-size:12px;color:#5e6c84;line-height:1.5">Vale pra equipe toda (servidor). ${canM ? 'Você é admin: pode adicionar, renomear e excluir.' : 'Somente Admin do quadro pode alterar.'}</div>
+          <div style="display:grid;gap:6px;max-height:300px;overflow-y:auto">${rows || '<div style="color:#5e6c84">Nenhum modelo</div>'}</div>
+          ${canM ? `<div style="display:flex;gap:8px">
+            <input id="kp-new-model" type="text" maxlength="80" placeholder="Novo modelo (ex: Notebook Dell)" style="flex:1;padding:9px 12px;border:1px solid #dfe1e6;border-radius:8px">
+            <button onclick="Kanpro.addMaintModel()" style="background:#0079bf;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:800">Adicionar</button>
+          </div>` : ''}
+        </div>`
+      });
+      setTimeout(()=>{
+        const inp = document.getElementById('kp-new-model');
+        if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key === 'Enter') Kanpro.addMaintModel(); }); }
+      }, 30);
+    },
+    addMaintModel(){
+      const inp = document.getElementById('kp-new-model');
+      const nm = (inp?.value || '').trim();
+      if(!nm){ alert('Digite o nome do modelo.'); return; }
+      const bid = (this.board && this.board.id) || 0;
+      this.ajax('add_maintenance_model', {boards_id: bid, name: nm}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao adicionar'); return; }
+        this._maintModels = res.models || this._maintModels;
+        try{ localStorage.setItem("kanpro_server_models", JSON.stringify(this._maintModels)); }catch(e){}
+        this.showToast('Modelo adicionado ✓');
+        this.openMaintModelsManager();
+        try{ this.refreshMaintModelSelects(nm); }catch(e){}
+      });
+    },
+    renameMaintModel(id){
+      const cur = ((this._maintModels||[]).find(x=> Number(x.id||0) === Number(id)) || {}).name || this.getMaintModels()[0] || '';
+      const novo = prompt(`Renomear "${cur}" para:`, cur);
+      if(!novo || !novo.trim() || novo.trim() === cur) return;
+      const bid = (this.board && this.board.id) || 0;
+      this.ajax('rename_maintenance_model', {boards_id: bid, id, name: novo.trim()}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao renomear'); return; }
+        this._maintModels = res.models || this._maintModels;
+        try{ localStorage.setItem("kanpro_server_models", JSON.stringify(this._maintModels)); }catch(e){}
+        this.showToast('Modelo renomeado ✓');
+        this.openMaintModelsManager();
+        try{ this.refreshMaintModelSelects(novo.trim()); }catch(e){}
+      });
+    },
+    deleteMaintModel(id){
+      const nm = ((this._maintModels||[]).find(x=> Number(x.id||0) === Number(id)) || {}).name || ('#' + id);
+      if(!confirm(`Excluir o modelo "${nm}"?\n\nMáquinas já cadastradas com esse nome NÃO mudam.`)) return;
+      const bid = (this.board && this.board.id) || 0;
+      this.ajax('delete_maintenance_model', {boards_id: bid, id}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao excluir'); return; }
+        this._maintModels = res.models || this._maintModels;
+        try{ localStorage.setItem("kanpro_server_models", JSON.stringify(this._maintModels)); }catch(e){}
+        this.showToast('Modelo excluído ✓');
+        this.openMaintModelsManager();
+        try{ this.refreshMaintModelSelects(); }catch(e){}
+      });
+    },
     addMaintenanceRow(qty=1, model=""){
       const wrap = document.getElementById("maint-rows");
       if(!wrap) return;
@@ -4127,6 +4232,7 @@
       row.className = "maint-row";
       row.style.cssText = "display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px";
       const qtyVal = Math.max(1, Math.min(500, parseInt(qty)||1));
+      const canMRow = this.canManageMaintModels();
       row.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:2px;min-width:90px">
           <label style="font-size:10px;font-weight:700;color:#5e6c84;letter-spacing:.04em">QTD</label>
@@ -4136,7 +4242,7 @@
           <label style="font-size:10px;font-weight:700;color:#5e6c84;letter-spacing:.04em">MODELO</label>
           <select style="width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;font-size:13px;background:#fff">
             ${models.map(m=> `<option value="${this.escape(m)}" ${m===selModel?"selected":""}>${this.escape(m)}</option>`).join("")}
-            <option value="__custom__">➕ Outro / Novo modelo...</option>
+            ${canMRow ? `<option value="__custom__">➕ Outro / Novo modelo...</option>` : ``}
           </select>
         </div>
         <button title="Remover" onclick="Kanpro.removeMaintenanceRow(this)" style="margin-top:14px;background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash"></i></button>
@@ -4148,15 +4254,23 @@
       qtyInput.addEventListener("change", ()=> this.updateMaintPreview());
       sel.addEventListener("change", ()=>{
         if(sel.value==="__custom__"){
+          if(!this.canManageMaintModels()){ alert('Somente Admin do quadro pode cadastrar modelo.'); sel.value = models[0]; this.updateMaintPreview(); return; }
           const novo = prompt("Nome do novo modelo:");
           if(novo && novo.trim()){
-            const ok = this.saveCustomModel(novo.trim());
-            if(ok){
-              this.refreshMaintModelSelects(novo.trim());
-              sel.value = novo.trim();
-            } else {
-              sel.value = models[0];
-            }
+            const bid = (this.board && this.board.id) || 0;
+            this.ajax('add_maintenance_model', {boards_id: bid, name: novo.trim()}).then(res=>{
+              if(res && res.success){
+                this._maintModels = res.models || this._maintModels;
+                try{ localStorage.setItem("kanpro_server_models", JSON.stringify(this._maintModels)); }catch(e){}
+                this.refreshMaintModelSelects(novo.trim());
+                sel.value = novo.trim();
+              } else {
+                alert((res&&res.msg)||'Erro ao cadastrar');
+                sel.value = models[0];
+              }
+              this.updateMaintPreview();
+            });
+            return;
           } else {
             sel.value = models[0];
           }
@@ -4176,20 +4290,25 @@
       this.updateMaintPreview();
     },
     promptAddCustomModel(){
+      if(!this.canManageMaintModels()){ alert('Somente Admin do quadro pode cadastrar modelo.'); return; }
       const novo = prompt("Cadastrar novo modelo (ex: Notebook Dell):");
       if(!novo || !novo.trim()) return;
-      const ok = this.saveCustomModel(novo.trim());
-      if(!ok){ alert("Modelo já existe ou inválido."); return; }
-      this.refreshMaintModelSelects(novo.trim());
-      // adiciona uma linha com esse modelo já selecionado
-      this.addMaintenanceRow(1, novo.trim());
+      const bid = (this.board && this.board.id) || 0;
+      this.ajax('add_maintenance_model', {boards_id: bid, name: novo.trim()}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao cadastrar'); return; }
+        this._maintModels = res.models || this._maintModels;
+        try{ localStorage.setItem("kanpro_server_models", JSON.stringify(this._maintModels)); }catch(e){}
+        this.refreshMaintModelSelects(novo.trim());
+        this.addMaintenanceRow(1, novo.trim());
+      });
     },
     refreshMaintModelSelects(selectValue){
       const models = this.getMaintModels();
+      const canM = this.canManageMaintModels();
       document.querySelectorAll("#maint-rows select").forEach(sel=>{
         const cur = sel.value;
         const keepCustom = cur==="__custom__" ? selectValue : cur;
-        sel.innerHTML = models.map(m=> `<option value="${this.escape(m)}">${this.escape(m)}</option>`).join("") + `<option value="__custom__">➕ Outro / Novo modelo...</option>`;
+        sel.innerHTML = models.map(m=> `<option value="${this.escape(m)}">${this.escape(m)}</option>`).join("") + (canM ? `<option value="__custom__">➕ Outro / Novo modelo...</option>` : ``);
         if(models.includes(keepCustom)) sel.value = keepCustom;
         else if(selectValue && models.includes(selectValue)) sel.value = selectValue;
       });
@@ -4251,7 +4370,8 @@
           <div id="maint-rows" style="display:grid;gap:8px;max-height:240px;overflow-y:auto;padding-right:2px"></div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button onclick="Kanpro.addMaintenanceRow()" style="flex:1;background:#fff;border:1px dashed #97a0af;color:#172b4d;padding:8px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-plus"></i> Adicionar tipo</button>
-            <button onclick="Kanpro.promptAddCustomModel()" title="Cadastrar novo modelo" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-plus"></i> Modelo</button>
+            <button onclick="Kanpro.promptAddCustomModel()" title="Cadastrar novo modelo (só admin)" style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-plus"></i> Modelo</button>
+            <button onclick="Kanpro.openMaintModelsManager()" title="Ver, renomear e excluir modelos (só admin altera)" style="background:#fff;border:1px solid #dfe1e6;color:#172b4d;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px"><i class="ti ti-settings"></i> Gerenciar</button>
           </div>
           <div id="maint-setup-preview" style="background:#fff;border:1px dashed #dfe1e6;border-radius:8px;padding:8px;min-height:32px;font-size:12px;color:#5e6c84;text-align:center;margin-top:8px">Adicione pelo menos um tipo</div>
           <div id="maint-setup-error" style="color:#eb5a46;font-size:12px;display:none;min-height:14px"></div>
@@ -4264,7 +4384,9 @@
         </div>
       `;
       this.showPicker({title, html});
+      try{ this.loadMaintModels(); }catch(e){}
       setTimeout(()=>{
+        try{ Kanpro.loadMaintModels().then(()=>{ try{ Kanpro.refreshMaintModelSelects(); }catch(e){} }); }catch(e){}
         const picker = document.getElementById("kanpro-picker");
         const body = document.getElementById("picker-body");
         if(picker){

@@ -484,6 +484,34 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- MAINTENANCE MODELS (Modelos de máquinas: Notebook Positivo, Tablet... — gerenciável, vale p/ equipe) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_models')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_maintenance_models` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `name`                        VARCHAR(80)  NOT NULL DEFAULT '',
+                `rank`                        DOUBLE       NOT NULL DEFAULT '0',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_name` (`name`),
+                KEY `rank` (`rank`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+    // seed padrões (só se vazia)
+    try {
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_models') && countElementsInTable('glpi_plugin_kanpro_maintenance_models') == 0) {
+            $seedModels = ['Notebook Positivo','Notebook Multilaser','Notebook Ultra','Notebook Lenovo','Desktop Legado','Desktop','Tablet Positivo','Tablets Positivo','Tablet Samsung','Tablet Lenovo','Tablet CCE','Smartphone','Celular'];
+            $rk = 1024; $nowSeed = date('Y-m-d H:i:s');
+            foreach ($seedModels as $sm) {
+                try { $DB->insert('glpi_plugin_kanpro_maintenance_models', ['name'=>$sm,'rank'=>$rk,'users_id'=>0,'date_creation'=>$nowSeed,'date_mod'=>$nowSeed]); } catch (Throwable $e) {}
+                $rk += 1024;
+            }
+        }
+    } catch (Throwable $e) {}
+
     // --- CHAMADO UPDATES (Anotações do fluxo Abrir/Em andamento Chamado -> GLPI) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
         $DB->doQuery("
@@ -636,6 +664,7 @@ function plugin_kanpro_uninstall(): bool {
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
 
     $tables = [
+        'glpi_plugin_kanpro_maintenance_models',
         'glpi_plugin_kanpro_rules',
         'glpi_plugin_kanpro_chamado_updates',
         'glpi_plugin_kanpro_maintenance_zaplog',
