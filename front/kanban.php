@@ -451,16 +451,16 @@ echo <<<HTML
 </style>
 <div id="kanpro-app" style="display:flex;flex-direction:column;height:calc(100vh - 80px);background: {$board_bg_style};margin:-15px -15px 0 -15px;position:relative;background-size:cover;background-position:center">
 
-  <!-- Topbar do quadro -->
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(0,0,0,.15);backdrop-filter:blur(6px);color:#fff;gap:8px 16px;flex-wrap:wrap;row-gap:8px">
-    <div style="display:flex;align-items:center;gap:8px 12px;flex:1 1 auto;flex-wrap:wrap;min-width:0">
-      <a href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/board.php" style="color:#fff;text-decoration:none;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 10px;border-radius:4px"><i class="ti ti-arrow-left"></i> Quadros</a>
-      <h1 id="board-title" style="margin:0;font-size:18px;font-weight:700;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:4px;cursor:pointer" onclick="Kanpro.renameBoard()" title="Clique para renomear">{$board_name_esc}</h1>
+  <!-- Topbar do quadro: linha única com rolagem (nunca quebra no meio) -->
+  <div style="display:flex;align-items:center;padding:10px 16px;background:rgba(0,0,0,.15);backdrop-filter:blur(6px);color:#fff;gap:16px;overflow-x:auto;white-space:nowrap;scrollbar-width:thin">
+    <div style="display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:0">
+      <a href="{$CFG_GLPI['root_doc']}/plugins/kanpro/front/board.php" style="color:#fff;text-decoration:none;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 10px;border-radius:4px;flex-shrink:0"><i class="ti ti-arrow-left"></i> Quadros</a>
+      <h1 id="board-title" style="margin:0;font-size:18px;font-weight:700;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:4px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;flex-shrink:1" onclick="Kanpro.renameBoard()" title="Clique para renomear">{$board_name_esc}</h1>
       {$family_html}
-      <button onclick="Kanpro.toggleStar()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Favoritar">⭐</button>
-      <span style="background:rgba(255,255,255,.2);padding:4px 8px;border-radius:12px;font-size:12px"><i class="ti ti-lock"></i> {$board->fields['visibility']}</span>
+      <button onclick="Kanpro.toggleStar()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;flex-shrink:0" title="Favoritar">⭐</button>
+      <span style="background:rgba(255,255,255,.2);padding:4px 8px;border-radius:12px;font-size:12px;flex-shrink:0"><i class="ti ti-lock"></i> {$board->fields['visibility']}</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;margin-left:auto">
+    <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;margin-left:auto">
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       {$assinatura_btn}
@@ -468,7 +468,7 @@ echo <<<HTML
       <button onclick="Kanpro.toggleDarkMode()" id="kanpro-dark-btn" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Alternar modo escuro"><i class="ti ti-moon"></i></button>
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
       <button onclick="Kanpro.openGlobalSearch()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer" title="Buscar em todos os quadros"><i class="ti ti-search"></i> Busca global</button>
-      <div style="position:relative;flex:0 1 auto">
+      <div style="position:relative;flex:0 0 auto">
         <input id="kanpro-filter" type="text" placeholder="Filtrar cartões..." oninput="Kanpro.filterCards(this.value)" style="padding:6px 12px 6px 32px;border:none;border-radius:4px;background:rgba(255,255,255,.3);color:#fff;width:180px;max-width:100%">
         <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#fff"></i>
       </div>
