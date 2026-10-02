@@ -294,12 +294,24 @@ echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; wind
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
 <style>
-  /* Isola o modal do CSS global do GLPI: sem isso small/span/select herdavam line-height e sobrepunham */
+  /* Isola o modal do CSS global do GLPI: sem isso small/span/select/label/hr herdavam
+     posicionamento e line-height do tema e SOBREPOHAM as seções (ex.: Perfis por cima dos membros) */
   #kpb-overlay { line-height: 1.4; }
   #kpb-overlay *, #kpb-overlay *::before, #kpb-overlay *::after { box-sizing: border-box; }
-  #kpb-overlay small { position: static !important; transform: none !important; float: none !important; line-height: 1.4 !important; white-space: nowrap; }
-  #kpb-body { word-break: normal; overflow-wrap: normal; }
-  .kpb-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  #kpb-overlay div, #kpb-overlay label, #kpb-overlay select, #kpb-overlay input,
+  #kpb-overlay button, #kpb-overlay hr, #kpb-overlay span, #kpb-overlay small {
+    position: static !important;
+    float: none !important;
+    transform: none !important;
+  }
+  #kpb-overlay small { line-height: 1.4 !important; white-space: nowrap; }
+  #kpb-overlay label { display: block !important; line-height: 1.4 !important; }
+  #kpb-overlay hr { border: none !important; border-top: 1px solid #dfe1e6 !important; margin: 4px 0 !important; height: 0 !important; }
+  /* Corpo em fluxo de bloco (sem grid): cada seção empilha naturalmente, sem risco de sobreposição */
+  #kpb-body { word-break: normal; overflow-wrap: normal; display: block !important; }
+  #kpb-body > * { margin-bottom: 12px !important; }
+  #kpb-body > *:last-child { margin-bottom: 0 !important; }
+  .kpb-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; position: static !important; width: 100%; }
   .kpb-row-left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
   .kpb-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
   .kpb-row-badge { flex: 0 0 auto; }
@@ -313,7 +325,7 @@ echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; wind
       <button onclick="KanproBoards.close()" style="background:none;border:none;cursor:pointer;font-size:18px">✕</button>
     </div>
     <!-- flex:1 + min-height:0: sem isso o grid esmaga a lista de pessoas (ficava com ~1cm) -->
-    <div id="kpb-body" style="padding:16px;overflow-y:auto;min-height:0;flex:1 1 auto;display:grid;gap:12px;align-content:start"></div>
+    <div id="kpb-body" style="padding:16px;overflow-y:auto;min-height:0;flex:1 1 auto;display:block"></div>
     <div style="padding:12px 16px;border-top:1px solid #dfe1e6;display:flex;justify-content:flex-end;flex-shrink:0">
       <button onclick="KanproBoards.close()" class="btn btn-outline-secondary btn-sm">Fechar</button>
     </div>
