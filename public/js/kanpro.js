@@ -2056,18 +2056,11 @@
         box.appendChild(act);
       }
       if(act) act.innerHTML = '';
-      // sidebar: garante botões Solicitar Chamado / Pegar (cria 1x) — ordem: Manutenção, Solicitar, Pegar
+      // sidebar: garante botão Pegar (cria 1x) — Solicitar Chamado foi removido da manutenção
       const sideBtns = document.querySelector('#kanpro-card-modal .kp-sidebar-btn')?.parentElement;
       let btnSol = document.getElementById('kp-solicitar-chamado-btn');
-      if(sideBtns && !btnSol){
-        btnSol = document.createElement('button');
-        btnSol.id = 'kp-solicitar-chamado-btn';
-        btnSol.className = 'kp-sidebar-btn';
-        btnSol.style.cssText = 'background:#e1316f;color:#fff;border:1px solid #e1316f;font-weight:800';
-        btnSol.innerHTML = '<i class="ti ti-phone-call"></i> Solicitar Chamado';
-        btnSol.onclick = ()=> Kanpro.openSolicitarChamado();
-        sideBtns.appendChild(btnSol);
-      }
+      if(btnSol) btnSol.remove();
+      btnSol = null;
       let btnPegar = document.getElementById('kp-pegar-btn');
       if(sideBtns && !btnPegar){
         btnPegar = document.createElement('button');
@@ -2078,24 +2071,23 @@
         btnPegar.onclick = ()=> Kanpro.pegarPendingCard();
         sideBtns.appendChild(btnPegar);
       }
-      // ordena: Gerenciar Manutenção > Solicitar Chamado > Pegar > demais
+      // ordena: Gerenciar Manutenção > Pegar > demais
       try {
         const maint = document.getElementById('kp-maintenance-btn');
-        if(sideBtns && maint && btnSol && btnPegar && maint.parentElement === sideBtns && btnSol.parentElement === sideBtns && btnPegar.parentElement === sideBtns){
-          maint.after(btnSol);
-          btnSol.after(btnPegar);
-        } else if(sideBtns && maint && btnSol && maint.parentElement === sideBtns && btnSol.parentElement === sideBtns){
-          maint.after(btnSol);
+        if(sideBtns && maint && btnPegar && maint.parentElement === sideBtns && btnPegar.parentElement === sideBtns){
+          maint.after(btnPegar);
         }
       } catch(e){}
-      if(btnSol) btnSol.style.display = 'none';
       if(btnPegar) btnPegar.style.display = 'none';
       const isMaint = !!(data.is_maintenance && data.is_maintenance == 1);
       const isPendChamado = this.isPendenciaCard(data);
       const isPending = this.isCardInListType(data, 'pending');
       const amAdmin = this.isBoardAdmin();
-      // Solicitar Chamado: só manutenção (lado direito em Ações)
-      if(isMaint && btnSol) btnSol.style.display = '';
+      // Manutenção: esconde "Chamado" (GLPI) da lateral — ticket é automático
+      try {
+        const ticBtn = document.querySelector('#kanpro-card-modal button[onclick*="ticketButton"]');
+        if(ticBtn) ticBtn.style.display = isMaint ? 'none' : '';
+      } catch(e){}
       // Pegar: só Pendente; admin (c/ Pendência Chamado) ou membro (direto) — topo + sidebar
       if(isPending && this.canPegar()){
         if(btnPegar) btnPegar.style.display = '';
@@ -3483,18 +3475,36 @@
       const lockedFinal = !!isFinalized;
       const chamadoLocked = (machines||[]).some(m=> m && Number(m.is_locked)==1);
       const chamadoPendId = ((machines||[]).find(m=> m && Number(m.is_locked)==1) || {}).locked_chamado_card_id || '';
-      let finalizeBtnHtml = "";
+      // Barra de conclusão separada (footer destacado) — não mistura com as ações de edição
+      let finalizeFootHtml = "";
       if (lockedFinal) {
-        finalizeBtnHtml = `<button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-file-text"></i> Visualizar Termo</button>`;
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#e6f4ff;border:2px solid #0052cc;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#0052cc;letter-spacing:.06em;margin-bottom:8px">ATENDIMENTO CONCLUÍDO</div>
+          <button onclick="Kanpro.viewCardTerm(${termCid})" title="Manutenção finalizada — termo gerado no Assinatura (somente visualização)" style="background:#0052cc;color:#fff;border:none;padding:12px 32px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px"><i class="ti ti-file-text"></i> Visualizar Termo</button>
+        </div>`;
       } else if (cardPending) {
-        finalizeBtnHtml = `<span title="O card ainda está na lista Pendente — clique em Pegar (membro ou admin) para liberar o atendimento" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;opacity:.6;cursor:not-allowed;white-space:nowrap;flex-shrink:0"><i class="ti ti-lock" style="font-size:11px"></i> FINALIZAR bloqueado</span>`;
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
+          <span title="O card ainda está na lista Pendente — clique em Pegar (membro ou admin) para liberar o atendimento" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> FINALIZAR bloqueado — clique em Pegar</span>
+        </div>`;
       } else if (hasMissing) {
-        finalizeBtnHtml = `<button onclick="Kanpro.explainMissingStatus()" title="Clique para ver quais máquinas estão sem Status Final" style="background:#dfe1e6;color:#5e6c84;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>`;
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#ffebe6;border:2px solid #eb5a46;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#bf2600;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
+          <button onclick="Kanpro.explainMissingStatus()" title="Clique para ver quais máquinas estão sem Status Final" style="background:#eb5a46;color:#fff;border:none;padding:12px 28px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px"><i class="ti ti-alert-circle"></i> FINALIZAR * ${missingStatus} sem status</button>
+          <div style="font-size:11px;color:#bf2600;margin-top:6px">Selecione Garantia / OK / Inservível / Pendente em todas as máquinas</div>
+        </div>`;
       } else if (allDone) {
-        finalizeBtnHtml = `<button onclick="event.stopPropagation();Kanpro.finalizeMaintenance()" style="background:#00b8d9;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR</button>`;
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#e3fcef;border:2px solid #61bd4f;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#006644;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
+          <button onclick="event.stopPropagation();Kanpro.finalizeMaintenance()" title="Conclui e envia para Assinatura" style="background:linear-gradient(135deg,#00b8d9 0%,#0052cc 100%);color:#fff;border:none;padding:13px 40px;border-radius:8px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 3px 10px rgba(0,82,204,.35)"><i class="ti ti-check"></i> ✅ FINALIZAR manutenção → Assinatura</button>
+        </div>`;
       } else {
         const pendenteInfo = pendenteCount>0 ? ` • ${pendenteCount} pendente(s) → novo card` : "";
-        finalizeBtnHtml = `<button onclick="event.stopPropagation();Kanpro.finalizeMaintenance()" title="Nem todos estão como 'Feito' — pendentes ficarão em novo card" style="background:#ffab00;color:#172b4d;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-check"></i> FINALIZAR (${pct}%${pendenteInfo})</button>`;
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#fffae6;border:2px solid #ffab00;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#975500;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
+          <button onclick="event.stopPropagation();Kanpro.finalizeMaintenance()" title="Nem todos estão como 'Feito' — pendentes ficarão em novo card" style="background:#ffab00;color:#172b4d;border:none;padding:13px 36px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 3px 10px rgba(255,171,0,.35)"><i class="ti ti-check"></i> FINALIZAR (${pct}%${pendenteInfo})</button>
+          <div style="font-size:11px;color:#975500;margin-top:6px">Conclui e envia para Assinatura (pendentes ficam em novo card)</div>
+        </div>`;
       }
       let html = `
         <div style="background:#fff;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);overflow:hidden;margin-bottom:16px;border-left:4px solid #ffab00">
@@ -3506,7 +3516,6 @@
               ${total && !cardPending && !lockedFinal && !chamadoLocked ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
-              ${finalizeBtnHtml}
             </div>
           </div>
           ${lockedFinal? `
@@ -3654,6 +3663,7 @@
         `;
       });
       html += `</div>`;
+      html += finalizeFootHtml;
       html += (lockedFinal || chamadoLocked ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
         ${cardPending ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
