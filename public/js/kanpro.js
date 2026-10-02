@@ -2110,12 +2110,36 @@
       const isPendChamado = this.isPendenciaCard(data);
       const isPending = this.isCardInListType(data, 'pending');
       const amAdmin = this.isBoardAdmin();
-      // Manutenção: esconde "Chamado" (GLPI) e "Escola" da lateral — ticket é automático e nome vem da entidade
+      // Manutenção: sidebar só Excluir (admin) + Pegar (quando Pendente). Resto some.
+      // Card manutenção já tem checklist próprio — Membros/Etiquetas/Checklist/Anexo/Datas/Capa/Escola/Chamado/Manutenção/Mover/Copiar/Arquivar/Fixar só poluem e geram erro.
       try {
         const ticBtn = document.querySelector('#kanpro-card-modal button[onclick*="ticketButton"]');
-        if(ticBtn) ticBtn.style.display = isMaint ? 'none' : '';
         const escBtn = document.querySelector('#kanpro-card-modal button[onclick*="editMaintenanceCardTitle"]');
-        if(escBtn) escBtn.style.display = isMaint ? 'none' : '';
+        const allSide = [...document.querySelectorAll('#kanpro-card-modal .kp-sidebar-btn')];
+        if (isMaint) {
+          if(ticBtn) ticBtn.style.display = 'none';
+          if(escBtn) escBtn.style.display = 'none';
+          allSide.forEach(b=>{
+            if(b.id === 'kp-delete-btn'){
+              if(amAdmin){ b.style.display = ''; delete b.dataset.adminHide; }
+              else { b.style.display = 'none'; b.dataset.adminHide = '1'; }
+              return;
+            }
+            if(b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn') return; // Pegar controlado abaixo
+            const onclick = b.getAttribute('onclick') || '';
+            if(/openMembersPicker|openLabelsPicker|openChecklistPicker|openDatesPicker|openCoverPicker|openMaintenanceFlow|moveCardPicker|copyCard|archiveCard|togglePin|card-attach-input/.test(onclick) || b.id === 'kp-maintenance-btn' || b.id === 'kp-pin-btn'){
+              if(b.style.display !== 'none') b.dataset.maintHide = '1';
+              b.style.display = 'none';
+            }
+          });
+        } else {
+          if(ticBtn && !ticBtn.dataset.pendHide) ticBtn.style.display = '';
+          if(escBtn && !escBtn.dataset.pendHide) escBtn.style.display = '';
+          allSide.forEach(b=>{
+            if(b.id === 'kp-delete-btn' || b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn') return;
+            if(b.dataset.maintHide){ b.style.display = ''; delete b.dataset.maintHide; }
+          });
+        }
       } catch(e){}
       // Pegar: só Pendente; admin (c/ Pendência Chamado) ou membro (direto) — topo + sidebar
       if(isPending && this.canPegar()){
