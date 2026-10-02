@@ -426,10 +426,17 @@ function kanpro_card_tablet_info(int $cards_id): array {
 
 // Status da pendência de um card origem (maintenance): 'liberado' se já teve
 // alguma pendência liberada, 'pendente' se tem pendência aberta, 'none' se nunca teve.
+// O 'liberado' precisa sobreviver ao auto-delete de 30s da pendência, senão o 2º
+// Finalizar do Tablet volta pra 'none' e cria outra pendência (loop infinito).
 function kanpro_tablet_pendencia_status(int $src_cards_id): string {
     global $DB;
     try {
         if ($src_cards_id <= 0) return 'none';
+        // 1) origem já carimbada como liberada (sobrevive ao auto-delete)
+        try {
+            $srcChk = new PluginKanproCard();
+            if ($srcChk->getFromDB($src_cards_id) && (($srcChk->fields['chamado_status'] ?? '') === 'liberado')) return 'liberado';
+        } catch (Throwable $e) {}
         $hasPend = false; $hasLib = false;
         foreach ($DB->request(['SELECT'=>['chamado_status'],'FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['chamado_source_id'=>$src_cards_id]]) as $r) {
             $st = (string)($r['chamado_status'] ?? '');
@@ -438,6 +445,14 @@ function kanpro_tablet_pendencia_status(int $src_cards_id): string {
         }
         if ($hasLib) return 'liberado';
         if ($hasPend) return 'pendente';
+        // 2) legado: pendência liberada já auto-excluída antes do carimbo na origem.
+        // Histórico 'chamado_released' prova que já liberou uma vez — não volta p/ 'none'.
+        try {
+            if ($DB->tableExists('glpi_plugin_kanpro_activities')) {
+                $cntRel = (int)countElementsInTable('glpi_plugin_kanpro_activities', ['plugin_kanpro_cards_id'=>$src_cards_id,'action'=>'chamado_released']);
+                if ($cntRel > 0) return 'liberado';
+            }
+        } catch (Throwable $e) {}
     } catch (Throwable $e) {}
     return 'none';
 }
@@ -6337,6 +6352,9 @@ switch ($action) {
         // rede final: qualquer máquina ainda travada da origem é liberada
         try { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['is_locked' => 0, 'locked_chamado_card_id' => 0, 'date_mod' => $nowUnlock], ['plugin_kanpro_cards_id' => $srcId, 'is_locked' => 1]); } catch (Throwable $e) {}
         $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $pid]);
+        // Carimba a origem como liberada: a pendência auto-exclui em 30s e sem isso o
+        // Tablet voltava p/ 'none' e o 2º Finalizar criava outra pendência (loop infinito).
+        try { $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $srcId]); } catch (Throwable $e) {}
         kanpro_touch_card($srcId);
         kanpro_touch_card($pid);
         $srcCard = new PluginKanproCard();
