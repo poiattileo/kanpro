@@ -754,23 +754,23 @@
       const f = this.finFilterFor(list.id);
       const open = this.finFilterOpen(list.id);
       const active = this.finFilterActive(list.id);
-      let html = '<div class="kp-fin-filter-wrap" style="margin:0 8px 8px">';
-      html += '<button onclick="Kanpro.toggleFinFilter(' + list.id + ')" title="Filtrar finalizados por usuário ou data" style="display:flex;align-items:center;gap:6px;background:' + (active ? '#e6f4ff' : '#fff') + ';border:1px solid ' + (active ? '#91d5ff' : '#dfe1e6') + ';color:' + (active ? '#0050b3' : '#5e6c84') + ';padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;width:100%">';
+      let html = '<div class="kp-fin-filter-wrap" style="margin:0 8px 8px;max-width:calc(100% - 16px);box-sizing:border-box">';
+      html += '<button onclick="Kanpro.toggleFinFilter(' + list.id + ')" title="Filtrar finalizados por usuário ou data" style="display:flex;align-items:center;gap:6px;background:' + (active ? '#e6f4ff' : '#fff') + ';border:1px solid ' + (active ? '#91d5ff' : '#dfe1e6') + ';color:' + (active ? '#0050b3' : '#5e6c84') + ';padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;width:100%;box-sizing:border-box">';
       html += '<i class="ti ti-filter"></i> Filtrar' + (active ? ' ✓' : '') + '<span style="margin-left:auto">' + (open ? '▲' : '▼') + '</span></button>';
       if(!open) { html += '</div>'; return html; }
       const opts = this.finFilterOptions(list.id).map(function(op){
         const sel = (String(f.user) === String(op[0])) ? ' selected' : '';
         return '<option value="' + Number(op[0]) + '"' + sel + '>' + self.escape(op[1]) + '</option>';
       }).join('');
-      html += '<div class="kp-fin-filter" style="display:grid;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-top:none;border-radius:0 0 6px 6px;padding:8px;font-size:12px">';
-      html += '<label style="display:grid;gap:2px;color:#5e6c84;font-weight:700">👤 Usuário';
-      html += '<select onchange="Kanpro.setFinFilter(' + list.id + ', \'user\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px">';
+      html += '<div class="kp-fin-filter" style="display:grid;gap:6px;background:#f4f5f7;border:1px solid #dfe1e6;border-top:none;border-radius:0 0 6px 6px;padding:8px;font-size:12px;max-width:100%;box-sizing:border-box">';
+      html += '<label style="display:grid;gap:2px;color:#5e6c84;font-weight:700;min-width:0">👤 Usuário';
+      html += '<select onchange="Kanpro.setFinFilter(' + list.id + ', \'user\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;max-width:100%;box-sizing:border-box;min-width:0">';
       html += '<option value="">Todos</option>' + opts + '</select></label>';
-      html += '<div style="display:flex;gap:6px">';
-      html += '<label style="flex:1;display:grid;gap:2px;color:#5e6c84;font-weight:700">📅 De';
-      html += '<input type="date" value="' + this.escape(f.from || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'from\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;box-sizing:border-box"></label>';
-      html += '<label style="flex:1;display:grid;gap:2px;color:#5e6c84;font-weight:700">Até';
-      html += '<input type="date" value="' + this.escape(f.to || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'to\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;box-sizing:border-box"></label>';
+      html += '<div style="display:flex;gap:6px;min-width:0">';
+      html += '<label style="flex:1 1 0;display:grid;gap:2px;color:#5e6c84;font-weight:700;min-width:0">📅 De';
+      html += '<input type="date" value="' + this.escape(f.from || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'from\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;max-width:100%;box-sizing:border-box;min-width:0"></label>';
+      html += '<label style="flex:1 1 0;display:grid;gap:2px;color:#5e6c84;font-weight:700;min-width:0">Até';
+      html += '<input type="date" value="' + this.escape(f.to || '') + '" onchange="Kanpro.setFinFilter(' + list.id + ', \'to\', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:12px;width:100%;max-width:100%;box-sizing:border-box;min-width:0"></label>';
       html += '</div>';
       if (f.user || f.from || f.to) html += '<button onclick="Kanpro.clearFinFilter(' + list.id + ')" style="background:none;border:none;color:#0052cc;cursor:pointer;font-size:12px;font-weight:700;text-align:left;padding:0">✕ Limpar filtro</button>';
       html += '</div></div>';
