@@ -863,7 +863,7 @@ function kanpro_create_pendencia_chamado(int $boards_id, int $src_cards_id, arra
         $src = new PluginKanproCard();
         if (!$src->getFromDB($src_cards_id)) return $fail('Card origem não encontrado');
         $target = kanpro_find_list_by_type($boards_id, 'pend_chamado');
-        if (!$target) return $fail('Crie uma lista com categoria "Pendência Chamado" neste quadro');
+        if (!$target) return $fail('Crie uma lista com categoria "Pendência chamados" neste quadro');
         $machines = [];
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
             foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['id'=>$mids,'plugin_kanpro_cards_id'=>$src_cards_id]]) as $m) $machines[(int)$m['id']] = $m;
@@ -6078,7 +6078,7 @@ switch ($action) {
             if (!empty($m['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina #' . (int)$m['seq'] . ' já está travada aguardando chamado']);
         }
         $target = kanpro_find_list_by_type($bid, 'pend_chamado');
-        if (!$target) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Pendência Chamado" neste quadro','need_list'=>true]);
+        if (!$target) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Pendência chamados" neste quadro','need_list'=>true]);
         $targetLid = (int)$target['id'];
         $newCard = new PluginKanproCard();
         $newName = mb_substr(trim($src->fields['name'] ?? ('Card #' . $srcId)), 0, 255);
@@ -6232,7 +6232,7 @@ switch ($action) {
                 kanpro_touch_card($cid);
                 $fresh0 = new PluginKanproCard();
                 $fresh0->getFromDB($cid);
-                jexit(['success'=>true,'warning'=>'Pego e movido, mas crie a lista "Pendência Chamado" (categoria) para gerar a pendência','need_pend_list'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>0,'locked'=>0,'card'=>($fresh0->fields ?? null)]);
+                jexit(['success'=>true,'warning'=>'Pego e movido, mas crie a lista "Pendência chamados" (categoria) para gerar a pendência','need_pend_list'=>true,'dest_lists_id'=>$destLid,'pendencia_id'=>0,'locked'=>0,'card'=>($fresh0->fields ?? null)]);
             }
             $pendLid = (int)$pendList['id'];
             $nc = new PluginKanproCard();

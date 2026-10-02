@@ -843,7 +843,7 @@
               <option value="andamento">🔷 Em Andamento</option>
               <option value="doing">🔵 Em Progresso</option>
               <option value="retirada">📦 Retirada</option>
-              <option value="pend_chamado">📞 Pendência Chamado</option>
+              <option value="pend_chamado">📞 Pendência chamados</option>
               <option value="done">🟢 Concluído</option>
             </select>
             <div class="kp-composer-actions">
@@ -6757,7 +6757,7 @@
       pending:   {label: 'Pendente',           color: '#ff5630', fg: '#fff',    dot: '🔴'},
       andamento: {label: 'Em Andamento',       color: '#0052cc', fg: '#fff',    dot: '🔷'},
       retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
-      pend_chamado: {label: 'Pendência Chamado', color: '#e1316f', fg: '#fff', dot: '📞'},
+      pend_chamado: {label: 'Pendência chamados', color: '#e1316f', fg: '#fff', dot: '📞'},
       abrir_chamado: {label: 'Abrir chamado', color: '#00875a', fg: '#fff', dot: '📩'},
       andamento_chamado: {label: 'Em Andamento Chamado', color: '#403294', fg: '#fff', dot: '🔄'},
       chamado_finalizado: {label: 'Chamado finalizado', color: '#006644', fg: '#fff', dot: '✅'},
