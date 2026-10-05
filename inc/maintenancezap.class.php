@@ -79,6 +79,117 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return mb_substr($base . '_' . $short, 0, 30);
     }
 
+    /**
+     * Lembrete só em dias úteis (seg-sex, sem feriado).
+     * Feriados: nacionais fixos + móveis (Páscoa) + estadual SP (09/07)
+     * + extras em templates_whatsapp/feriados.txt (um por linha: YYYY-MM-DD ou DD/MM).
+     * Nunca joga exceção.
+     */
+    static function lembreteExtraHolidays(): array {
+        $out = [];
+        try {
+            $dir = self::templateDir();
+            if (!$dir) return $out;
+            foreach (['feriados.txt', 'feriados_extras.txt'] as $fn) {
+                $f = $dir . '/' . $fn;
+                if (!is_file($f)) continue;
+                $lines = @file($f, FILE_IGNORE_NEW_LINES);
+                if ($lines === false) continue;
+                foreach ($lines as $ln) {
+                    $ln = trim((string)$ln);
+                    if ($ln === '' || $ln[0] === '#') continue;
+                    $ln = preg_replace('/\s+#.*$/', '', $ln);
+                    $ln = trim($ln);
+                    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $ln, $m)) {
+                        $out[sprintf('%04d-%02d-%02d', (int)$m[1], (int)$m[2], (int)$m[3])] = $fn;
+                    } elseif (preg_match('/^(\d{2})\/(\d{2})(?:\/(\d{4}))?$/', $ln, $m)) {
+                        $y = isset($m[3]) && $m[3] !== '' ? (int)$m[3] : (int)date('Y');
+                        $out[sprintf('%04d-%02d-%02d', $y, (int)$m[2], (int)$m[1])] = $fn;
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+
+    /** Domingo de Páscoa (algoritmo gregoriano, sem depender da extensão calendar) */
+    static function easterSunday(int $year): ?string {
+        try {
+            if (function_exists('easter_date')) {
+                return date('Y-m-d', easter_date($year));
+            }
+            $a = $year % 19; $b = (int)floor($year / 100); $c = $year % 100;
+            $d = (int)floor($b / 4); $e = $b % 4; $f = (int)floor(($b + 8) / 25);
+            $g = (int)floor(($b - $f + 1) / 3);
+            $h = (19 * $a + $b - $d - $g + 15) % 30;
+            $i = (int)floor($c / 4); $k = $c % 4;
+            $l = (32 + 2 * $e + 2 * $i - $h - $k) % 7;
+            $m = (int)floor(($a + 11 * $h + 22 * $l) / 451);
+            $month = (int)floor(($h + $l - 7 * $m + 114) / 31);
+            $day = (($h + $l - 7 * $m + 114) % 31) + 1;
+            return sprintf('%04d-%02d-%02d', $year, $month, $day);
+        } catch (Throwable $e) { return null; }
+    }
+
+    /** Mapa YYYY-MM-DD => motivo do feriado p/ o ano (fixos + móveis + extras) */
+    static function lembreteHolidayMap(?int $year = null): array {
+        $year = $year ?: (int)date('Y');
+        $map = [
+            sprintf('%04d-01-01', $year) => 'Confraternização Universal',
+            sprintf('%04d-04-15', $year) => 'Fundação de Jales / Santo Expedito (municipal)',
+            sprintf('%04d-04-21', $year) => 'Tiradentes',
+            sprintf('%04d-05-01', $year) => 'Dia do Trabalho',
+            sprintf('%04d-07-09', $year) => 'Revolução Constitucionalista (SP)',
+            sprintf('%04d-08-15', $year) => 'Assunção de N. Sra. (municipal Jales)',
+            sprintf('%04d-09-07', $year) => 'Independência',
+            sprintf('%04d-10-12', $year) => 'N. Sra. Aparecida',
+            sprintf('%04d-11-02', $year) => 'Finados',
+            sprintf('%04d-11-15', $year) => 'Proclamação da República',
+            sprintf('%04d-11-20', $year) => 'Consciência Negra',
+            sprintf('%04d-12-25', $year) => 'Natal',
+        ];
+        try {
+            $easter = self::easterSunday($year);
+            if ($easter !== null && $easter !== '') {
+                $dt = new DateTime($easter);
+                $carnSeg = (clone $dt)->modify('-48 days')->format('Y-m-d');
+                $carnTer = (clone $dt)->modify('-47 days')->format('Y-m-d');
+                $sexta = (clone $dt)->modify('-2 days')->format('Y-m-d');
+                $corpus = (clone $dt)->modify('+60 days')->format('Y-m-d');
+                $map[$carnSeg] = 'Carnaval (seg)';
+                $map[$carnTer] = 'Carnaval (ter)';
+                $map[$sexta] = 'Sexta-feira Santa';
+                $map[$easter] = 'Páscoa';
+                $map[$corpus] = 'Corpus Christi';
+            }
+        } catch (Throwable $e) {}
+        try {
+            foreach (self::lembreteExtraHolidays() as $d => $why) {
+                if (substr($d, 0, 4) === sprintf('%04d', $year)) $map[$d] = 'Extra (' . $why . ')';
+            }
+        } catch (Throwable $e) {}
+        return $map;
+    }
+
+    /** ['business'=>bool, 'reason'=>string, 'date'=>Y-m-d, 'dow'=>1-7] — nunca joga exceção */
+    static function lembreteBusinessCheck(?int $ts = null): array {
+        try {
+            $ts = $ts ?: time();
+            $ymd = date('Y-m-d', $ts);
+            $dow = (int)date('N', $ts); // 1=seg ... 7=dom
+            if ($dow >= 6) return ['business' => false, 'reason' => ($dow === 6 ? 'sábado' : 'domingo'), 'date' => $ymd, 'dow' => $dow];
+            $map = self::lembreteHolidayMap((int)date('Y', $ts));
+            if (isset($map[$ymd])) return ['business' => false, 'reason' => 'feriado: ' . $map[$ymd], 'date' => $ymd, 'dow' => $dow];
+            return ['business' => true, 'reason' => '', 'date' => $ymd, 'dow' => $dow];
+        } catch (Throwable $e) {
+            return ['business' => true, 'reason' => '', 'date' => date('Y-m-d'), 'dow' => (int)date('N')];
+        }
+    }
+
+    static function isLembreteBusinessDay(?int $ts = null): bool {
+        return (bool)(self::lembreteBusinessCheck($ts)['business'] ?? true);
+    }
+
     static function templateDir(): ?string {
         $base = method_exists('Plugin', 'getPhpDir') ? Plugin::getPhpDir('kanpro') : (defined('GLPI_ROOT') ? GLPI_ROOT . '/plugins/kanpro' : null);
         if (!$base) return null;
@@ -774,6 +885,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /**
      * Lembrete 8h/10h/13h: quantos cards há nas listas Pendência Chamado, Pendente e
      * Em Andamento (todos os quadros ativos). Só envia se total > 0.
+     * Só em dias úteis (seg-sex, sem feriado) — fim de semana/feriado não envia.
      * Anti-duplicado por dia+turno+destinatário (milestone lembrete_Y-m-d_08 / _10 / _13).
      * Destinatários fixos = lembreteRecipients() (cristian + leonardo).
      * Nunca joga exceção.
@@ -784,6 +896,10 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $hour = (int)date('H');
             if ($slot === null || !in_array($slot, [8, 9, 10, 13], true)) $slot = ($hour < 9) ? 8 : (($hour < 12) ? 10 : 13);
             $forceResend = !empty($opts['forceResend']);
+            if (!$forceResend) {
+                $biz = self::lembreteBusinessCheck();
+                if (empty($biz['business'])) return ['ok' => false, 'error' => 'dia não útil (' . ($biz['reason'] ?? '') . ' ' . ($biz['date'] ?? '') . ') — lembrete só em dias úteis'];
+            }
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
             $recipients = self::lembreteRecipients();
             if (empty($recipients)) $recipients = [self::pendenciaApprover()];
@@ -920,6 +1036,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      */
     static function maybeSendLembreteFallback(): void {
         try {
+            if (!self::isLembreteBusinessDay()) return;
             $h = (int)date('G');
             $slot = ($h === 8) ? 8 : (($h === 10) ? 10 : (($h === 13) ? 13 : 0));
             if ($slot <= 0) return;
@@ -942,7 +1059,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      */
     static function diagnoseLembrete(): array {
         global $DB;
-        $out = ['now' => date('d/m/Y H:i:s'), 'approver' => self::pendenciaApprover(), 'recipients' => self::lembreteRecipients()];
+        $out = ['now' => date('d/m/Y H:i:s'), 'approver' => self::pendenciaApprover(), 'recipients' => self::lembreteRecipients(), 'business_check' => self::lembreteBusinessCheck(), 'holidays_this_year' => self::lembreteHolidayMap()];
         try {
             $norm = function ($s) {
                 $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));

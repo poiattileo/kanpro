@@ -1,0 +1,10 @@
+# KanPro • FERIADOS EXTRAS p/ bloqueio do LEMBRETE (dias úteis)
+# O lembrete 8h/10h/13h NÃO envia em: sábado, domingo e feriados abaixo.
+# Já automáticos: nacionais fixos + Carnaval/Sexta Santa/Páscoa/Corpus Christi
+# + 09/07 SP + 15/04 e 15/08 municipais de Jales.
+# Use este arquivo SÓ p/ datas extras (ponto facultativo, feriado novo, etc).
+# Um por linha: YYYY-MM-DD ou DD/MM (vale p/ o ano corrente). Linhas com # são ignoradas.
+# Exemplos:
+# 2026-02-16
+# 2026-02-17
+# 28/10
