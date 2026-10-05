@@ -60,6 +60,25 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return 'cristian.sawata@educacao.sp.gov.br';
     }
 
+    /** Destinatários do lembrete 8h/10h/13h (CARDS AGUARDANDO) — enviado p/ todos */
+    static function lembreteRecipients(): array {
+        return [
+            'cristian.sawata@educacao.sp.gov.br',
+            'leonardo.facao@apoiofde.sp.gov.br',
+        ];
+    }
+
+    /** Milestone por destinatário (1º mantém base p/ compat com envios antigos) */
+    static function lembreteMilestone(string $base, string $login): string {
+        $login = trim(strtolower((string)$login));
+        if ($login === '' || $login === trim(strtolower(self::pendenciaApprover()))) return $base;
+        // sufixo curto p/ caber no limite de 30 chars do zaplog (base tem 22)
+        $short = preg_replace('/[^a-z0-9]/', '', explode('@', $login)[0] ?? '');
+        $short = mb_substr((string)$short, 0, 7);
+        if ($short === '') $short = 'extra';
+        return mb_substr($base . '_' . $short, 0, 30);
+    }
+
     static function templateDir(): ?string {
         $base = method_exists('Plugin', 'getPhpDir') ? Plugin::getPhpDir('kanpro') : (defined('GLPI_ROOT') ? GLPI_ROOT . '/plugins/kanpro' : null);
         if (!$base) return null;
@@ -755,8 +774,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /**
      * Lembrete 8h/10h/13h: quantos cards há nas listas Pendência Chamado, Pendente e
      * Em Andamento (todos os quadros ativos). Só envia se total > 0.
-     * Anti-duplicado por dia+turno (milestone lembrete_Y-m-d_08 / _10 / _13).
-     * Destinatário fixo = aprovador (cristian.sawata@educacao.sp.gov.br).
+     * Anti-duplicado por dia+turno+destinatário (milestone lembrete_Y-m-d_08 / _10 / _13).
+     * Destinatários fixos = lembreteRecipients() (cristian + leonardo).
      * Nunca joga exceção.
      */
     static function sendLembrete(?int $slot = null, array $opts = []): array {
@@ -766,7 +785,15 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             if ($slot === null || !in_array($slot, [8, 9, 10, 13], true)) $slot = ($hour < 9) ? 8 : (($hour < 12) ? 10 : 13);
             $forceResend = !empty($opts['forceResend']);
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
-            if (!$forceResend && self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
+            $recipients = self::lembreteRecipients();
+            if (empty($recipients)) $recipients = [self::pendenciaApprover()];
+            if (!$forceResend) {
+                $allSent = true;
+                foreach ($recipients as $rcp) {
+                    if (!self::alreadySent(0, self::lembreteMilestone($milestone, (string)$rcp))) { $allSent = false; break; }
+                }
+                if ($allSent) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
+            }
             // trava distribuída: cron do GLPI + fallback do polling podem disparar juntos —
             // só um prossegue (o outro sai como 'envio em andamento').
             $lemLock = 'kanpro_lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
@@ -774,7 +801,13 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             try { $lemGotLock = (bool)$DB->getLock($lemLock, 0); } catch (Throwable $e) { $lemGotLock = true; }
             if (!$lemGotLock) return ['ok' => false, 'error' => 'envio em andamento (outro processo)'];
             try {
-            if (!$forceResend && self::alreadySent(0, $milestone)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
+            if (!$forceResend) {
+                $allSentInner = true;
+                foreach ($recipients as $rcpInner) {
+                    if (!self::alreadySent(0, self::lembreteMilestone($milestone, (string)$rcpInner))) { $allSentInner = false; break; }
+                }
+                if ($allSentInner) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
+            }
             // classifica listas (tipo ou nome legado, sem acento)
             $norm = function ($s) {
                 $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
@@ -832,12 +865,6 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $bn = $boards[$bid] ?? ('Quadro #' . $bid);
                 $lines[] = '• ' . $bn . ' — Aguardando aprovação: ' . ($c['c'] ?? 0) . ' | Pendente: ' . $c['p'] . ' | Andamento: ' . $c['a'];
             }
-            $phone = self::resolveApproverPhone();
-            $phone = self::normalizeBRPhone((string)$phone);
-            if ($phone === '') {
-                self::markSent(0, $milestone, '', false, 'sem telefone do aprovador');
-                return ['ok' => false, 'error' => 'sem telefone do aprovador (' . self::pendenciaApprover() . ' sem phone/mobile válido no GLPI)'];
-            }
             $txt = self::renderTxt('lembrete', [
                 'total'            => (string)$total,
                 'pendentes'        => (string)$totP,
@@ -848,12 +875,33 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 'data'             => date('d/m/Y H:i'),
             ]);
             if ($txt === null || $txt === '') {
-                self::markSent(0, $milestone, $phone, false, 'template vazio');
+                foreach ($recipients as $rcp) {
+                    self::markSent(0, self::lembreteMilestone($milestone, (string)$rcp), '', false, 'template vazio');
+                }
                 return ['ok' => false, 'error' => 'template vazio'];
             }
-            $res = self::evoSend($phone, $txt, 20);
-            self::markSent(0, $milestone, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
-            $lemOut = $res + ['phone' => $phone, 'total' => $total];
+            $sent = 0; $failed = []; $phones = []; $lastRes = ['ok' => false, 'error' => 'nada enviado'];
+            foreach ($recipients as $rcp) {
+                $rcp = (string)$rcp;
+                $ms = self::lembreteMilestone($milestone, $rcp);
+                if (!$forceResend && self::alreadySent(0, $ms)) continue;
+                $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($rcp));
+                if ($phone === '') {
+                    self::markSent(0, $ms, '', false, 'sem telefone do aprovador');
+                    $failed[] = $rcp . ' (sem phone/mobile válido no GLPI)';
+                    continue;
+                }
+                $res = self::evoSend($phone, $txt, 20);
+                self::markSent(0, $ms, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+                $phones[] = $phone;
+                $lastRes = $res;
+                if (!empty($res['ok'])) $sent++;
+                else $failed[] = $rcp . ': ' . ($res['error'] ?? 'falha');
+            }
+            if ($sent <= 0 && empty($failed)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
+            if ($sent <= 0) return ['ok' => false, 'error' => 'sem telefone do aprovador (' . implode('; ', $failed) . ')'];
+            $lemOut = $lastRes + ['phone' => implode(',', $phones), 'phones' => $phones, 'total' => $total, 'sent' => $sent];
+            if (!empty($failed)) $lemOut['partial_fail'] = $failed;
             } finally {
                 try { $DB->releaseLock($lemLock); } catch (Throwable $e2) {}
             }
@@ -878,7 +926,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             global $DB;
             if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) return;
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
-            if (self::alreadySent(0, $milestone)) return;
+            $allSent = true;
+            foreach (self::lembreteRecipients() as $rcp) {
+                if (!self::alreadySent(0, self::lembreteMilestone($milestone, (string)$rcp))) { $allSent = false; break; }
+            }
+            if ($allSent) return;
             self::sendLembrete($slot);
         } catch (Throwable $e) {}
     }
@@ -890,7 +942,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      */
     static function diagnoseLembrete(): array {
         global $DB;
-        $out = ['now' => date('d/m/Y H:i:s'), 'approver' => self::pendenciaApprover()];
+        $out = ['now' => date('d/m/Y H:i:s'), 'approver' => self::pendenciaApprover(), 'recipients' => self::lembreteRecipients()];
         try {
             $norm = function ($s) {
                 $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
@@ -937,7 +989,17 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             unset($l);
             $out['lists'] = $lists;
             $out['totals'] = ['pend_chamado' => $totC, 'pendente' => $totP, 'andamento' => $totA, 'total' => $totC + $totP + $totA];
-            // telefone do aprovador (mascarado)
+            // telefones dos destinatários do lembrete (mascarados)
+            $out['phones'] = [];
+            foreach (self::lembreteRecipients() as $rcp) {
+                $phone = self::resolveApproverPhone((string)$rcp);
+                $out['phones'][(string)$rcp] = [
+                    'found'  => ($phone !== ''),
+                    'masked' => ($phone !== '') ? (substr($phone, 0, 4) . '****' . substr($phone, -2)) : '',
+                ];
+                if ($phone === '') $out['phones'][(string)$rcp]['hint'] = 'Cadastre phone/mobile no usuário ' . $rcp . ' (Administração > Usuários) ou no e-mail correspondente em glpi_useremails';
+            }
+            // compat: mantém chaves antigas apontando p/ o 1º destinatário
             $phone = self::resolveApproverPhone();
             $out['phone_found'] = ($phone !== '');
             $out['phone_masked'] = ($phone !== '') ? (substr($phone, 0, 4) . '****' . substr($phone, -2)) : '';
@@ -951,10 +1013,15 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $txt = self::renderTxt('lembrete', ['total' => '1', 'pendentes' => '1', 'andamento' => '1', 'pend_chamado' => '1', 'pendencia_chamado' => '1', 'detalhes' => '• Quadro X — Aguardando aprovação: 1 | Pendente: 1 | Andamento: 1', 'data' => date('d/m/Y H:i')]);
             $out['template_ok'] = ($txt !== null && $txt !== '');
             if (!$out['template_ok']) $out['template_hint'] = 'Arquivo templates_whatsapp/lembrete.txt ausente ou vazio';
-            // milestones de hoje
+            // milestones de hoje (por destinatário)
             foreach ([8, 10, 13] as $s) {
                 $ms = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$s, 2, '0', STR_PAD_LEFT);
-                $out['milestone_' . $s] = ['name' => $ms, 'already_sent' => self::alreadySent(0, $ms)];
+                $perRcp = [];
+                foreach (self::lembreteRecipients() as $rcp) {
+                    $m = self::lembreteMilestone($ms, (string)$rcp);
+                    $perRcp[(string)$rcp] = ['name' => $m, 'already_sent' => self::alreadySent(0, $m)];
+                }
+                $out['milestone_' . $s] = ['name' => $ms, 'already_sent' => self::alreadySent(0, $ms), 'per_recipient' => $perRcp];
             }
             // crontasks
             try {
@@ -970,7 +1037,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         try {
             $r = self::sendLembrete(8);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 8h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+                $task->log('KanPro lembrete 8h p/ ' . implode(',', self::lembreteRecipients()) . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
@@ -980,7 +1047,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         try {
             $r = self::sendLembrete(10);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 10h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+                $task->log('KanPro lembrete 10h p/ ' . implode(',', self::lembreteRecipients()) . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
@@ -1000,7 +1067,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         try {
             $r = self::sendLembrete(13);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 13h p/ ' . self::pendenciaApprover() . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
+                $task->log('KanPro lembrete 13h p/ ' . implode(',', self::lembreteRecipients()) . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
