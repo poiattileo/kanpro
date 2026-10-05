@@ -190,6 +190,120 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return (bool)(self::lembreteBusinessCheck($ts)['business'] ?? true);
     }
 
+    /** Tabela de exceções do calendário (tirar do envio / forçar). Cria se não existir. */
+    static function ensureLembreteDaysTable(): void {
+        global $DB;
+        try {
+            if ($DB->tableExists('glpi_plugin_kanpro_lembrete_days')) return;
+            $sign = method_exists($DB, 'getSignedChar') ? '' : '';
+            $charset = 'utf8mb4'; $collation = 'utf8mb4_unicode_ci';
+            try {
+                global $CFG_GLPI;
+                if (!empty($CFG_GLPI['db_default_charset'])) $charset = $CFG_GLPI['db_default_charset'];
+                if (!empty($CFG_GLPI['db_default_collation'])) $collation = $CFG_GLPI['db_default_collation'];
+            } catch (Throwable $e) {}
+            $DB->doQuery("
+                CREATE TABLE `glpi_plugin_kanpro_lembrete_days` (
+                    `id`                INT NOT NULL AUTO_INCREMENT,
+                    `date`              DATE NOT NULL COMMENT 'YYYY-MM-DD',
+                    `mode`              VARCHAR(10) NOT NULL DEFAULT 'skip' COMMENT 'skip=tirar do envio, force=forcar envio',
+                    `reason`            VARCHAR(255) DEFAULT NULL,
+                    `users_id`          INT NOT NULL DEFAULT '0',
+                    `date_creation`     DATETIME DEFAULT NULL,
+                    `date_mod`          DATETIME DEFAULT NULL,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `uniq_date` (`date`)
+                ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+            ");
+        } catch (Throwable $e) {}
+    }
+
+    /** mode do dia: '' (automático) | 'skip' (tirado) | 'force' (forçado). Nunca joga exceção. */
+    static function lembreteDayOverride(string $ymd): string {
+        global $DB;
+        try {
+            $ymd = trim($ymd);
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) return '';
+            if (!$DB->tableExists('glpi_plugin_kanpro_lembrete_days')) return '';
+            $row = $DB->request(['SELECT' => ['mode'], 'FROM' => 'glpi_plugin_kanpro_lembrete_days', 'WHERE' => ['date' => $ymd], 'LIMIT' => 1])->current();
+            $m = trim(strtolower((string)($row['mode'] ?? '')));
+            return ($m === 'skip' || $m === 'force') ? $m : '';
+        } catch (Throwable $e) { return ''; }
+    }
+
+    /** Mapa YMD => mode p/ um intervalo (p/ o calendário do mês). */
+    static function lembreteDayOverrides(string $from, string $to): array {
+        global $DB;
+        $out = [];
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_lembrete_days')) return $out;
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) return $out;
+            foreach ($DB->request(['SELECT' => ['date', 'mode'], 'FROM' => 'glpi_plugin_kanpro_lembrete_days', 'WHERE' => ['date' => ['>=', $from], 'AND' => ['date' => ['<=', $to]]]]) as $r) {
+                // GLPI pode devolver DateTime ou string
+                $d = $r['date'] ?? '';
+                if ($d instanceof DateTimeInterface) $d = $d->format('Y-m-d');
+                else $d = substr((string)$d, 0, 10);
+                $m = trim(strtolower((string)($r['mode'] ?? '')));
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && ($m === 'skip' || $m === 'force')) $out[$d] = $m;
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+
+    /**
+     * Define exceção do dia: 'skip' (tirar do envio), 'force' (enviar mesmo se fds/feriado),
+     * ''/'auto' (voltar ao automático = apaga a linha). Retorna ['ok'=>bool].
+     * Nunca joga exceção.
+     */
+    static function setLembreteDayOverride(string $ymd, string $mode, string $reason = ''): array {
+        global $DB;
+        try {
+            $ymd = trim($ymd);
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) return ['ok' => false, 'error' => 'Data inválida (use YYYY-MM-DD)'];
+            [$yy, $mm, $dd] = array_map('intval', explode('-', $ymd));
+            if (!checkdate($mm, $dd, $yy)) return ['ok' => false, 'error' => 'Data inválida'];
+            $mode = trim(strtolower($mode));
+            if (in_array($mode, ['', 'auto', 'clear', 'none'], true)) $mode = '';
+            if ($mode !== '' && $mode !== 'skip' && $mode !== 'force') return ['ok' => false, 'error' => "mode inválido (use skip, force ou auto)"];
+            self::ensureLembreteDaysTable();
+            if (!$DB->tableExists('glpi_plugin_kanpro_lembrete_days')) return ['ok' => false, 'error' => 'Tabela indisponível'];
+            $uid = 0;
+            try { $uid = (int)Session::getLoginUserID(); } catch (Throwable $e) {}
+            $now = date('Y-m-d H:i:s');
+            if ($mode === '') {
+                try { $DB->delete('glpi_plugin_kanpro_lembrete_days', ['date' => $ymd]); } catch (Throwable $e) {}
+                return ['ok' => true, 'date' => $ymd, 'mode' => ''];
+            }
+            $found = null;
+            try {
+                $found = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_lembrete_days', 'WHERE' => ['date' => $ymd], 'LIMIT' => 1])->current();
+            } catch (Throwable $e) {}
+            if (!empty($found['id'])) {
+                $DB->update('glpi_plugin_kanpro_lembrete_days', ['mode' => $mode, 'reason' => mb_substr($reason, 0, 255), 'users_id' => $uid, 'date_mod' => $now], ['id' => (int)$found['id']]);
+            } else {
+                $DB->insert('glpi_plugin_kanpro_lembrete_days', ['date' => $ymd, 'mode' => $mode, 'reason' => mb_substr($reason, 0, 255), 'users_id' => $uid, 'date_creation' => $now, 'date_mod' => $now]);
+            }
+            return ['ok' => true, 'date' => $ymd, 'mode' => $mode];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /** Aplica overrides em lote. $dates = [ymd...]. Retorna ['ok'=>bool,'applied'=>int]. */
+    static function setLembreteDayOverrides(array $dates, string $mode, string $reason = ''): array {
+        $applied = 0; $errors = [];
+        $seen = [];
+        foreach ($dates as $d) {
+            $d = substr(trim((string)$d), 0, 10);
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) || isset($seen[$d])) continue;
+            $seen[$d] = true;
+            $r = self::setLembreteDayOverride($d, $mode, $reason);
+            if (!empty($r['ok'])) $applied++;
+            else $errors[] = $d . ': ' . ($r['error'] ?? 'falha');
+        }
+        return ['ok' => ($applied > 0), 'applied' => $applied, 'errors' => $errors];
+    }
+
     /**
      * Calendário do lembrete p/ o modal (board.php): dias do mês com
      * business/reason + já enviado em cada turno (8/10/13).
@@ -205,11 +319,16 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $firstTs = strtotime(sprintf('%04d-%02d-01', $y, $mo));
             $daysInMonth = (int)date('t', $firstTs);
             $today = date('Y-m-d');
+            $from = sprintf('%04d-%02d-01', $y, $mo);
+            $to = sprintf('%04d-%02d-%02d', $y, $mo, (int)date('t', $firstTs));
+            $overrides = self::lembreteDayOverrides($from, $to);
             $days = [];
             for ($d = 1; $d <= $daysInMonth; $d++) {
                 $ymd = sprintf('%04d-%02d-%02d', $y, $mo, $d);
                 $ts = strtotime($ymd);
                 $biz = self::lembreteBusinessCheck($ts);
+                $ov = $overrides[$ymd] ?? '';
+                $willSend = ($ov === 'skip') ? false : (($ov === 'force') ? true : (bool)($biz['business'] ?? true));
                 $slots = [];
                 foreach ([8, 10, 13] as $s) {
                     $base = 'lembrete_' . $ymd . '_' . str_pad((string)$s, 2, '0', STR_PAD_LEFT);
@@ -232,6 +351,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'ymd' => $ymd, 'day' => $d, 'dow' => (int)date('N', $ts),
                     'business' => (bool)($biz['business'] ?? true),
                     'reason' => (string)($biz['reason'] ?? ''),
+                    'override' => $ov,
+                    'will_send' => $willSend,
                     'is_today' => ($ymd === $today),
                     'is_past' => ($ymd < $today),
                     'is_future' => ($ymd > $today),
@@ -946,7 +1067,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /**
      * Lembrete 8h/10h/13h: quantos cards há nas listas Pendência Chamado, Pendente e
      * Em Andamento (todos os quadros ativos). Só envia se total > 0.
-     * Só em dias úteis (seg-sex, sem feriado) — fim de semana/feriado não envia.
+     * Só em dias úteis (seg-sex, sem feriado) salvo exceção do calendário (force),
+     * e nunca em dia tirado do envio no calendário (skip) — forceResend ignora tudo.
      * Anti-duplicado por dia+turno+destinatário (milestone lembrete_Y-m-d_08 / _10 / _13).
      * Destinatários fixos = lembreteRecipients() (cristian + leonardo).
      * Nunca joga exceção.
@@ -958,8 +1080,12 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             if ($slot === null || !in_array($slot, [8, 9, 10, 13], true)) $slot = ($hour < 9) ? 8 : (($hour < 12) ? 10 : 13);
             $forceResend = !empty($opts['forceResend']);
             if (!$forceResend) {
-                $biz = self::lembreteBusinessCheck();
-                if (empty($biz['business'])) return ['ok' => false, 'error' => 'dia não útil (' . ($biz['reason'] ?? '') . ' ' . ($biz['date'] ?? '') . ') — lembrete só em dias úteis'];
+                $ov = self::lembreteDayOverride(date('Y-m-d'));
+                if ($ov === 'skip') return ['ok' => false, 'error' => 'dia tirado do envio no calendário (' . date('Y-m-d') . ') — volte ao automático para enviar'];
+                if ($ov !== 'force') {
+                    $biz = self::lembreteBusinessCheck();
+                    if (empty($biz['business'])) return ['ok' => false, 'error' => 'dia não útil (' . ($biz['reason'] ?? '') . ' ' . ($biz['date'] ?? '') . ') — lembrete só em dias úteis'];
+                }
             }
             $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
             $recipients = self::lembreteRecipients();
@@ -1097,7 +1223,9 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      */
     static function maybeSendLembreteFallback(): void {
         try {
-            if (!self::isLembreteBusinessDay()) return;
+            $ovToday = self::lembreteDayOverride(date('Y-m-d'));
+            if ($ovToday === 'skip') return;
+            if ($ovToday !== 'force' && !self::isLembreteBusinessDay()) return;
             $h = (int)date('G');
             $slot = ($h === 8) ? 8 : (($h === 10) ? 10 : (($h === 13) ? 13 : 0));
             if ($slot <= 0) return;

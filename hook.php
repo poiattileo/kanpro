@@ -634,6 +634,23 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- LEMBRETE DAYS (exceções do calendário: skip=tirar do envio, force=forçar) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_lembrete_days')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_lembrete_days` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `date`                        DATE         NOT NULL COMMENT 'YYYY-MM-DD',
+                `mode`                        VARCHAR(10)  NOT NULL DEFAULT 'skip' COMMENT 'skip=tirar do envio, force=forcar envio',
+                `reason`                      VARCHAR(255) DEFAULT NULL,
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_date` (`date`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     // --- MAINTENANCE ZAPLOG (anti-duplicado dos WhatsApps automáticos) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) {
         $DB->doQuery("
@@ -667,6 +684,7 @@ function plugin_kanpro_uninstall(): bool {
         'glpi_plugin_kanpro_maintenance_models',
         'glpi_plugin_kanpro_rules',
         'glpi_plugin_kanpro_chamado_updates',
+        'glpi_plugin_kanpro_lembrete_days',
         'glpi_plugin_kanpro_maintenance_zaplog',
         'glpi_plugin_kanpro_board_groups_items',
         'glpi_plugin_kanpro_board_groups',

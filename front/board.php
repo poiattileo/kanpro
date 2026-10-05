@@ -1005,20 +1005,22 @@ window.KanproGroups = (function(){
   #klem-overlay *, #klem-overlay *::before, #klem-overlay *::after { box-sizing: border-box; }
   #klem-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .klem-dow { font-size: 11px; font-weight: 800; color: #5e6c84; text-align: center; padding: 4px 0; }
-  .klem-day { min-height: 64px; border-radius: 8px; padding: 6px; cursor: pointer; border: 1px solid transparent; text-align: left; background: #fff; }
+  .klem-day { min-height: 68px; border-radius: 8px; padding: 6px; cursor: pointer; border: 1px solid transparent; text-align: left; background: #fff; position: relative; }
   .klem-day:hover { filter: brightness(.96); }
-  .klem-day .d { font-size: 14px; font-weight: 800; }
+  .klem-day .d { font-size: 14px; font-weight: 800; display: flex; justify-content: space-between; align-items: center; }
   .klem-day .t { font-size: 10px; margin-top: 2px; line-height: 1.3; }
   .klem-ok { background: #e3fcef !important; border-color: #abf5d1 !important; color: #006644; }
   .klem-no { background: #f4f5f7 !important; border-color: #dfe1e6 !important; color: #97a0af; }
+  .klem-skip { background: #ffebe6 !important; border-color: #ff8b6f !important; color: #bf2600 !important; }
+  .klem-force { background: #e6fcff !important; border-color: #00b8d9 !important; color: #0052cc !important; }
   .klem-today { outline: 2px solid #0079bf !important; outline-offset: 1px; }
-  .klem-sel { outline: 2px solid #172b4d !important; outline-offset: 1px; }
+  .klem-sel { outline: 3px solid #172b4d !important; outline-offset: 1px; }
 </style>
 <div id="klem-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;align-items:center;justify-content:center;padding:16px">
-  <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);width:min(860px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
+  <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);width:min(880px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #dfe1e6;gap:8px;flex-wrap:wrap">
       <strong>📅 Lembretes — dias de envio</strong>
-      <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <button onclick="KanproLembrete.nav(-1)" class="btn btn-sm btn-outline-secondary">‹</button>
         <button onclick="KanproLembrete.today()" class="btn btn-sm btn-outline-secondary">Hoje</button>
         <button onclick="KanproLembrete.nav(1)" class="btn btn-sm btn-outline-secondary">›</button>
@@ -1027,8 +1029,13 @@ window.KanproGroups = (function(){
       </div>
     </div>
     <div style="padding:12px 16px;overflow-y:auto">
-      <div style="font-size:12px;color:#5e6c84;margin-bottom:8px">Verde = <strong>vai enviar 8h/10h/13h</strong> (se houver cards, só dias úteis). Cinza = <strong>não envia</strong> (fim de semana/feriado). Clique num dia para <strong>enviar ou não</strong> (envio manual só no dia atual).</div>
+      <div style="font-size:12px;color:#5e6c84;margin-bottom:4px">🟩 vai enviar (dia útil) · ⬜ não envia (fds/feriado) · 🟥 <strong>tirado do envio</strong> por você · 🟦 <strong>forçado</strong> por você. Clique para selecionar <strong>1 ou vários dias</strong> (Shift clica p/ intervalo).</div>
       <div style="font-size:11px;color:#5e6c84;margin-bottom:8px" id="klem-rcp"></div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <button onclick="KanproLembrete.selectWorkdays()" class="btn btn-sm btn-outline-secondary">Selecionar dias úteis do mês</button>
+        <button onclick="KanproLembrete.clearSel()" class="btn btn-sm btn-outline-secondary">Limpar seleção</button>
+        <span id="klem-selcount" style="font-size:12px;color:#172b4d;font-weight:700;align-self:center"></span>
+      </div>
       <div id="klem-grid-head" style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:4px">
         <div class="klem-dow">SEG</div><div class="klem-dow">TER</div><div class="klem-dow">QUA</div><div class="klem-dow">QUI</div><div class="klem-dow">SEX</div><div class="klem-dow">SÁB</div><div class="klem-dow">DOM</div>
       </div>
@@ -1044,21 +1051,25 @@ window.KanproGroups = (function(){
 window.KanproLembrete = (function(){
   var ajaxUrl = <?php echo json_encode($__kpb_ajax); ?>;
   var csrf = <?php echo json_encode($__kpb_csrf); ?>;
-  var state = { month: '', data: null, selected: '' };
+  var state = { month: '', data: null, sel: {}, last: '' };
   var MON = { '01':'janeiro','02':'fevereiro','03':'março','04':'abril','05':'maio','06':'junho','07':'julho','08':'agosto','09':'setembro','10':'outubro','11':'novembro','12':'dezembro' };
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]; }); }
   function ym(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
-  function shift(month, n){
-    var p = month.split('-'); var d = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, 1);
-    d.setMonth(d.getMonth()+n); return ym(d);
-  }
+  function shift(month, n){ var p = month.split('-'); var d = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, 1); d.setMonth(d.getMonth()+n); return ym(d); }
+  function selList(){ return Object.keys(state.sel).filter(function(k){return state.sel[k];}).sort(); }
   function get(params){
     var q = new URLSearchParams(params || {}); q.set('action','zap_lembrete_calendar');
     return fetch(ajaxUrl + '?' + q.toString(), { credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} })
       .then(function(r){ return r.text(); }).then(function(t){ try { return JSON.parse(t); } catch(e){ return {success:false,msg:'Resposta inesperada'}; } });
   }
-  function post(slot, force){
+  function postSend(slot, force){
     var fd = new FormData(); fd.append('action','zap_lembrete_send'); fd.append('slot', String(slot)); if (force) fd.append('force','1');
+    if (csrf) fd.append('_glpi_csrf_token', csrf);
+    return fetch(ajaxUrl, { method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest','X-Glpi-Csrf-Token':csrf} })
+      .then(function(r){ return r.text(); }).then(function(t){ try { return JSON.parse(t); } catch(e){ return {success:false,msg:'Resposta inesperada'}; } });
+  }
+  function postDays(dates, mode){
+    var fd = new FormData(); fd.append('action','zap_lembrete_day_set'); fd.append('dates', JSON.stringify(dates)); fd.append('mode', mode);
     if (csrf) fd.append('_glpi_csrf_token', csrf);
     return fetch(ajaxUrl, { method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest','X-Glpi-Csrf-Token':csrf} })
       .then(function(r){ return r.text(); }).then(function(t){ try { return JSON.parse(t); } catch(e){ return {success:false,msg:'Resposta inesperada'}; } });
@@ -1072,74 +1083,114 @@ window.KanproLembrete = (function(){
       state.data = res.calendar; render();
     });
   }
+  function dayByYmd(ymd){ var ds = (state.data&&state.data.days)||[]; for (var i=0;i<ds.length;i++) if (ds[i].ymd===ymd) return ds[i]; return null; }
   function render(){
     var cal = state.data; if (!cal) return;
     var p = (cal.month||'').split('-');
     document.getElementById('klem-title').textContent = (MON[p[1]]||'') + ' de ' + (p[0]||'');
     document.getElementById('klem-rcp').textContent = 'Para: ' + (cal.recipients||[]).join(' + ');
+    var n = selList().length;
+    document.getElementById('klem-selcount').textContent = n ? (n + ' dia(s) selecionado(s)') : '';
     var g = document.getElementById('klem-grid'); var html = '';
     var days = cal.days || [];
-    // deslocamento: grade começa na segunda (N=1..7)
     var firstDow = days.length ? days[0].dow : 1;
     for (var i=1;i<firstDow;i++) html += '<div></div>';
     days.forEach(function(dy){
-      var cls = dy.business ? 'klem-day klem-ok' : 'klem-day klem-no';
+      var will = (typeof dy.will_send !== 'undefined') ? !!dy.will_send : !!dy.business;
+      var cls = 'klem-day ' + (will ? 'klem-ok' : 'klem-no');
+      if (dy.override === 'skip') cls = 'klem-day klem-skip';
+      else if (dy.override === 'force') cls = 'klem-day klem-force';
       if (dy.is_today) cls += ' klem-today';
-      if (state.selected === dy.ymd) cls += ' klem-sel';
+      if (state.sel[dy.ymd]) cls += ' klem-sel';
       var marks = '';
-      ['8','10','13'].forEach(function(s){
-        var sl = dy.slots && dy.slots[s];
-        if (sl && sl.sent_any) marks += ' ✓'+s+'h';
-      });
-      var sub = dy.business ? (marks ? '<div class="t">'+esc(marks.trim()+' enviado')+'</div>' : '<div class="t">vai enviar</div>')
-        : '<div class="t">'+esc(dy.reason||'não envia')+'</div>';
-      html += '<button class="'+cls+'" onclick="KanproLembrete.select(\''+dy.ymd+'\')" title="'+esc(dy.ymd+(dy.reason?' — '+dy.reason:''))+'"><div class="d">'+dy.day+'</div>'+sub+'</button>';
+      ['8','10','13'].forEach(function(s){ var sl = dy.slots && dy.slots[s]; if (sl && sl.sent_any) marks += ' ✓'+s+'h'; });
+      var flag = dy.override === 'skip' ? ' 🚫' : (dy.override === 'force' ? ' ⭐' : '');
+      var sub;
+      if (dy.override === 'skip') sub = '<div class="t">tirado do envio'+esc(marks)+'</div>';
+      else if (dy.override === 'force') sub = '<div class="t">forçado'+esc(marks)+'</div>';
+      else sub = will ? (marks ? '<div class="t">'+esc(marks.trim()+' enviado')+'</div>' : '<div class="t">vai enviar</div>') : '<div class="t">'+esc(dy.reason||'não envia')+'</div>';
+      var tip = dy.ymd + (dy.override==='skip' ? ' — tirado do envio (clique p/ voltar)' : (dy.override==='force' ? ' — envio forçado' : (dy.reason ? ' — '+dy.reason : '')));
+      html += '<button class="'+cls+'" onclick="KanproLembrete.toggle(event,\''+dy.ymd+'\')" title="'+esc(tip)+'"><div class="d"><span>'+dy.day+'</span><span>'+flag+'</span></div>'+sub+'</button>';
     });
     g.innerHTML = html;
-    if (state.selected) renderDetail();
-    else {
-      var t = (cal.days||[]).filter(function(d){return d.is_today;})[0];
-      document.getElementById('klem-detail').innerHTML = t ? '<span style="color:#5e6c84">Clique no dia '+esc(t.ymd)+' (hoje) para enviar ou não.</span>' : '';
-    }
+    renderDetail();
   }
   function renderDetail(){
-    var cal = state.data; if (!cal) return;
-    var dy = (cal.days||[]).filter(function(d){return d.ymd===state.selected;})[0];
-    var box = document.getElementById('klem-detail'); if (!dy) { box.innerHTML=''; return; }
-    var wd = ['','segunda','terça','quarta','quinta','sexta','sábado','domingo'][dy.dow] || '';
-    var h = '<div style="font-weight:800;margin-bottom:4px">'+esc(dy.day+'/'+cal.month.slice(5)+'/'+cal.month.slice(0,4)+' — '+wd)+'</div>';
-    h += dy.business
-      ? '<div style="color:#006644;margin-bottom:6px">🟩 Vai enviar 8h/10h/13h (se houver cards).</div>'
-      : '<div style="color:#97a0af;margin-bottom:6px">⬜ Não envia: '+esc(dy.reason||'dia não útil')+'.</div>';
-    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">';
-    ['8','10','13'].forEach(function(s){
-      var sl = dy.slots && dy.slots[s];
-      var st = (sl && sl.sent_any) ? '✓ enviado' : 'não enviado';
-      h += '<span style="background:#f4f5f7;border:1px solid #dfe1e6;border-radius:12px;padding:2px 10px;font-size:12px">'+s+'h: '+st+'</span>';
-    });
-    h += '</div>';
-    if (!dy.is_today) {
-      h += '<div style="color:#5e6c84;font-size:12px">Envio manual só no dia atual — volte aqui neste dia para clicar em enviar ou deixar o automático fazer.</div>';
+    var box = document.getElementById('klem-detail');
+    var list = selList();
+    if (!list.length) {
+      var t = ((state.data&&state.data.days)||[]).filter(function(d){return d.is_today;})[0];
+      box.innerHTML = t ? '<span style="color:#5e6c84">Clique em um ou vários dias para selecionar. <strong>Shift+clique</strong> seleciona o intervalo.</span>' : '';
+      return;
+    }
+    var h = '<div style="font-weight:800;margin-bottom:6px">'+list.length+' dia(s): '+esc(list.join(', '))+'</div>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+      + '<button onclick="KanproLembrete.applySel(\'skip\')" class="btn btn-sm" style="background:#ff5630;color:#fff" title="Automático pula estes dias">🚫 Tirar do envio</button>'
+      + '<button onclick="KanproLembrete.applySel(\'force\')" class="btn btn-sm" style="background:#00b8d9;color:#fff" title="Envia mesmo se fds/feriado">⭐ Forçar envio</button>'
+      + '<button onclick="KanproLembrete.applySel(\'auto\')" class="btn btn-sm btn-outline-secondary" title="Volta à regra (dia útil)">↩ Voltar ao automático</button>'
+      + '<button onclick="KanproLembrete.clearSel()" class="btn btn-sm btn-outline-secondary">Limpar seleção</button>'
+      + '<span id="klem-daymsg" style="font-size:12px;align-self:center"></span></div>';
+    if (list.length === 1) {
+      var dy = dayByYmd(list[0]);
+      if (dy) {
+        var wd = ['','segunda','terça','quarta','quinta','sexta','sábado','domingo'][dy.dow] || '';
+        var will = (typeof dy.will_send !== 'undefined') ? !!dy.will_send : !!dy.business;
+        h += '<div style="font-size:12px;color:#5e6c84;margin-bottom:6px">'+esc(dy.ymd+' — '+wd)+' · '+(dy.override==='skip'?'🚫 tirado do envio':(dy.override==='force'?'⭐ forçado':(will?'🟩 vai enviar':'⬜ não envia'+(dy.reason?': '+dy.reason:''))))+'</div>';
+        h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">';
+        ['8','10','13'].forEach(function(s){ var sl = dy.slots && dy.slots[s]; var st = (sl && sl.sent_any) ? '✓ enviado' : 'não enviado'; h += '<span style="background:#f4f5f7;border:1px solid #dfe1e6;border-radius:12px;padding:2px 10px;font-size:12px">'+s+'h: '+st+'</span>'; });
+        h += '</div>';
+        if (dy.is_today) {
+          h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+            + '<button onclick="KanproLembrete.send(8)" class="btn btn-sm btn-primary">Enviar 8h hoje</button>'
+            + '<button onclick="KanproLembrete.send(10)" class="btn btn-sm btn-primary">Enviar 10h hoje</button>'
+            + '<button onclick="KanproLembrete.send(13)" class="btn btn-sm btn-primary">Enviar 13h hoje</button>'
+            + '<label style="font-size:12px;color:#5e6c84;display:flex;gap:4px;align-items:center"><input type="checkbox" id="klem-force"> forçar</label>'
+            + '<span id="klem-sendmsg" style="font-size:12px"></span></div>';
+        } else {
+          h += '<div style="color:#5e6c84;font-size:12px">Envio manual só no dia atual — para outros dias use Tirar/Forçar/Voltar acima (vale p/ o automático).</div>';
+        }
+      }
     } else {
-      h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">'
-        + '<button onclick="KanproLembrete.send(8)" class="btn btn-sm btn-primary">Enviar 8h</button>'
-        + '<button onclick="KanproLembrete.send(10)" class="btn btn-sm btn-primary">Enviar 10h</button>'
-        + '<button onclick="KanproLembrete.send(13)" class="btn btn-sm btn-primary">Enviar 13h</button>'
-        + '<label style="font-size:12px;color:#5e6c84;display:flex;gap:4px;align-items:center"><input type="checkbox" id="klem-force"> forçar (reenvia / envia mesmo se dia não útil)</label>'
-        + '<span id="klem-sendmsg" style="font-size:12px"></span></div>';
+      h += '<div style="color:#5e6c84;font-size:12px">Ação em lote nos '+list.length+' dias acima. Envio manual (8h/10h/13h) só aparece com 1 dia selecionado e sendo hoje.</div>';
     }
     box.innerHTML = h;
   }
   return {
-    open: function(){ document.getElementById('klem-overlay').style.display='flex'; var d=new Date(); state.selected=''; load(ym(d)); },
+    open: function(){ document.getElementById('klem-overlay').style.display='flex'; var d=new Date(); state.sel={}; state.last=''; load(ym(d)); },
     close: function(){ document.getElementById('klem-overlay').style.display='none'; },
     nav: function(n){ load(shift(state.month||ym(new Date()), n)); },
-    today: function(){ state.selected=''; load(ym(new Date())); },
-    select: function(ymd){ state.selected = ymd; render(); },
+    today: function(){ state.sel={}; state.last=''; load(ym(new Date())); },
+    clearSel: function(){ state.sel={}; state.last=''; render(); },
+    selectWorkdays: function(){
+      state.sel={};
+      ((state.data&&state.data.days)||[]).forEach(function(dy){ var will=(typeof dy.will_send!=='undefined')?!!dy.will_send:!!dy.business; if (will && !dy.is_past) state.sel[dy.ymd]=true; });
+      render();
+    },
+    toggle: function(ev, ymd){
+      ev = ev || window.event;
+      if (ev && ev.shiftKey && state.last && dayByYmd(state.last) && dayByYmd(ymd)) {
+        var ds=(state.data&&state.data.days)||[]; var a=-1,b=-1;
+        for (var i=0;i<ds.length;i++){ if (ds[i].ymd===state.last) a=i; if (ds[i].ymd===ymd) b=i; }
+        if (a>=0 && b>=0){ var s=Math.min(a,b),e=Math.max(a,b); for (var j=s;j<=e;j++) state.sel[ds[j].ymd]=true; state.last=ymd; render(); return; }
+      }
+      if (state.sel[ymd]) delete state.sel[ymd]; else state.sel[ymd]=true;
+      state.last = ymd; render();
+    },
+    applySel: function(mode){
+      var list = selList(); if (!list.length) return;
+      var m = document.getElementById('klem-daymsg'); if (m){ m.style.color='#5e6c84'; m.textContent='Salvando...'; }
+      postDays(list, mode).then(function(res){
+        if (m){
+          if (res && res.success){ m.style.color='#006644'; m.textContent='✓ Aplicado em '+(res.applied||list.length)+' dia(s)'; }
+          else { m.style.color='#bf2600'; m.textContent='✕ '+((res&&res.msg)||'Falha'); }
+        }
+        load(state.month);
+      });
+    },
     send: function(slot){
       var f = document.getElementById('klem-force'); var force = f && f.checked;
       var m = document.getElementById('klem-sendmsg'); if (m) { m.style.color='#5e6c84'; m.textContent='Enviando...'; }
-      post(slot, force).then(function(res){
+      postSend(slot, force).then(function(res){
         if (m) {
           if (res && res.success) { m.style.color='#006644'; m.textContent='✓ Enviado (total '+(res.total||'?')+')'; }
           else { m.style.color='#bf2600'; m.textContent='✕ ' + ((res&&res.msg)||'Falha'); }

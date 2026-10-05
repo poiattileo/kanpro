@@ -789,6 +789,15 @@ function kanpro_migrate_schema_once() {
                 $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_maintenance_zaplog` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `plugin_kanpro_cards_id` INT {$sign} NOT NULL DEFAULT '0', `milestone` VARCHAR(30) NOT NULL DEFAULT '', `phone` VARCHAR(30) DEFAULT NULL, `success` TINYINT(1) NOT NULL DEFAULT '0', `detail` VARCHAR(255) DEFAULT NULL, `date_creation` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`), KEY `milestone` (`milestone`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
             } catch (Throwable $e) {}
         }
+        // exceções do calendário do lembrete (tirar do envio / forçar)
+        if (!$DB->tableExists('glpi_plugin_kanpro_lembrete_days')) {
+            try {
+                $charset = DBConnection::getDefaultCharset();
+                $collation = DBConnection::getDefaultCollation();
+                $sign = DBConnection::getDefaultPrimaryKeySignOption();
+                $DB->doQuery("CREATE TABLE `glpi_plugin_kanpro_lembrete_days` (`id` INT {$sign} NOT NULL AUTO_INCREMENT, `date` DATE NOT NULL, `mode` VARCHAR(10) NOT NULL DEFAULT 'skip', `reason` VARCHAR(255) DEFAULT NULL, `users_id` INT {$sign} NOT NULL DEFAULT '0', `date_creation` DATETIME DEFAULT NULL, `date_mod` DATETIME DEFAULT NULL, PRIMARY KEY (`id`), UNIQUE KEY `uniq_date` (`date`)) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            } catch (Throwable $e) {}
+        }
         // atualizações do fluxo Chamado (Em Andamento): autocura sem reinstalar (reinstalar NÃO apaga nada,
         // só desinstalar apaga — mas aqui nem precisa: cria sozinha no próximo request)
         if (!$DB->tableExists('glpi_plugin_kanpro_chamado_updates')) {
@@ -4263,6 +4272,32 @@ switch ($action) {
             $r = PluginKanproMaintenanceZap::sendLembrete($slot, $force ? ['forceResend' => true] : []);
             if (!empty($r['ok'])) jexit(['success'=>true,'slot'=>$slot,'total'=>($r['total'] ?? 0),'phone'=>($r['phone'] ?? '')]);
             jexit(['success'=>false,'slot'=>$slot,'msg'=>($r['error'] ?? 'Falha ao enviar')]);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
+
+    case 'zap_lembrete_day_set':
+        // Exceção do calendário: tirar do envio / forçar / voltar ao automático (1 ou N dias).
+        // params POST: date=YYYY-MM-DD | dates=[...]/"a,b" , mode=skip|force|auto, reason=texto.
+        try {
+            if (!Session::haveRight('plugin_kanpro', UPDATE)) jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro)']);
+            if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
+            $mode = trim(strtolower((string)($_POST['mode'] ?? $_GET['mode'] ?? '')));
+            $reason = trim((string)($_POST['reason'] ?? ''));
+            $dates = [];
+            if (isset($_POST['dates']) || isset($_GET['dates'])) {
+                $raw = $_POST['dates'] ?? $_GET['dates'];
+                if (is_array($raw)) $dates = $raw;
+                else {
+                    $dec = json_decode((string)$raw, true);
+                    $dates = is_array($dec) ? $dec : preg_split('/[\s,;]+/', (string)$raw);
+                }
+            }
+            if (isset($_POST['date']) || isset($_GET['date'])) $dates[] = $_POST['date'] ?? $_GET['date'];
+            $dates = array_values(array_unique(array_filter(array_map(function($d){ $d = substr(trim((string)$d), 0, 10); return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : ''; }, $dates))));
+            if (empty($dates)) jexit(['success'=>false,'msg'=>'Nenhuma data válida (use YYYY-MM-DD)']);
+            if (count($dates) > 62) jexit(['success'=>false,'msg'=>'Máximo 62 dias por vez']);
+            $r = PluginKanproMaintenanceZap::setLembreteDayOverrides($dates, $mode, $reason);
+            if (!empty($r['ok'])) jexit(['success'=>true,'applied'=>($r['applied'] ?? 0),'mode'=>$mode,'errors'=>($r['errors'] ?? [])]);
+            jexit(['success'=>false,'msg'=>implode('; ', ($r['errors'] ?? ['Nada aplicado']))]);
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
 
     case 'get_history':
