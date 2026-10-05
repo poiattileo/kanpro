@@ -4241,6 +4241,16 @@ switch ($action) {
             jexit(['success'=>true,'diagnose'=>$d]);
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
 
+    case 'zap_lembrete_calendar':
+        // Calendário do lembrete p/ o modal (board.php): dias úteis + já enviados. Leitura (READ basta).
+        try {
+            if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
+            $month = trim((string)($_REQUEST['month'] ?? ''));
+            if (!preg_match('/^\d{4}-\d{2}$/', $month)) $month = date('Y-m');
+            $cal = PluginKanproMaintenanceZap::lembreteCalendar($month);
+            jexit(['success'=>true,'calendar'=>$cal]);
+        } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
+
     case 'zap_lembrete_send':
         // Envio manual do lembrete (ignora a trava de horário, útil p/ testar às 14h o slot das 13h).
         // params: slot=8|10|13 (padrão: pelo horário), force=1 reenvia mesmo se já enviado hoje.

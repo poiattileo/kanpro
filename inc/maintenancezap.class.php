@@ -190,6 +190,67 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return (bool)(self::lembreteBusinessCheck($ts)['business'] ?? true);
     }
 
+    /**
+     * Calendário do lembrete p/ o modal (board.php): dias do mês com
+     * business/reason + já enviado em cada turno (8/10/13).
+     * Nunca joga exceção. $month = YYYY-MM (padrão: mês atual).
+     */
+    static function lembreteCalendar(?string $month = null): array {
+        try {
+            $month = trim((string)($month ?? ''));
+            if (!preg_match('/^(\d{4})-(\d{2})$/', $month, $m)) $month = date('Y-m');
+            $y = (int)$m[1]; $mo = (int)$m[2];
+            if ($mo < 1 || $mo > 12) { $y = (int)date('Y'); $mo = (int)date('m'); $month = sprintf('%04d-%02d', $y, $mo); }
+            if ($y < 2020 || $y > 2100) { $y = (int)date('Y'); $mo = (int)date('m'); $month = sprintf('%04d-%02d', $y, $mo); }
+            $firstTs = strtotime(sprintf('%04d-%02d-01', $y, $mo));
+            $daysInMonth = (int)date('t', $firstTs);
+            $today = date('Y-m-d');
+            $days = [];
+            for ($d = 1; $d <= $daysInMonth; $d++) {
+                $ymd = sprintf('%04d-%02d-%02d', $y, $mo, $d);
+                $ts = strtotime($ymd);
+                $biz = self::lembreteBusinessCheck($ts);
+                $slots = [];
+                foreach ([8, 10, 13] as $s) {
+                    $base = 'lembrete_' . $ymd . '_' . str_pad((string)$s, 2, '0', STR_PAD_LEFT);
+                    $perRcp = [];
+                    $sentAny = false; $sentAll = true;
+                    try {
+                        foreach (self::lembreteRecipients() as $rcp) {
+                            $ms = self::lembreteMilestone($base, (string)$rcp);
+                            $sent = self::alreadySent(0, $ms);
+                            $perRcp[(string)$rcp] = $sent;
+                            if ($sent) $sentAny = true; else $sentAll = false;
+                        }
+                    } catch (Throwable $e) { $sentAll = false; }
+                    // compat: envio antigo gravava só a base (cristian) — conta como enviado
+                    try { if (!$sentAny && self::alreadySent(0, $base)) { $sentAny = true; } } catch (Throwable $e) {}
+                    if (empty($perRcp)) $sentAll = $sentAny;
+                    $slots[(string)$s] = ['sent_any' => $sentAny, 'sent_all' => $sentAll, 'per_recipient' => $perRcp];
+                }
+                $days[] = [
+                    'ymd' => $ymd, 'day' => $d, 'dow' => (int)date('N', $ts),
+                    'business' => (bool)($biz['business'] ?? true),
+                    'reason' => (string)($biz['reason'] ?? ''),
+                    'is_today' => ($ymd === $today),
+                    'is_past' => ($ymd < $today),
+                    'is_future' => ($ymd > $today),
+                    'slots' => $slots,
+                ];
+            }
+            $prev = date('Y-m', strtotime($month . '-01 -1 month'));
+            $next = date('Y-m', strtotime($month . '-01 +1 month'));
+            return [
+                'month' => $month, 'year' => $y, 'mon' => $mo,
+                'prev' => $prev, 'next' => $next, 'today' => $today,
+                'recipients' => self::lembreteRecipients(),
+                'days' => $days,
+            ];
+        } catch (Throwable $e) {
+            return ['month' => date('Y-m'), 'days' => [], 'error' => $e->getMessage()];
+        }
+    }
+
     static function templateDir(): ?string {
         $base = method_exists('Plugin', 'getPhpDir') ? Plugin::getPhpDir('kanpro') : (defined('GLPI_ROOT') ? GLPI_ROOT . '/plugins/kanpro' : null);
         if (!$base) return null;

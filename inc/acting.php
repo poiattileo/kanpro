@@ -539,6 +539,7 @@ if (!function_exists('kanpro_readonly_actions')) {
             'my_board_groups',
             'get_trash',
             'zap_lembrete_diagnose',
+            'zap_lembrete_calendar',
             'rule_list',
             'chamado_detail',
             'list_maintenance_models',
