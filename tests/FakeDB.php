@@ -109,12 +109,21 @@ class FakeKanproDB {
      * @param array<string,mixed> $where
      */
     public function delete_rows_for_test(string $table, array $where): void {
+        $this->delete($table, $where);
+    }
+
+    /**
+     * @param array<string,mixed> $where
+     */
+    public function delete(string $table, array $where): bool {
         if (!isset($this->tables[$table])) {
-            return;
+            return false;
         }
+        $before = count($this->tables[$table]['rows']);
         $this->tables[$table]['rows'] = array_values(array_filter(
             $this->tables[$table]['rows'],
             fn($row) => !self::matches($row, $where)
         ));
+        return count($this->tables[$table]['rows']) < $before;
     }
 }

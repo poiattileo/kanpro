@@ -700,6 +700,30 @@ function plugin_kanpro_install(): bool {
     }
     unset($__kp_seeds, $__kp_name, $__kp_value, $exists);
 
+    // --- ZAPQUEUE (fila de envios WhatsApp: produtor enfileira, cron zapqueue consome) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_zapqueue')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_zapqueue` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `kind`                        VARCHAR(30)  NOT NULL DEFAULT '',
+                `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `milestone`                   VARCHAR(30)  NOT NULL DEFAULT '' COMMENT 'chave anti-duplicado (igual zaplog)',
+                `phone`                       VARCHAR(30)  DEFAULT NULL,
+                `message`                     TEXT         DEFAULT NULL COMMENT 'texto final já renderizado',
+                `attempts`                    TINYINT(1)   NOT NULL DEFAULT '0',
+                `max_attempts`                TINYINT(1)   NOT NULL DEFAULT '5',
+                `status`                      VARCHAR(10)  NOT NULL DEFAULT 'pending' COMMENT 'pending,sending,done,failed',
+                `next_try_at`                 DATETIME     DEFAULT NULL,
+                `last_error`                  VARCHAR(255) DEFAULT NULL,
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `status_next` (`status`, `next_try_at`),
+                KEY `card_milestone` (`plugin_kanpro_cards_id`, `milestone`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::registerCron();
     return true;
@@ -712,6 +736,7 @@ function plugin_kanpro_uninstall(): bool {
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
 
     $tables = [
+        'glpi_plugin_kanpro_zapqueue',
         'glpi_plugin_kanpro_configs',
         'glpi_plugin_kanpro_maintenance_models',
         'glpi_plugin_kanpro_rules',

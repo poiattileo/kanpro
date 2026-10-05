@@ -11,7 +11,7 @@
     },
     "scripts": {
         "lint": "@php ci/lint.php",
-        "test": "@php tests/run.php && @php tests/cron-context.php",
+        "test": "@php tests/run.php && @php tests/queue.php && @php tests/cron-context.php",
         "secrets": "@php ci/check-secrets.php",
         "analyse": "vendor/bin/phpstan analyse --no-progress",
         "ci": [

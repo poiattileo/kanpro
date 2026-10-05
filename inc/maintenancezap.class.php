@@ -98,6 +98,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
 
     /** Milestone por destinatário (1º mantém base p/ compat com envios antigos) */
     static function lembreteMilestone(string $base, string $login): string {
+        return self::recipientMilestone($base, $login);
+    }
+
+    /** Sufixa a base por destinatário (cabe em 30 chars; aprovador mantém a base). */
+    static function recipientMilestone(string $base, string $login): string {
         $login = trim(strtolower((string)$login));
         if ($login === '' || $login === trim(strtolower(self::pendenciaApprover()))) return $base;
         // sufixo curto p/ caber no limite de 30 chars do zaplog (base tem 22)
@@ -596,27 +601,204 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /** POST /message/sendText/{instance} — retorna ['ok'=>bool,'error'=>?] */
     static function evoSend(string $phone, string $text, int $timeout = 20): array {
         try {
-            $cfg = self::evoConfig();
+            $cfg = static::evoConfig();
             if (!$cfg) return ['ok' => false, 'error' => 'EvolutionAPI não configurada (whatsappsimples)'];
             $endpoint = rtrim($cfg['server_url'], '/') . '/message/sendText/' . $cfg['instance_name'];
-            $ch = curl_init($endpoint);
-            curl_setopt_array($ch, [
-                CURLOPT_POST           => true,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'apikey: ' . $cfg['api_token']],
-                CURLOPT_POSTFIELDS     => json_encode(['number' => $phone, 'text' => $text, 'textMessage' => ['text' => $text]], JSON_UNESCAPED_UNICODE),
-                CURLOPT_TIMEOUT        => $timeout,
-            ]);
-            $resp = curl_exec($ch);
-            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $err  = curl_error($ch);
-            curl_close($ch);
+            $http = static::evoHttpPost($endpoint, ['Content-Type: application/json', 'apikey: ' . $cfg['api_token']], (string)json_encode(['number' => $phone, 'text' => $text, 'textMessage' => ['text' => $text]], JSON_UNESCAPED_UNICODE), $timeout);
+            $resp = $http['resp'];
+            $code = (int)$http['code'];
+            $err = (string)$http['err'];
             if ($resp === false) return ['ok' => false, 'error' => 'cURL: ' . $err];
             if ($code >= 200 && $code < 300) return ['ok' => true];
             return ['ok' => false, 'error' => "HTTP {$code}: " . mb_substr((string)$resp, 0, 300)];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Camada HTTP do envio (seam p/ testes: subclass sobrescreve via static::).
+     * Devolve ['resp'=>string|false, 'code'=>int, 'err'=>string].
+     *
+     * @param array<int,string> $headers
+     * @return array{resp:mixed,code:int,err:string}
+     */
+    static function evoHttpPost(string $endpoint, array $headers, string $body, int $timeout): array {
+        $ch = curl_init($endpoint);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_TIMEOUT        => $timeout,
+        ]);
+        $resp = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        return ['resp' => $resp, 'code' => $code, 'err' => (string)$err];
+    }
+
+    /** Kinds que podem ir p/ a fila (envios automáticos; alertas manuais seguem síncronos). */
+    static function queueableKinds(): array {
+        return array_values(array_diff(self::allowedTypes(), ['card_alerta', 'quadro_alerta']));
+    }
+
+    static function hasQueued(int $cards_id, string $milestone): bool {
+        global $DB;
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_zapqueue')) return false;
+            foreach ($DB->request([
+                'SELECT' => ['id', 'status'],
+                'FROM'   => 'glpi_plugin_kanpro_zapqueue',
+                'WHERE'  => ['plugin_kanpro_cards_id' => $cards_id, 'milestone' => mb_substr($milestone, 0, 30)],
+            ]) as $r) {
+                if (in_array($r['status'] ?? '', ['pending', 'sending'], true)) return true;
+            }
+        } catch (Throwable $e) {}
+        return false;
+    }
+
+    /**
+     * Enfileira um envio (produtor). Rápido: só valida e insere.
+     * $replace=true apaga pendente anterior da mesma chave (forceResend).
+     * Devolve ['ok'=>true,'queued'=>true,'phone'=>?] ou ['ok'=>false,'error'=>?].
+     */
+    static function enqueue(string $kind, int $cards_id, string $milestone, string $phone, string $text, bool $replace = false): array {
+        global $DB;
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_zapqueue')) return ['ok' => false, 'error' => 'fila indisponível'];
+            if (!in_array($kind, self::queueableKinds(), true)) return ['ok' => false, 'error' => 'Tipo inválido p/ fila'];
+            $phone = trim($phone);
+            $text = trim($text);
+            if ($phone === '' || $text === '') return ['ok' => false, 'error' => 'sem telefone/texto'];
+            $milestone = mb_substr(trim($milestone), 0, 30);
+            if (self::alreadySent($cards_id, $milestone)) return ['ok' => false, 'error' => 'duplicate'];
+            if ($replace) {
+                try { $DB->delete('glpi_plugin_kanpro_zapqueue', ['plugin_kanpro_cards_id' => $cards_id, 'milestone' => $milestone, 'status' => 'pending']); } catch (Throwable $e) {}
+            } elseif (self::hasQueued($cards_id, $milestone)) {
+                return ['ok' => false, 'error' => 'duplicate'];
+            }
+            $now = date('Y-m-d H:i:s');
+            $id = $DB->insert('glpi_plugin_kanpro_zapqueue', [
+                'kind' => $kind,
+                'plugin_kanpro_cards_id' => $cards_id,
+                'milestone' => $milestone,
+                'phone' => mb_substr($phone, 0, 30),
+                'message' => $text,
+                'attempts' => 0,
+                'max_attempts' => 5,
+                'status' => 'pending',
+                'next_try_at' => $now,
+                'date_creation' => $now,
+            ]);
+            if ($id === false) return ['ok' => false, 'error' => 'falha ao enfileirar'];
+            return ['ok' => true, 'queued' => true, 'phone' => $phone];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /** Minutos até a próxima tentativa após a N-ésima falha (1-based). */
+    static function queueBackoffMinutes(int $attempts): int {
+        return (int)min(5 * (2 ** max(0, $attempts - 1)), 180);
+    }
+
+    /**
+     * Consumidor da fila (cron zapqueue): envia devidos com retry + backoff.
+     * Recupera 'sending' travado (>15min), pula duplicate tardio, grava zaplog
+     * só no sucesso ou na falha final (sem spam de retry). Nunca joga exceção.
+     * Devolve ['processed'=>N,'sent'=>S,'failed'=>F].
+     */
+    static function processQueue(int $limit = 20): array {
+        global $DB;
+        $out = ['processed' => 0, 'sent' => 0, 'failed' => 0];
+        try {
+            if ($limit <= 0) return $out;
+            if (!isset($DB) || !$DB->tableExists('glpi_plugin_kanpro_zapqueue')) return $out;
+            $now = time();
+            $nowStr = date('Y-m-d H:i:s', $now);
+            // reclaim: sending sem heartbeat há >15min volta p/ pending
+            try {
+                foreach ($DB->request(['SELECT' => ['id', 'date_mod'], 'FROM' => 'glpi_plugin_kanpro_zapqueue', 'WHERE' => ['status' => 'sending']]) as $stuck) {
+                    $mod = strtotime((string)($stuck['date_mod'] ?? ''));
+                    if ($mod !== false && $mod < $now - 900) {
+                        $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'pending', 'next_try_at' => $nowStr, 'date_mod' => $nowStr], ['id' => (int)$stuck['id']]);
+                    }
+                }
+            } catch (Throwable $e) {}
+            // devidos: pending com next_try_at <= agora, mais antigos primeiro
+            $due = [];
+            try {
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_zapqueue', 'WHERE' => ['status' => 'pending'], 'ORDER' => 'id ASC']) as $row) {
+                    $nta = $row['next_try_at'] ?? null;
+                    if ($nta === null || $nta === '' || (string)$nta <= $nowStr) {
+                        $due[] = $row;
+                    }
+                    if (count($due) >= $limit) break;
+                }
+            } catch (Throwable $e) { return $out; }
+            foreach ($due as $job) {
+                $out['processed']++;
+                $jid = (int)($job['id'] ?? 0);
+                $cardsId = (int)($job['plugin_kanpro_cards_id'] ?? 0);
+                $milestone = (string)($job['milestone'] ?? '');
+                $kind = (string)($job['kind'] ?? '');
+                $phone = (string)($job['phone'] ?? '');
+                $text = (string)($job['message'] ?? '');
+                try {
+                    $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'sending', 'date_mod' => $nowStr], ['id' => $jid]);
+                    // duplicate tardio: enviado por outro caminho enquanto aguardava
+                    if ($milestone !== '' && self::alreadySent($cardsId, $milestone)) {
+                        $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'done', 'last_error' => 'duplicate tardio', 'date_mod' => $nowStr], ['id' => $jid]);
+                        continue;
+                    }
+                    $res = static::evoSend($phone, $text, 20);
+                    if (!empty($res['ok'])) {
+                        $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'done', 'last_error' => null, 'date_mod' => $nowStr], ['id' => $jid]);
+                        self::markSent($cardsId, $milestone, $phone, true, '');
+                        if ($cardsId > 0) self::logCard($cardsId, "WhatsApp {$kind} enviado para {$phone} (fila)");
+                        $out['sent']++;
+                    } else {
+                        $attempts = (int)($job['attempts'] ?? 0) + 1;
+                        $err = mb_substr((string)($res['error'] ?? 'falha'), 0, 255);
+                        if ($attempts >= (int)($job['max_attempts'] ?? 5)) {
+                            $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'failed', 'attempts' => $attempts, 'last_error' => $err, 'date_mod' => $nowStr], ['id' => $jid]);
+                            self::markSent($cardsId, $milestone, $phone, false, $err);
+                            if ($cardsId > 0) self::logCard($cardsId, "WhatsApp {$kind} FALHOU para {$phone} após {$attempts} tentativas: {$err}");
+                        } else {
+                            $next = date('Y-m-d H:i:s', $now + self::queueBackoffMinutes($attempts) * 60);
+                            $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'pending', 'attempts' => $attempts, 'next_try_at' => $next, 'last_error' => $err, 'date_mod' => $nowStr], ['id' => $jid]);
+                        }
+                        $out['failed']++;
+                    }
+                } catch (Throwable $e) {
+                    try {
+                        $attempts = (int)($job['attempts'] ?? 0) + 1;
+                        $err = mb_substr($e->getMessage(), 0, 255);
+                        $next = date('Y-m-d H:i:s', $now + self::queueBackoffMinutes($attempts) * 60);
+                        $DB->update('glpi_plugin_kanpro_zapqueue', ['status' => 'pending', 'attempts' => $attempts, 'next_try_at' => $next, 'last_error' => $err, 'date_mod' => $nowStr], ['id' => $jid]);
+                    } catch (Throwable $e2) {}
+                    $out['failed']++;
+                }
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+
+    /** Cron consumidor da fila (a cada 5min, modo interno). param = lote. */
+    public static function cronZapqueue($task = null): int {
+        $limit = 20;
+        try {
+            if (is_object($task) && isset($task->fields['param'])) {
+                $limit = max(1, (int)$task->fields['param']);
+            }
+            $r = self::processQueue($limit);
+            if (is_object($task) && method_exists($task, 'log')) {
+                $task->log('KanPro Zap fila: ' . ((int)($r['processed'] ?? 0)) . ' processados, ' . ((int)($r['sent'] ?? 0)) . ' enviados, ' . ((int)($r['failed'] ?? 0)) . ' falhas');
+            }
+        } catch (Throwable $e) { return 1; }
+        return 1;
     }
 
     static function alreadySent(int $cards_id, string $milestone): bool {
@@ -645,7 +827,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Fluxo completo: monta dados, resolve fone, renderiza, envia, registra.
+     * Fluxo completo: monta dados, resolve fone, renderiza e ENFILEIRA
+     * (o envio real acontece no cron zapqueue, com retry + backoff).
      * $milestone (entrada|retirada|atraso_7|atraso_14|atraso_30|cancelado) trava duplicado.
      * Nunca joga exceção — falha vira ['ok'=>false] + log na atividade do card.
      */
@@ -669,12 +852,12 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 self::markSent($cards_id, $milestone, $phone, false, 'template vazio');
                 return ['ok' => false, 'error' => 'template vazio'];
             }
-            $res = self::evoSend($phone, $txt, $timeout);
-            self::markSent($cards_id, $milestone, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
-            self::logCard($cards_id, $res['ok']
-                ? "WhatsApp {$type} enviado para {$phone}"
-                : "WhatsApp {$type} FALHOU para {$phone}: " . ($res['error'] ?? ''));
-            return $res + ['phone' => $phone];
+            // fila: envio real no cron zapqueue (zaplog + atividade saem no consumidor).
+            $q = self::enqueue($type, $cards_id, $milestone, $phone, $txt);
+            if (empty($q['ok'])) {
+                return ['ok' => false, 'error' => (string)($q['error'] ?? 'falha')] + ['phone' => $phone];
+            }
+            return ['ok' => true, 'queued' => true, 'phone' => $phone];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
@@ -754,12 +937,12 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 self::markSent($pendenciaId, 'pendencia', $phone, false, 'template vazio');
                 return ['ok' => false, 'error' => 'template vazio'];
             }
-            $res = self::evoSend($phone, $txt, 20);
-            self::markSent($pendenciaId, 'pendencia', $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
-            self::logCard($pendenciaId, $res['ok']
-                ? "WhatsApp pendencia enviado para {$phone} (aprovador)"
-                : "WhatsApp pendencia FALHOU para {$phone}: " . ($res['error'] ?? ''));
-            return $res + ['phone' => $phone];
+            // fila: envio real no cron zapqueue (zaplog + atividade saem no consumidor).
+            $q = self::enqueue('pendencia', $pendenciaId, 'pendencia', $phone, $txt);
+            if (empty($q['ok'])) {
+                return ['ok' => false, 'error' => (string)($q['error'] ?? 'falha')] + ['phone' => $phone];
+            }
+            return ['ok' => true, 'queued' => true, 'phone' => $phone];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
@@ -904,13 +1087,14 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     $errors[] = 'template vazio';
                     continue;
                 }
-                $res = self::evoSend($phone, $txt, 20);
-                self::markSent($pendenciaId, $ms, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
-                if (!empty($res['ok'])) $sent++;
-                else $errors[] = (string)($res['error'] ?? 'falha');
+                // fila: envio real no cron zapqueue (um job por técnico).
+                $q = self::enqueue($isTabletSrc ? 'tablet_liberado' : 'liberado', $pendenciaId, $ms, $phone, $txt);
+                if (!empty($q['ok'])) $sent++;
+                elseif (($q['error'] ?? '') === 'duplicate') $skipped++;
+                else $errors[] = (string)($q['error'] ?? 'falha');
             }
             if ($sent > 0) {
-                self::logCard($pendenciaId, "WhatsApp liberado enviado para {$sent} técnico(s)");
+                self::logCard($pendenciaId, "WhatsApp liberado na fila para {$sent} técnico(s)");
                 return ['ok' => true, 'sent' => $sent, 'skipped' => $skipped];
             }
             if ($skipped > 0 && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
@@ -1074,15 +1258,17 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             }
             $sent = 0; $errors = []; $phones = [];
             foreach (self::chamadoAbrirRecipients() as $login) {
+                $ms = self::recipientMilestone('chamado_abrir', (string)$login);
+                if (self::alreadySent($cloneId, $ms)) continue;
                 $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
                 if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
-                $res = self::evoSend($phone, $txt, 20);
-                self::markSent($cloneId, 'chamado_abrir', $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
-                if (!empty($res['ok'])) { $sent++; $phones[] = $phone; }
-                else $errors[] = $login . ': ' . ($res['error'] ?? 'falha');
+                // fila: um job por destinatário (milestone por destinatário).
+                $q = self::enqueue('chamado_abrir', $cloneId, $ms, $phone, $txt);
+                if (!empty($q['ok'])) { $sent++; $phones[] = $phone; }
+                elseif (($q['error'] ?? '') !== 'duplicate') $errors[] = $login . ': ' . ($q['error'] ?? 'falha');
             }
             self::logCard($cloneId, $sent > 0
-                ? "WhatsApp chamado_abrir enviado para " . implode(',', $phones) . " ({$sent}/2)"
+                ? "WhatsApp chamado_abrir na fila para " . implode(',', $phones) . " ({$sent})"
                 : "WhatsApp chamado_abrir FALHOU: " . implode('; ', $errors));
             if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
             return ['ok' => true, 'phones' => $phones];
@@ -1097,7 +1283,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      * Só em dias úteis (seg-sex, sem feriado) salvo exceção do calendário (force),
      * e nunca em dia tirado do envio no calendário (skip) — forceResend ignora tudo.
      * Anti-duplicado por dia+turno+destinatário (milestone lembrete_Y-m-d_08 / _10 / _13).
-     * Destinatários fixos = lembreteRecipients() (cristian + leonardo).
+     * Destinatários = lembreteRecipients() (config). Enfileira um job por
+     * destinatário (envio no cron zapqueue).
      * Nunca joga exceção.
      */
     static function sendLembrete(?int $slot = null, array $opts = []): array {
@@ -1215,22 +1402,23 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $rcp = (string)$rcp;
                 $ms = self::lembreteMilestone($milestone, $rcp);
                 if (!$forceResend && self::alreadySent(0, $ms)) continue;
+                if (!$forceResend && self::hasQueued(0, $ms)) continue;
                 $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($rcp));
                 if ($phone === '') {
                     self::markSent(0, $ms, '', false, 'sem telefone do aprovador');
                     $failed[] = $rcp . ' (sem phone/mobile válido no GLPI)';
                     continue;
                 }
-                $res = self::evoSend($phone, $txt, 20);
-                self::markSent(0, $ms, $phone, (bool)$res['ok'], (string)($res['error'] ?? ''));
+                // fila (forceResend troca o pendente em vez de duplicar); envio no cron zapqueue.
+                $q = self::enqueue('lembrete', 0, $ms, $phone, $txt, $forceResend);
                 $phones[] = $phone;
-                $lastRes = $res;
-                if (!empty($res['ok'])) $sent++;
-                else $failed[] = $rcp . ': ' . ($res['error'] ?? 'falha');
+                $lastRes = ['ok' => true, 'queued' => true];
+                if (!empty($q['ok'])) $sent++;
+                elseif (($q['error'] ?? '') !== 'duplicate') $failed[] = $rcp . ': ' . ($q['error'] ?? 'falha');
             }
             if ($sent <= 0 && empty($failed)) return ['ok' => false, 'error' => 'duplicate (já enviado hoje neste turno)'];
             if ($sent <= 0) return ['ok' => false, 'error' => 'sem telefone do aprovador (' . implode('; ', $failed) . ')'];
-            $lemOut = $lastRes + ['phone' => implode(',', $phones), 'phones' => $phones, 'total' => $total, 'sent' => $sent];
+            $lemOut = $lastRes + ['phone' => implode(',', $phones), 'phones' => $phones, 'total' => $total, 'sent' => $sent, 'queued' => $sent];
             if (!empty($failed)) $lemOut['partial_fail'] = $failed;
             } finally {
                 try { $DB->releaseLock($lemLock); } catch (Throwable $e2) {}
@@ -1463,6 +1651,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         } catch (Throwable $e) {}
         $sent = 0;
         $fail = 0;
+        $queued = 0;
         try {
             if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) return 0;
             $iter = $DB->request([
@@ -1488,7 +1677,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     if ($gap < 5) continue;
                 }
                 $r = self::send('atraso', $cid, ['dias' => (string)$tst['days']], 'atraso_' . date('Y-m-d'));
-                if (!empty($r['ok'])) $sent++;
+                if (!empty($r['queued'])) $queued++;
+                elseif (!empty($r['ok'])) $sent++;
                 elseif (!in_array($r['error'] ?? '', ['duplicate', 'sem telefone'], true)) $fail++;
             }
         } catch (Throwable $e) {
@@ -1496,7 +1686,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         }
         try {
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log("KanPro Zap atraso: {$sent} enviados, {$fail} falhas");
+                $task->log("KanPro Zap atraso: {$sent} enviados, {$queued} na fila, {$fail} falhas");
             }
         } catch (Throwable $e) {}
         return 1;
@@ -1556,6 +1746,19 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             try {
                 $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zaplembrete9']);
             } catch (Throwable $e) {}
+            // consumidor da fila de envios: roda no acesso às páginas (modo interno),
+            // a cada 5min, em lotes (param). Entrega os enfileirados com retry.
+            $upsert('zapqueue', [
+                'frequency'     => 300,
+                'param'         => 20,
+                'state'         => 1,
+                'mode'          => 1, // MODE_INTERNAL: roda no acesso às páginas
+                'allowmode'     => 3,
+                'logs_lifetime' => 30,
+                'hourmin'       => 0,
+                'hourmax'       => 24,
+                'comment'       => 'KanPro: consome a fila de WhatsApp (retry com backoff)',
+            ]);
         } catch (Throwable $e) {
             error_log('[KanPro] registerCron zap: ' . $e->getMessage());
         }
@@ -1565,7 +1768,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         global $DB;
         try {
             if ($DB->tableExists('glpi_crontasks')) {
-                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete9', 'zaplembrete10', 'zaplembrete13']]);
+                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete9', 'zaplembrete10', 'zaplembrete13', 'zapqueue']]);
             }
         } catch (Throwable $e) {}
     }

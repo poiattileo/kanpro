@@ -4276,7 +4276,7 @@ switch ($action) {
             if (!in_array($slot, [8, 9, 10, 13], true)) $slot = ((int)date('H') < 9) ? 8 : (((int)date('H') < 12) ? 10 : 13);
             $force = !empty($_POST['force']) || !empty($_GET['force']);
             $r = PluginKanproMaintenanceZap::sendLembrete($slot, $force ? ['forceResend' => true] : []);
-            if (!empty($r['ok'])) jexit(['success'=>true,'slot'=>$slot,'total'=>($r['total'] ?? 0),'phone'=>($r['phone'] ?? '')]);
+            if (!empty($r['ok'])) jexit(['success'=>true,'slot'=>$slot,'total'=>($r['total'] ?? 0),'phone'=>($r['phone'] ?? ''),'queued'=>($r['queued'] ?? 0)]);
             jexit(['success'=>false,'slot'=>$slot,'msg'=>($r['error'] ?? 'Falha ao enviar')]);
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro: '.$e->getMessage()]); }
 

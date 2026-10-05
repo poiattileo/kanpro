@@ -20,6 +20,7 @@ jobs:
       - name: testes
         run: |
           php tests/run.php
+          php tests/queue.php
           php tests/cron-context.php
 
       - name: guard anti e-mail hardcoded

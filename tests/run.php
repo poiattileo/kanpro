@@ -5,63 +5,10 @@
  * Uso: php tests/run.php
  * Saída: uma linha "ok - <nome>" por teste; exit 1 se qualquer teste falhar.
  */
-if (php_sapi_name() !== 'cli') {
-    die("CLI only\n");
-}
-error_reporting(E_ALL);
+require_once __DIR__ . '/boot.php';
 
-// Os includes do plugin barram acesso direto sem GLPI_ROOT.
-if (!defined('GLPI_ROOT')) {
-    define('GLPI_ROOT', __DIR__ . '/fixtures');
-}
-
-require_once __DIR__ . '/FakeDB.php';
-
-$failures = 0;
-$passes = 0;
-
-/** @param callable():void $fn */
-function kanpro_test(string $name, callable $fn): void {
-    global $failures, $passes;
-    try {
-        $fn();
-        $passes++;
-        echo "ok - {$name}\n";
-    } catch (Throwable $e) {
-        $failures++;
-        echo "NOT OK - {$name} (" . get_class($e) . ': ' . $e->getMessage() . ")\n";
-    }
-}
-
-function assert_true(bool $cond, string $msg = 'assertion failed'): void {
-    if (!$cond) {
-        throw new RuntimeException($msg);
-    }
-}
-
-function assert_same(mixed $expected, mixed $actual, string $msg = ''): void {
-    if ($expected !== $actual) {
-        throw new RuntimeException(
-            ($msg !== '' ? $msg . ' — ' : '') .
-            'expected ' . var_export($expected, true) . ', got ' . var_export($actual, true)
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Boot: $DB dublado + camada de config (inc/acting.php)
-// ---------------------------------------------------------------------------
 global $DB;
-$DB = new FakeKanproDB();
 $DB->createTable('glpi_plugin_kanpro_configs');
-
-require_once dirname(__DIR__) . '/inc/acting.php';
-
-// maintenancezap precisa do CommonDBTM do GLPI — stub mínimo (só p/ carregar a classe).
-if (!class_exists('CommonDBTM')) {
-    eval('class CommonDBTM { public static $rightname = ""; }');
-}
-require_once dirname(__DIR__) . '/inc/maintenancezap.class.php';
 
 // ---------------------------------------------------------------------------
 // Camada de config (kanpro_config_get/set)
@@ -239,10 +186,5 @@ kanpro_test('parse_post tudo vazio zera (desliga envios)', function () {
     assert_same('', $parsed['values']['acting_map']);
 });
 
-function kanpro_exit_code(int $failures): int {
-    return $failures > 0 ? 1 : 0;
-}
-
 // ---------------------------------------------------------------------------
-echo "\n{$passes} passed, {$failures} failed\n";
-exit(kanpro_exit_code($failures));
+exit(kanpro_summary());
