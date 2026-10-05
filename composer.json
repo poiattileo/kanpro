@@ -1,0 +1,23 @@
+{
+    "name": "ure/kanpro",
+    "description": "Quadros Kanban estilo Trello dentro do GLPI, com lembretes por WhatsApp e e-mail.",
+    "type": "project",
+    "license": "GPL-3.0-or-later",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.0"
+    },
+    "scripts": {
+        "lint": "@php ci/lint.php",
+        "test": "@php tests/run.php && @php tests/cron-context.php",
+        "secrets": "@php ci/check-secrets.php",
+        "analyse": "vendor/bin/phpstan analyse --no-progress",
+        "ci": [
+            "@lint",
+            "@test",
+            "@secrets"
+        ]
+    }
+}

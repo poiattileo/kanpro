@@ -1,0 +1,10 @@
+parameters:
+    # tests/ + ci/ são PHP puro; inc/ entra só como scan (símbolos),
+    # porque o núcleo do GLPI não está disponível fora da produção.
+    level: 8
+    paths:
+        - tests
+        - ci
+    scanFiles:
+        - inc/acting.php
+        - inc/maintenancezap.class.php

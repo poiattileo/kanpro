@@ -1,0 +1,31 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP 8.1
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+
+      - name: lint (php -l em tudo)
+        run: php ci/lint.php
+
+      - name: testes
+        run: |
+          php tests/run.php
+          php tests/cron-context.php
+
+      - name: guard anti e-mail hardcoded
+        run: php ci/check-secrets.php
+
+      - name: PHPStan
+        run: |
+          composer install --no-progress --no-interaction --prefer-dist
+          vendor/bin/phpstan analyse --no-progress
