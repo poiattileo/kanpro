@@ -669,6 +669,37 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- CONFIGS (chave/valor global do plugin: aprovador, destinatários, acting_map) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_configs')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_configs` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `name`                        VARCHAR(190) NOT NULL DEFAULT '',
+                `value`                       TEXT         DEFAULT NULL,
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_name` (`name`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+    // Seeds = comportamento anterior (só insere o que falta — nunca sobrescreve
+    // ajuste do admin no update). Edição em Configurações do KanPro.
+    $__kp_seeds = [
+        // LEGACY-SEED-ALLOW abaixo: migração do comportamento anterior (nunca sobrescreve ajuste do admin)
+        'acting_map'              => json_encode(['glpi' => 'leonardo.facao@apoiofde.sp.gov.br'], JSON_UNESCAPED_UNICODE), // LEGACY-SEED-ALLOW
+        'zap_approver'            => 'cristian.sawata@educacao.sp.gov.br', // LEGACY-SEED-ALLOW
+        'zap_reminder_recipients' => json_encode(['cristian.sawata@educacao.sp.gov.br', 'leonardo.facao@apoiofde.sp.gov.br'], JSON_UNESCAPED_UNICODE), // LEGACY-SEED-ALLOW
+        'zap_chamado_recipients'  => json_encode(['leonardo.facao@apoiofde.sp.gov.br', 'cristian.sawata@educacao.sp.gov.br'], JSON_UNESCAPED_UNICODE), // LEGACY-SEED-ALLOW
+    ];
+    foreach ($__kp_seeds as $__kp_name => $__kp_value) {
+        $exists = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_configs', 'WHERE' => ['name' => $__kp_name], 'LIMIT' => 1])->current();
+        if (!$exists) {
+            $DB->insert('glpi_plugin_kanpro_configs', ['name' => $__kp_name, 'value' => $__kp_value, 'date_creation' => date('Y-m-d H:i:s')]);
+        }
+    }
+    unset($__kp_seeds, $__kp_name, $__kp_value, $exists);
+
     PluginKanproProfile::install();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::registerCron();
     return true;
@@ -681,6 +712,7 @@ function plugin_kanpro_uninstall(): bool {
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
 
     $tables = [
+        'glpi_plugin_kanpro_configs',
         'glpi_plugin_kanpro_maintenance_models',
         'glpi_plugin_kanpro_rules',
         'glpi_plugin_kanpro_chamado_updates',

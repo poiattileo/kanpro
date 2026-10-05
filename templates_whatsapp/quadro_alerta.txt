@@ -1,6 +1,6 @@
 # KanPro • WhatsApp de ALERTA DO QUADRO (texto puro, sem HTML)
 # Gatilho: botão no header do quadro (Membro ou Admin do quadro, com Notificação WhatsApp ligada)
-# Destinatário fixo: cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
+# Destinatário: aprovador configurado (KanPro > Configurações > Aprovador WhatsApp)
 # Placeholders: {board_id} {quadro} {quadro_nome} {data}
 
 No quadro ({quadro}) tem alterações realizadas para voce verificar

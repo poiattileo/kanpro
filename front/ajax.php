@@ -1923,7 +1923,10 @@ switch ($action) {
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro ao enviar: '.$e->getMessage()]); }
         if (!empty($resS['ok'])) jexit(['success'=>true,'phone'=>($resS['phone'] ?? '')]);
         $errS = (string)($resS['error'] ?? 'falha');
-        if ($errS === 'sem telefone') $errS = 'Aprovador sem telefone cadastrado (cristian.sawata@educacao.sp.gov.br)';
+        if ($errS === 'sem telefone') {
+            $apprS = PluginKanproMaintenanceZap::pendenciaApprover();
+            $errS = $apprS !== '' ? "Aprovador sem telefone cadastrado ({$apprS})" : 'Aprovador não configurado — ajuste nas Configurações do KanPro.';
+        }
         jexit(['success'=>false,'msg'=>'WhatsApp não enviado: '.$errS]);
 
     case 'invite_member':
@@ -3460,7 +3463,10 @@ switch ($action) {
         } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Erro ao enviar: '.$e->getMessage()]); }
         if (!empty($res['ok'])) jexit(['success'=>true,'phone'=>($res['phone'] ?? '')]);
         $err = (string)($res['error'] ?? 'falha');
-        if ($err === 'sem telefone') $err = 'Aprovador sem telefone cadastrado (cristian.sawata@educacao.sp.gov.br)';
+        if ($err === 'sem telefone') {
+            $appr = PluginKanproMaintenanceZap::pendenciaApprover();
+            $err = $appr !== '' ? "Aprovador sem telefone cadastrado ({$appr})" : 'Aprovador não configurado — ajuste nas Configurações do KanPro.';
+        }
         jexit(['success'=>false,'msg'=>'WhatsApp não enviado: '.$err]);
 
     case 'move_card':

@@ -1,6 +1,6 @@
 # KanPro • WhatsApp de CHAMADO EM ABRIR CHAMADO (texto puro, sem HTML)
 # Gatilho: add_chamado_card (1 card novo clonado para Abrir chamado)
-# Destinatários fixos: leonardo.facao@apoiofde.sp.gov.br e cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
+# Destinatários: config 'zap_chamado_recipients' (KanPro > Configurações)
 # Placeholders: {card_id} {card_nome} {descricao} {quadro} {ticket} {autor} {data}
 
 🔔 *NOVA SOLICITAÇÃO PARA ABRIR CHAMADO*

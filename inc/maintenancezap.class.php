@@ -3,6 +3,11 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
+// Dependência explícita: aprovador/destinatários vêm de kanpro_config_*().
+// Sem isso, o cron do GLPI (que autoloada só esta classe) cairia no fail
+// closed e os lembretes parariam em silêncio.
+require_once __DIR__ . '/acting.php';
+
 /**
  * PluginKanproMaintenanceZap — WhatsApp automático da manutenção de TI (KanPro)
  *
@@ -18,7 +23,7 @@ if (!defined('GLPI_ROOT')) {
  *   atraso    cron diário: card em Retirada recebe lembrete a cada 5 dias
  *   cancelado revert_maintenance
  *   pendencia request_chamado / pegar_pending_card — 1 msg por card novo em Pendência Chamado
- *             (destinatário fixo: fone do usuário cristian.sawata@educacao.sp.gov.br)
+ *             (destinatário: aprovador configurado em 'zap_approver')
  *   liberado  confirm_chamado_created + 5s — 1 msg por técnico membro da origem
  *             (avisa chamado criado + máquinas liberadas, com nº/nome do chamado)
  *
@@ -55,17 +60,40 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         } catch (Throwable $e) { return false; }
     }
 
-    /** Login/e-mail do aprovador fixo da Pendência Chamado */
+    /** Login/e-mail do aprovador da Pendência Chamado (config 'zap_approver'). */
     static function pendenciaApprover(): string {
-        return 'cristian.sawata@educacao.sp.gov.br';
+        if (function_exists('kanpro_config_get')) {
+            return trim(kanpro_config_get('zap_approver', ''));
+        }
+        return '';
+    }
+
+    /** Lê lista de destinatários do config (JSON array). Inválido/ausente = []. */
+    static function configRecipients(string $key): array {
+        if (!function_exists('kanpro_config_get')) {
+            return [];
+        }
+        $raw = trim(kanpro_config_get($key, ''));
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $out = [];
+        foreach ($decoded as $v) {
+            $v = trim((string)$v);
+            if ($v !== '' && strpos($v, ' ') === false && strpos($v, "\n") === false) {
+                $out[] = $v;
+            }
+        }
+        return array_values(array_unique($out));
     }
 
     /** Destinatários do lembrete 8h/10h/13h (CARDS AGUARDANDO) — enviado p/ todos */
     static function lembreteRecipients(): array {
-        return [
-            'cristian.sawata@educacao.sp.gov.br',
-            'leonardo.facao@apoiofde.sp.gov.br',
-        ];
+        return self::configRecipients('zap_reminder_recipients');
     }
 
     /** Milestone por destinatário (1º mantém base p/ compat com envios antigos) */
@@ -484,7 +512,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         } catch (Throwable $e) { return ''; }
     }
 
-    /** Telefone do aprovador fixo (aceita login OU e-mail cadastrado). '' = ausente/inválido */
+    /** Telefone do aprovador configurado (aceita login OU e-mail cadastrado). '' = ausente/inválido */
     static function resolveApproverPhone(?string $login = null): string {
         global $DB;
         $login = trim((string)($login ?? self::pendenciaApprover()));
@@ -915,8 +943,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /**
      * Alerta manual do QUADRO: botão no header do quadro (Membro ou Admin do quadro,
      * com Notificação WhatsApp ligada) envia "No quadro (NOME) tem alterações
-     * realizadas para voce verificar" para o aprovador fixo
-     * (cristian.sawata@educacao.sp.gov.br).
+     * realizadas para voce verificar" para o aprovador configurado.
      * Sem trava de duplicado (cada aperto envia). Nunca joga exceção.
      */
     static function sendBoardAlerta(int $boards_id): array {
@@ -957,7 +984,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /**
      * Alerta manual do cartão: botão no header do card (Membro ou Admin do card)
      * envia "No card (NOME) tem alterações realizadas para voce verificar"
-     * para o aprovador fixo (cristian.sawata@educacao.sp.gov.br).
+     * para o aprovador configurado.
      * Sem trava de duplicado (cada aperto envia). Nunca joga exceção.
      */
     static function sendCardAlerta(int $cards_id): array {
@@ -1001,11 +1028,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
 
     /**
      * Aviso de novo chamado em Abrir chamado: 1 msg por clone novo, com dados do
-     * card + quem criou, para os 2 responsáveis fixos.
+     * card + quem criou, para os responsáveis configurados (config 'zap_chamado_recipients').
      * Trava de duplicado por clone (milestone chamado_abrir). Nunca joga exceção.
      */
     static function chamadoAbrirRecipients(): array {
-        return ['leonardo.facao@apoiofde.sp.gov.br', 'cristian.sawata@educacao.sp.gov.br'];
+        return self::configRecipients('zap_chamado_recipients');
     }
 
     static function sendChamadoAbrir(int $cloneId): array {

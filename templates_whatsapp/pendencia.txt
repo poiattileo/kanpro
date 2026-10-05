@@ -1,6 +1,6 @@
 # KanPro • WhatsApp de PENDÊNCIA CHAMADO (texto puro, sem HTML)
 # Gatilho: request_chamado / pegar_pending_card (1 card novo na lista Pendência Chamado)
-# Destinatário fixo: cristian.sawata@educacao.sp.gov.br (fone do cadastro GLPI)
+# Destinatário: aprovador configurado (KanPro > Configurações > Aprovador WhatsApp)
 # Placeholders: {card_id} {card_nome} {escola} {quadro} {lista}
 #               {origem_id} {origem_nome} {quantidade} {maquinas} {data}
 

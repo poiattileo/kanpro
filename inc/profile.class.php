@@ -142,6 +142,10 @@ class PluginKanproProfile extends CommonDBTM {
         }
         echo "</table></div>";
         Html::closeForm();
+        if (Session::haveRight('plugin_kanpro', UPDATE)) {
+            $cfg_url = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/config.form.php';
+            echo "<div class='spaced center'><a class='btn btn-secondary' href='{$cfg_url}'><i class='ti ti-settings'></i> Configurações de notificação (aprovador, destinatários)</a></div>";
+        }
         return true;
     }
 }

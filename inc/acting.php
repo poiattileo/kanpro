@@ -5,11 +5,138 @@ if (!defined('GLPI_ROOT')) {
 
 // Identidade para atribuição no chamado (automático).
 // Quando a equipe compartilha um login (ex: todos usam "glpi"), o mapa abaixo
-// resolve automaticamente a pessoa real. Mantenha este mapa sincronizado — fonte única.
+// resolve automaticamente a pessoa real. FONTE ÚNICA: config 'acting_map'
+// (JSON {"login_origem":"login_destino"}, editável em Configurações do KanPro).
+// A constante KANPRO_ACTING_MAP abaixo é só o valor legado p/ instalações sem
+// a tabela de config (fail closed: sem config nem legado, sem migração).
 if (!defined('KANPRO_ACTING_MAP')) {
     define('KANPRO_ACTING_MAP', [
-        'glpi' => 'leonardo.facao@apoiofde.sp.gov.br',
+        'glpi' => 'leonardo.facao@apoiofde.sp.gov.br', // LEGACY-SEED-ALLOW (fallback p/ instalação sem tabela de config)
     ]);
+}
+
+if (!function_exists('kanpro_config_get')) {
+    // Config global do plugin (tabela glpi_plugin_kanpro_configs, name/value).
+    // Fail closed: sem tabela (instalação antiga sem update) devolve o default.
+    function kanpro_config_get(string $name, string $default = ''): string {
+        global $DB;
+        try {
+            if (!isset($DB) || !method_exists($DB, 'tableExists') || !$DB->tableExists('glpi_plugin_kanpro_configs')) {
+                return $default;
+            }
+            $row = $DB->request([
+                'SELECT' => ['value'],
+                'FROM'   => 'glpi_plugin_kanpro_configs',
+                'WHERE'  => ['name' => $name],
+                'LIMIT'  => 1,
+            ])->current();
+            if (is_array($row) && array_key_exists('value', $row)) {
+                return (string)$row['value'];
+            }
+        } catch (Throwable $e) {}
+        return $default;
+    }
+}
+
+if (!function_exists('kanpro_config_set')) {
+    // Upsert por name. Devolve false sem tabela (nada a gravar).
+    function kanpro_config_set(string $name, string $value): bool {
+        global $DB;
+        try {
+            if (!isset($DB) || !method_exists($DB, 'tableExists') || !$DB->tableExists('glpi_plugin_kanpro_configs')) {
+                return false;
+            }
+            $now = date('Y-m-d H:i:s');
+            $row = $DB->request([
+                'SELECT' => ['id'],
+                'FROM'   => 'glpi_plugin_kanpro_configs',
+                'WHERE'  => ['name' => $name],
+                'LIMIT'  => 1,
+            ])->current();
+            if (is_array($row)) {
+                return (bool)$DB->update('glpi_plugin_kanpro_configs', ['value' => $value, 'date_mod' => $now], ['name' => $name]);
+            }
+            return $DB->insert('glpi_plugin_kanpro_configs', ['name' => $name, 'value' => $value, 'date_creation' => $now]) !== false;
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
+if (!function_exists('kanpro_config_parse_post')) {
+    // Valida o POST da tela de Configurações. Pura (sem $DB/GLPI) p/ ser testável.
+    // Devolve ['values' => [chave => valor pronto p/ kanpro_config_set], 'errors' => [...]].
+    // All-or-nothing: com qualquer erro, o chamador NÃO deve salvar nada.
+    function kanpro_config_parse_post(array $post): array {
+        $errors = [];
+        $values = [];
+
+        // Aprovador: login ou e-mail único (vazio = não configurado -> fail closed).
+        $approver = trim((string)($post['zap_approver'] ?? ''));
+        if ($approver !== '' && preg_match('/\s/', $approver)) {
+            $errors[] = 'Aprovador inválido (não pode conter espaços).';
+        } else {
+            $values['zap_approver'] = function_exists('kanpro_clean_text')
+                ? kanpro_clean_text($approver, 255)
+                : substr($approver, 0, 255);
+        }
+
+        // Destinatários: um por linha (login ou e-mail). Linhas # são comentários.
+        foreach (['zap_reminder_recipients' => 'Lembrete', 'zap_chamado_recipients' => 'Chamado'] as $key => $label) {
+            $lines = preg_split('/\r\n|\r|\n/', (string)($post[$key] ?? ''));
+            $list = [];
+            foreach ((array)$lines as $line) {
+                $line = trim((string)$line);
+                if ($line === '' || $line[0] === '#') {
+                    continue;
+                }
+                if (preg_match('/\s/', $line)) {
+                    $errors[] = "{$label}: destinatário inválido '{$line}' (não pode conter espaços).";
+                    continue;
+                }
+                $list[] = $line;
+            }
+            $values[$key] = json_encode(array_values(array_unique($list)), JSON_UNESCAPED_UNICODE);
+        }
+
+        // Mapa login compartilhado -> pessoa real (JSON {"origem":"destino"}).
+        $mapRaw = trim((string)($post['acting_map'] ?? ''));
+        if ($mapRaw === '') {
+            $values['acting_map'] = '';
+        } else {
+            $map = json_decode($mapRaw, true);
+            if (!is_array($map)) {
+                $errors[] = 'Mapa inválido (precisa ser JSON como {"glpi":"pessoa@exemplo"}).';
+            } else {
+                $clean = [];
+                foreach ($map as $src => $dst) {
+                    $src = trim((string)$src);
+                    $dst = trim((string)$dst);
+                    if ($src === '' || $dst === '' || preg_match('/\s/', $src) || preg_match('/\s/', $dst)) {
+                        $errors[] = "Mapa inválido na entrada '{$src}'.";
+                        continue;
+                    }
+                    $clean[$src] = $dst;
+                }
+                $values['acting_map'] = json_encode($clean, JSON_UNESCAPED_UNICODE);
+            }
+        }
+
+        return ['values' => $values, 'errors' => $errors];
+    }
+}
+if (!function_exists('kanpro_acting_map')) {
+    // Fonte única do mapa login compartilhado -> pessoa real.
+    // Lê do config 'acting_map' (JSON); JSON inválido/ausente cai no legado.
+    function kanpro_acting_map(): array {
+        $raw = kanpro_config_get('acting_map', '');
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+        return defined('KANPRO_ACTING_MAP') ? (array)KANPRO_ACTING_MAP : [];
+    }
 }
 
 if (!function_exists('kanpro_resolve_user_by_login')) {
@@ -46,7 +173,7 @@ if (!function_exists('kanpro_migrate_shared_login')) {
         global $DB;
         $done = [];
         try {
-            $map = defined('KANPRO_ACTING_MAP') ? KANPRO_ACTING_MAP : [];
+            $map = kanpro_acting_map();
             foreach ($map as $srcLogin => $dstLogin) {
                 $src = kanpro_resolve_user_by_login((string)$srcLogin);
                 $dst = kanpro_resolve_user_by_login((string)$dstLogin);
@@ -114,7 +241,7 @@ if (!function_exists('kanpro_acting_user_id')) {
             if ($me > 0) {
                 $mu = new User();
                 if ($mu->getFromDB($me)) {
-                    $map = defined('KANPRO_ACTING_MAP') ? KANPRO_ACTING_MAP : [];
+                    $map = kanpro_acting_map();
                     $login = strtolower(trim($mu->fields['name'] ?? ''));
                     if (isset($map[$login])) {
                         $resolved = kanpro_resolve_user_by_login($map[$login]);

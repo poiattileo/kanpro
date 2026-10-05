@@ -147,7 +147,7 @@
         let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;${on ? 'background:#e6f9ec;color:#006644;border:1px solid #25d366' : 'background:#f4f5f7;color:#5e6c84;border:1px solid #dfe1e6'}">${on ? '📲 LIGADA' : '📴 Desligada'}</span>
         </div>`;
-        html += `<div style="margin-bottom:8px">Quando ligada, Membro ou Admin vê botão <strong>📲 Notificar WhatsApp</strong> no topo do quadro que avisa <strong>cristian.sawata@educacao.sp.gov.br</strong>.</div>`;
+        html += `<div style="margin-bottom:8px">Quando ligada, Membro ou Admin vê botão <strong>📲 Notificar WhatsApp</strong> no topo do quadro que avisa o aprovador configurado.</div>`;
         if(canToggle){
           html += `<button onclick="Kanpro.toggleBoardWhatsapp()" style="width:100%;background:${on ? '#ffebe6' : '#25d366'};color:${on ? '#bf2600' : '#fff'};border:1px solid ${on ? '#ffbdad' : '#25d366'};padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:800;font-size:12px">${on ? 'Desligar notificação' : '📲 Ligar Notificação WhatsApp'}</button>`;
         } else {

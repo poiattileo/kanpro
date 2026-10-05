@@ -639,7 +639,11 @@ class PluginKanproBoard extends CommonDBTM {
         echo "<label style='display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700'>";
         echo "<input type='checkbox' name='whatsapp_notify' value='1'" . ($zapOn ? ' checked' : '') . " style='width:16px;height:16px;accent-color:#25d366'> 📲 Notificação WhatsApp";
         echo "</label>";
-        echo "<small style='color:#5e6c84'>Quando ligada, Membro ou Admin vê botão no topo do quadro que envia WhatsApp p/ cristian.sawata@educacao.sp.gov.br: \"No quadro (NOME) tem alterações realizadas para voce verificar\".</small>";
+        $apprBoard = (class_exists('PluginKanproMaintenanceZap') && function_exists('kanpro_config_get')) ? PluginKanproMaintenanceZap::pendenciaApprover() : '';
+        $apprBoardTxt = $apprBoard !== ''
+            ? ' p/ ' . htmlspecialchars($apprBoard)
+            : ' (aprovador não configurado — <a href="config.form.php">ajustar</a>)';
+        echo "<small style='color:#5e6c84'>Quando ligada, Membro ou Admin vê botão no topo do quadro que envia WhatsApp{$apprBoardTxt}: \"No quadro (NOME) tem alterações realizadas para voce verificar\".</small>";
         echo "</td></tr>";
 
         echo "<tr class='tab_bg_1'>";
