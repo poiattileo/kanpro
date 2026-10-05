@@ -60,7 +60,7 @@ echo "<div style='display:flex;gap:8px;align-items:center'>";
 echo "<form method='get' style='display:flex;gap:6px'><input type='text' name='search' value='" . htmlspecialchars($search) . "' placeholder='Buscar quadros...' style='padding:8px 12px;border:1px solid #dfe1e6;border-radius:6px;min-width:220px'><button class='btn btn-outline-secondary btn-sm'><i class='ti ti-search'></i></button></form>";
 $__canLembrete = Session::haveRight('plugin_kanpro', UPDATE);
 if ($__canLembrete) {
-    echo "<button onclick='KanproLembrete.open()' title='Calendário do lembrete CARDS AGUARDANDO (dias úteis) — clique num dia para enviar ou não' class='btn btn-outline-secondary btn-sm' style='white-space:nowrap'><i class='ti ti-calendar'></i> 📅 Lembretes</button>";
+    echo "<button onclick='KanproLembrete.open()' title='Calendário do lembrete CARDS AGUARDANDO (dias úteis) — clique num dia para enviar ou não' class='btn btn-outline-secondary' style='white-space:nowrap'><i class='ti ti-calendar'></i> 📅 Lembretes</button>";
 }
 if ($canedit) {
     echo "<a href='board.form.php' class='btn btn-primary' style='background:#0079bf;border-color:#0079bf'><i class='ti ti-plus'></i> Criar quadro</a>";
