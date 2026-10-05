@@ -124,6 +124,45 @@ if (!function_exists('kanpro_config_parse_post')) {
         return ['values' => $values, 'errors' => $errors];
     }
 }
+if (!function_exists('kanpro_entitycontact_validate')) {
+    // Valida contato por entidade. Pura (sem $DB/GLPI) p/ ser testável.
+    // Devolve ['values' => [...pronto p/ gravar...], 'errors' => [...]].
+    function kanpro_entitycontact_validate(array $input): array {
+        $errors = [];
+        $entities_id = (int)($input['entities_id'] ?? 0);
+        if ($entities_id <= 0) {
+            $errors[] = 'Entidade inválida.';
+        }
+        $name = function_exists('kanpro_clean_text')
+            ? kanpro_clean_text($input['name'] ?? '', 255)
+            : substr(trim((string)($input['name'] ?? '')), 0, 255);
+        if ($name === '') {
+            $errors[] = 'Nome obrigatório.';
+        }
+        $email = strtolower(trim((string)($input['email'] ?? '')));
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'E-mail inválido.';
+        }
+        $phone = (string)preg_replace('/[^0-9]/', '', (string)($input['phone'] ?? ''));
+        if ($phone !== '' && (strlen($phone) < 8 || strlen($phone) > 15)) {
+            $errors[] = 'Telefone inválido (8 a 15 dígitos).';
+        }
+        if ($email === '' && $phone === '') {
+            $errors[] = 'Informe ao menos e-mail ou telefone.';
+        }
+        return [
+            'values' => [
+                'entities_id' => $entities_id,
+                'name'        => $name,
+                'email'       => $email,
+                'phone'       => $phone,
+                'is_active'   => !empty($input['is_active']) ? 1 : 0,
+            ],
+            'errors' => $errors,
+        ];
+    }
+}
+
 if (!function_exists('kanpro_acting_map')) {
     // Fonte única do mapa login compartilhado -> pessoa real.
     // Lê do config 'acting_map' (JSON); JSON inválido/ausente cai no legado.

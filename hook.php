@@ -724,6 +724,25 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- ENTITIES CONTACTS (e-mails/telefones por entidade p/ notificações) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_entities_contacts')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_entities_contacts` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `entities_id`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_entities.id',
+                `name`                        VARCHAR(255) NOT NULL DEFAULT '',
+                `email`                       VARCHAR(255) NOT NULL DEFAULT '',
+                `phone`                       VARCHAR(30)  DEFAULT NULL,
+                `is_active`                   TINYINT(1)   NOT NULL DEFAULT '1',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem cadastrou',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `entities_id` (`entities_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     PluginKanproProfile::install();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::registerCron();
     return true;
@@ -736,6 +755,7 @@ function plugin_kanpro_uninstall(): bool {
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
 
     $tables = [
+        'glpi_plugin_kanpro_entities_contacts',
         'glpi_plugin_kanpro_zapqueue',
         'glpi_plugin_kanpro_configs',
         'glpi_plugin_kanpro_maintenance_models',

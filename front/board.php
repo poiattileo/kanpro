@@ -61,6 +61,7 @@ echo "<form method='get' style='display:flex;gap:6px'><input type='text' name='s
 $__canLembrete = Session::haveRight('plugin_kanpro', UPDATE);
 if ($__canLembrete) {
     echo "<button onclick='KanproLembrete.open()' title='Calendário do lembrete CARDS AGUARDANDO (dias úteis) — clique num dia para enviar ou não' class='btn btn-outline-secondary' style='white-space:nowrap'><i class='ti ti-calendar'></i> 📅 Lembretes</button>";
+    echo "<a href='entitycontacts.php' title='Contatos por entidade (e-mails e telefones p/ notificações)' class='btn btn-outline-secondary' style='white-space:nowrap'><i class='ti ti-address-book'></i> 📇 Contatos</a>";
 }
 if ($canedit) {
     echo "<a href='board.form.php' class='btn btn-primary' style='background:#0079bf;border-color:#0079bf'><i class='ti ti-plus'></i> Criar quadro</a>";

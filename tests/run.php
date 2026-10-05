@@ -187,4 +187,56 @@ kanpro_test('parse_post tudo vazio zera (desliga envios)', function () {
 });
 
 // ---------------------------------------------------------------------------
+// Validador de contato por entidade (kanpro_entitycontact_validate — puro)
+// ---------------------------------------------------------------------------
+kanpro_test('entitycontact_validate existe', function () {
+    assert_true(function_exists('kanpro_entitycontact_validate'));
+});
+
+kanpro_test('entitycontact_validate aceita contato completo', function () {
+    $r = kanpro_entitycontact_validate([
+        'entities_id' => '3', 'name' => 'Diretoria', 'email' => '  Diretoria@Exemplo.com ',
+        'phone' => '(11) 99999-9999', 'is_active' => '1',
+    ]);
+    assert_same([], $r['errors']);
+    assert_same(3, $r['values']['entities_id']);
+    assert_same('Diretoria', $r['values']['name']);
+    assert_same('diretoria@exemplo.com', $r['values']['email']);
+    assert_same('11999999999', $r['values']['phone']);
+    assert_same(1, $r['values']['is_active']);
+});
+
+kanpro_test('entitycontact_validate exige entidade', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '0', 'name' => 'X', 'email' => 'a@b.com', 'phone' => '']);
+    assert_true(count($r['errors']) > 0, 'deveria ter erro de entidade');
+});
+
+kanpro_test('entitycontact_validate exige nome', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => '  ', 'email' => 'a@b.com', 'phone' => '']);
+    assert_true(count($r['errors']) > 0, 'deveria ter erro de nome');
+});
+
+kanpro_test('entitycontact_validate rejeita e-mail inválido', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => 'nao-email', 'phone' => '']);
+    assert_true(count($r['errors']) > 0, 'deveria ter erro de e-mail');
+});
+
+kanpro_test('entitycontact_validate exige e-mail ou telefone', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => '', 'phone' => '']);
+    assert_true(count($r['errors']) > 0, 'deveria exigir ao menos um contato');
+});
+
+kanpro_test('entitycontact_validate aceita só telefone', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => '', 'phone' => '1133334444']);
+    assert_same([], $r['errors']);
+    assert_same('', $r['values']['email']);
+    assert_same(0, $r['values']['is_active'], 'ausente = inativo (checkbox desmarcado)');
+});
+
+kanpro_test('entitycontact_validate rejeita telefone curto', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => '', 'phone' => '123']);
+    assert_true(count($r['errors']) > 0, 'deveria ter erro de telefone');
+});
+
+// ---------------------------------------------------------------------------
 exit(kanpro_summary());
