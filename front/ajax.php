@@ -5152,7 +5152,8 @@ switch ($action) {
         $canManage = false;
         try {
             $bidM = (int)($_REQUEST['boards_id'] ?? 0);
-            if ($bidM > 0 && function_exists('kanpro_can_manage_members')) $canManage = kanpro_can_manage_members($bidM);
+            if ($bidM > 0 && function_exists('kanpro_can_manage_models')) $canManage = kanpro_can_manage_models($bidM);
+            elseif ($bidM > 0 && function_exists('kanpro_can_manage_members')) $canManage = kanpro_can_manage_members($bidM);
             elseif (Session::haveRight('plugin_kanpro', UPDATE)) $canManage = true;
         } catch (Throwable $e) {}
         jexit(['success'=>true,'models'=>$models,'can_manage'=>$canManage ? 1 : 0]);
@@ -5162,7 +5163,7 @@ switch ($action) {
         kanpro_ensure_maintenance_tables();
         $bidM = (int)($_POST['boards_id'] ?? 0);
         if ($bidM > 0) {
-            if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bidM)) jexit(['success'=>false,'msg'=>'Somente Admin do quadro pode gerenciar modelos.']);
+            if (!function_exists('kanpro_can_manage_models') || !kanpro_can_manage_models($bidM)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode gerenciar modelos.']);
         } elseif (!Session::haveRight('plugin_kanpro', UPDATE)) {
             jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro).']);
         }
@@ -5189,7 +5190,7 @@ switch ($action) {
         kanpro_ensure_maintenance_tables();
         $bidM = (int)($_POST['boards_id'] ?? 0);
         if ($bidM > 0) {
-            if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bidM)) jexit(['success'=>false,'msg'=>'Somente Admin do quadro pode gerenciar modelos.']);
+            if (!function_exists('kanpro_can_manage_models') || !kanpro_can_manage_models($bidM)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode gerenciar modelos.']);
         } elseif (!Session::haveRight('plugin_kanpro', UPDATE)) {
             jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro).']);
         }
@@ -5210,7 +5211,7 @@ switch ($action) {
         kanpro_ensure_maintenance_tables();
         $bidM = (int)($_POST['boards_id'] ?? 0);
         if ($bidM > 0) {
-            if (!function_exists('kanpro_can_manage_members') || !kanpro_can_manage_members($bidM)) jexit(['success'=>false,'msg'=>'Somente Admin do quadro pode gerenciar modelos.']);
+            if (!function_exists('kanpro_can_manage_models') || !kanpro_can_manage_models($bidM)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode gerenciar modelos.']);
         } elseif (!Session::haveRight('plugin_kanpro', UPDATE)) {
             jexit(['success'=>false,'msg'=>'Sem permissão (precisa UPDATE no KanPro).']);
         }

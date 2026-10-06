@@ -439,6 +439,20 @@ if (!function_exists('kanpro_can_manage_members')) {
     }
 }
 
+if (!function_exists('kanpro_can_manage_models')) {
+    // Modelos de máquinas: criador/admin (via manage_members) + membro do quadro.
+    function kanpro_can_manage_models($bid) {
+        try {
+            if (function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid)) return true;
+        } catch (Throwable $e) {}
+        try {
+            $role = function_exists('kanpro_my_board_role') ? kanpro_my_board_role($bid) : null;
+            if ($role === 'member' || $role === 'admin') return true;
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
 if (!function_exists('kanpro_board_is_restricted')) {
     // O quadro tem controle de acesso configurado (membros ou perfis)?
     function kanpro_board_is_restricted($bid): bool {

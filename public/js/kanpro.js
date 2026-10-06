@@ -4293,7 +4293,7 @@
       try{ return !!(this.isBoardAdmin && this.isBoardAdmin()); }catch(e){ return false; }
     },
     saveCustomModel(model){
-      // legado local (só usado offline): online o add é via servidor (só admin)
+      // legado local (só usado offline): online o add é via servidor (membro/admin)
       const m = String(model).trim();
       if(!m) return false;
       if(m.length>80) return false;
@@ -4325,15 +4325,19 @@
       }).join('');
       this.showPicker({
         title: 'Modelos de máquinas',
-        html: `<div style="display:grid;gap:10px;min-width:min(420px,84vw)">
-          <div style="font-size:12px;color:#5e6c84;line-height:1.5">Vale pra equipe toda (servidor). ${canM ? 'Você é admin: pode adicionar, renomear e excluir.' : 'Somente Admin do quadro pode alterar.'}</div>
-          <div style="display:grid;gap:6px;max-height:300px;overflow-y:auto">${rows || '<div style="color:#5e6c84">Nenhum modelo</div>'}</div>
+        html: `<div style="display:grid;gap:10px;min-width:min(480px,84vw)">
+          <div style="font-size:12px;color:#5e6c84;line-height:1.5">Vale pra equipe toda (servidor). ${canM ? 'Você pode adicionar, renomear e excluir.' : 'Somente Membro ou Admin do quadro pode alterar.'}</div>
+          <div style="display:grid;gap:6px;max-height:min(420px,50vh);overflow-y:auto">${rows || '<div style="color:#5e6c84">Nenhum modelo</div>'}</div>
           ${canM ? `<div style="display:flex;gap:8px">
-            <input id="kp-new-model" type="text" maxlength="80" placeholder="Novo modelo (ex: Notebook Dell)" style="flex:1;padding:9px 12px;border:1px solid #dfe1e6;border-radius:8px">
-            <button onclick="Kanpro.addMaintModel()" style="background:#0079bf;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:800">Adicionar</button>
+            <input id="kp-new-model" type="text" maxlength="80" placeholder="Novo modelo (ex: Notebook Dell)" style="flex:1;min-width:0;padding:9px 12px;border:1px solid #dfe1e6;border-radius:8px">
+            <button onclick="Kanpro.addMaintModel()" style="background:#0079bf;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:800;white-space:nowrap">Adicionar</button>
           </div>` : ''}
         </div>`
       });
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='500px'; p.style.maxWidth='94vw'; p.style.width='580px'; p.style.maxHeight='90vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      const b = document.getElementById('picker-body');
+      if(b){ b.style.maxHeight='76vh'; b.style.overflowY='auto'; }
       setTimeout(()=>{
         const inp = document.getElementById('kp-new-model');
         if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key === 'Enter') Kanpro.addMaintModel(); }); }
