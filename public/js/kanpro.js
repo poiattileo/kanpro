@@ -1359,7 +1359,7 @@
       let isRetiradaCard = false;
       try { isRetiradaCard = this.isCardInListType(card, 'retirada'); } catch(e){ isRetiradaCard = false; }
       if (isRetiradaCard && isNotified) {
-        badges.push(`<span class="kp-badge" title="Notificado — ver estado e notificar novamente" onclick="event.stopPropagation();Kanpro.openRetiradaNotify(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
+        badges.push(`<span class="kp-badge" title="Notificado — ver estado e notificar novamente" onclick="event.stopPropagation();Kanpro.openRetiradaNotifyModal(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
       }
       // Travada aguardando chamado — selo de bloqueio
       const mProgLock = this.maintenanceProgress && this.maintenanceProgress[card.id];
@@ -1395,8 +1395,8 @@
 
       // botão Notificado (mini) — SÓ na Retirada: abre o modal de envio (selo marca rápido)
       const notifiedBtnHtml = !isRetiradaCard ? '' : (isNotified
-        ? `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotify(${card.id}, event)" title="Notificado — ver estado e notificar novamente" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
-        : `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotify(${card.id}, event)" title="Abrir e notificar no WhatsApp" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
+        ? `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotifyModal(${card.id}, event)" title="Notificado — ver estado e notificar novamente" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
+        : `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotifyModal(${card.id}, event)" title="Abrir e notificar no WhatsApp" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
 
       // botão Pegar (mini) — só Pendente; admin ou membro (membro vai direto, sem pendência)
       let pegarBtnHtml = '';
@@ -1966,7 +1966,7 @@
     },
     // Modal Notificar da Retirada: mostra destinos (contatos da entidade + fone
     // da escola) e envia de verdade p/ fila. Selo continua marcando rápido.
-    openRetiradaNotify(cardId, ev){
+    openRetiradaNotifyModal(cardId, ev){
       if(ev && ev.stopPropagation) ev.stopPropagation();
       const cid = parseInt(cardId || this.currentCardId);
       if(!(cid > 0)) return;
@@ -2013,7 +2013,7 @@
         const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
         if(c){ c.is_notified = 1; this.renderBoard(); }
         this.showToast(`📲 ${res.queued||1} na fila`);
-        this.openRetiradaNotify(cid);
+        this.openRetiradaNotifyModal(cid);
         if(this.currentCardId == cid) this.refreshCardModal();
       }).catch(()=>{
         alert('Não foi possível enfileirar');
@@ -2027,12 +2027,12 @@
         if(!res || !res.success || !res.is_notified){
           const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
           if(c){ c.is_notified = 0; this.renderBoard(); }
-          this.openRetiradaNotify(cid);
+          this.openRetiradaNotifyModal(cid);
           if(this.currentCardId == cid) this.refreshCardModal();
         } else {
-          this.openRetiradaNotify(cid);
+          this.openRetiradaNotifyModal(cid);
         }
-      }).catch(()=>{ this.openRetiradaNotify(cid); });
+      }).catch(()=>{ this.openRetiradaNotifyModal(cid); });
     },
     renderNotifiedInModal(isNotified, cardData){
       const box = document.getElementById('card-modal-badges');
@@ -2057,7 +2057,7 @@
         return;
       }
       box.innerHTML = `
-        <button onclick="Kanpro.openRetiradaNotify()" title="${on ? 'Notificado — ver estado e notificar novamente' : 'Abrir e notificar no WhatsApp'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
+        <button onclick="Kanpro.openRetiradaNotifyModal()" title="${on ? 'Notificado — ver estado e notificar novamente' : 'Abrir e notificar no WhatsApp'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
           <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificar'}
         </button>${extra}`;
       box.style.display = 'flex';
