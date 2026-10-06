@@ -170,6 +170,24 @@ if (!function_exists('kanpro_entitycontact_validate')) {
     }
 }
 
+if (!function_exists('kanpro_entity_short_name')) {
+    // Nome curto da entidade (só "EE X", sem o caminho "URE > EE X"). Pura p/ testes.
+    // Prefere glpi_entities.name; sem ele, usa o último nível do completename.
+    function kanpro_entity_short_name(array $row): string {
+        $name = trim((string)($row['name'] ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+        $complete = trim((string)($row['completename'] ?? ''));
+        if ($complete === '') {
+            return '';
+        }
+        $parts = explode('>', $complete);
+        $last = trim((string)end($parts));
+        return $last !== '' ? $last : $complete;
+    }
+}
+
 if (!function_exists('kanpro_acting_map')) {
     // Fonte única do mapa login compartilhado -> pessoa real.
     // Lê do config 'acting_map' (JSON); JSON inválido/ausente cai no legado.

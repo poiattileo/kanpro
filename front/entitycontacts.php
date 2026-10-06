@@ -80,8 +80,9 @@ try {
             $hasDeleted = $DB->fieldExists('glpi_entities', 'is_deleted');
         } catch (Throwable $e) {}
         $where = $hasDeleted ? ['is_deleted' => 0] : [];
-        foreach ($DB->request(['SELECT' => ['id', 'completename'], 'FROM' => 'glpi_entities', 'WHERE' => $where, 'ORDER' => 'completename ASC']) as $e) {
-            $entities[(int)$e['id']] = trim((string)($e['completename'] ?? '')) !== '' ? (string)$e['completename'] : ('Entidade #' . (int)$e['id']);
+        foreach ($DB->request(['SELECT' => ['id', 'name', 'completename'], 'FROM' => 'glpi_entities', 'WHERE' => $where, 'ORDER' => 'name ASC']) as $e) {
+            $short = function_exists('kanpro_entity_short_name') ? kanpro_entity_short_name($e) : trim((string)($e['name'] ?? ''));
+            $entities[(int)$e['id']] = $short !== '' ? $short : ('Entidade #' . (int)$e['id']);
         }
     }
 } catch (Throwable $e) {}

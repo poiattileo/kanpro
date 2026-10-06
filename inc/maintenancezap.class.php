@@ -921,7 +921,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             try {
                 if ($eid > 0 && isset($DB)) {
                     $er = $DB->request(['SELECT' => ['completename', 'name'], 'FROM' => 'glpi_entities', 'WHERE' => ['id' => $eid], 'LIMIT' => 1])->current();
-                    if (is_array($er)) $entityName = trim((string)($er['completename'] ?? $er['name'] ?? ''));
+                    if (is_array($er) && function_exists('kanpro_entity_short_name')) $entityName = kanpro_entity_short_name($er);
                 }
             } catch (Throwable $e) {}
             $recipients = [];

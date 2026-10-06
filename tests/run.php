@@ -280,4 +280,17 @@ kanpro_test('enqueue force ignora alreadySent', function () {
 });
 
 // ---------------------------------------------------------------------------
+// Nome curto da entidade (kanpro_entity_short_name — puro)
+// ---------------------------------------------------------------------------
+kanpro_test('entity_short_name prefere name', function () {
+    assert_same('EE "Coripheu"', kanpro_entity_short_name(['name' => 'EE "Coripheu"', 'completename' => 'URE Jales > EE "Coripheu"']));
+});
+
+kanpro_test('entity_short_name cai no último nível do completename', function () {
+    assert_same('EE "Coripheu"', kanpro_entity_short_name(['name' => '', 'completename' => 'URE Jales > EE "Coripheu"']));
+    assert_same('Sozinha', kanpro_entity_short_name(['completename' => 'Sozinha']));
+    assert_same('', kanpro_entity_short_name([]));
+});
+
+// ---------------------------------------------------------------------------
 exit(kanpro_summary());
