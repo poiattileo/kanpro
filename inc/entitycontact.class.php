@@ -18,10 +18,11 @@ class PluginKanproEntityContact extends CommonDBTM {
 
     /**
      * Contatos de uma entidade (só ativos por padrão), ordenados por nome.
+     * $kind filtra 'email'|'phone' (null = ambos). 1 linha = 1 valor.
      *
      * @return array<int,array<string,mixed>>
      */
-    static function getForEntity(int $entities_id, bool $activeOnly = true): array {
+    static function getForEntity(int $entities_id, bool $activeOnly = true, ?string $kind = null): array {
         global $DB;
         $out = [];
         try {
@@ -29,6 +30,7 @@ class PluginKanproEntityContact extends CommonDBTM {
             if (!isset($DB) || !$DB->tableExists('glpi_plugin_kanpro_entities_contacts')) return $out;
             $where = ['entities_id' => $entities_id];
             if ($activeOnly) $where['is_active'] = 1;
+            if ($kind === 'email' || $kind === 'phone') $where['kind'] = $kind;
             foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_entities_contacts', 'WHERE' => $where, 'ORDER' => 'name ASC']) as $r) {
                 $out[] = $r;
             }

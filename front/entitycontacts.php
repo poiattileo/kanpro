@@ -23,6 +23,7 @@ if (isset($_POST['add'])) {
         try {
             $id = $DB->insert($table, [
                 'entities_id'   => $v['entities_id'],
+                'kind'          => $v['kind'],
                 'name'          => $v['name'],
                 'email'         => $v['email'],
                 'phone'         => $v['phone'],
@@ -70,10 +71,16 @@ if (isset($_POST['toggle'])) {
 Html::header('KanPro - Contatos por entidade', $_SERVER['PHP_SELF'], 'tools', 'PluginKanproBoard');
 
 // Entidades p/ o select e p/ exibir nome na lista.
+// Sem filtro is_deleted fixo: nem todo GLPI tem a coluna em glpi_entities.
 $entities = [];
 try {
     if ($DB->tableExists('glpi_entities')) {
-        foreach ($DB->request(['SELECT' => ['id', 'completename'], 'FROM' => 'glpi_entities', 'WHERE' => ['is_deleted' => 0], 'ORDER' => 'completename ASC']) as $e) {
+        $hasDeleted = false;
+        try {
+            $hasDeleted = $DB->fieldExists('glpi_entities', 'is_deleted');
+        } catch (Throwable $e) {}
+        $where = $hasDeleted ? ['is_deleted' => 0] : [];
+        foreach ($DB->request(['SELECT' => ['id', 'completename'], 'FROM' => 'glpi_entities', 'WHERE' => $where, 'ORDER' => 'completename ASC']) as $e) {
             $entities[(int)$e['id']] = trim((string)($e['completename'] ?? '')) !== '' ? (string)$e['completename'] : ('Entidade #' . (int)$e['id']);
         }
     }
@@ -103,6 +110,10 @@ foreach ($entities as $eid => $ename) {
     echo "<option value='{$eid}'>" . htmlspecialchars($ename) . "</option>";
 }
 echo "</select></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>Tipo</strong><br><small>1 contato por linha — cadastre N e-mails + M WhatsApps</small></td><td><select name='kind' style='width:100%'>";
+echo "<option value='email'>✉️ E-mail</option>";
+echo "<option value='phone'>📱 WhatsApp</option>";
+echo "</select></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Ex: Diretoria, Responsável TI</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Nome do contato'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>E-mail</strong></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número'></td></tr>";
@@ -116,10 +127,10 @@ Html::closeForm();
 
 // ---- lista ----
 echo "<table class='tab_cadre_fixehov' style='margin-top:16px'>";
-echo "<tr class='headerRow'><th colspan='6'>Contatos cadastrados (" . count($rows) . ")</th></tr>";
-echo "<tr class='tab_bg_1 center'><th>Entidade</th><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Ativo</th><th>Ações</th></tr>";
+echo "<tr class='headerRow'><th colspan='7'>Contatos cadastrados (" . count($rows) . ")</th></tr>";
+echo "<tr class='tab_bg_1 center'><th>Entidade</th><th>Tipo</th><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Ativo</th><th>Ações</th></tr>";
 if (empty($rows)) {
-    echo "<tr class='tab_bg_1 center'><td colspan='6' style='color:#6b778c'>Nenhum contato cadastrado.</td></tr>";
+    echo "<tr class='tab_bg_1 center'><td colspan='7' style='color:#6b778c'>Nenhum contato cadastrado.</td></tr>";
 }
 foreach ($rows as $r) {
     $rid = (int)($r['id'] ?? 0);
@@ -127,6 +138,8 @@ foreach ($rows as $r) {
     $active = !empty($r['is_active']);
     echo "<tr class='tab_bg_1 center'>";
     echo "<td style='text-align:left'>" . htmlspecialchars($entities[$reid] ?? ('Entidade #' . $reid)) . "</td>";
+    $kindBadge = (($r['kind'] ?? 'email') === 'phone') ? '📱 WhatsApp' : '✉️ E-mail';
+    echo "<td style='white-space:nowrap'>" . $kindBadge . "</td>";
     echo "<td style='text-align:left'>" . htmlspecialchars((string)($r['name'] ?? '')) . "</td>";
     echo "<td style='text-align:left'>" . htmlspecialchars((string)($r['email'] ?? '')) . "</td>";
     echo "<td>" . htmlspecialchars((string)($r['phone'] ?? '')) . "</td>";

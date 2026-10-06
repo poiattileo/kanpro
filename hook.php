@@ -730,6 +730,7 @@ function plugin_kanpro_install(): bool {
             CREATE TABLE `glpi_plugin_kanpro_entities_contacts` (
                 `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
                 `entities_id`                 INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_entities.id',
+                `kind`                        VARCHAR(10)  NOT NULL DEFAULT 'email' COMMENT 'email|phone (1 linha = 1 valor)',
                 `name`                        VARCHAR(255) NOT NULL DEFAULT '',
                 `email`                       VARCHAR(255) NOT NULL DEFAULT '',
                 `phone`                       VARCHAR(30)  DEFAULT NULL,
@@ -741,6 +742,13 @@ function plugin_kanpro_install(): bool {
                 KEY `entities_id` (`entities_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
+    } else {
+        // migração 1.4.0 -> 1.5.0: modelo 1 linha = 1 valor (linhas antigas sem
+        // e-mail viram phone; com e-mail viram email — tabela tinha dias de vida).
+        if (!$DB->fieldExists('glpi_plugin_kanpro_entities_contacts', 'kind')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_entities_contacts` ADD `kind` VARCHAR(10) NOT NULL DEFAULT 'email' AFTER `entities_id`");
+            $DB->update('glpi_plugin_kanpro_entities_contacts', ['kind' => 'phone'], ['email' => '']);
+        }
     }
 
     PluginKanproProfile::install();

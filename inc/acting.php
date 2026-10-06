@@ -126,6 +126,7 @@ if (!function_exists('kanpro_config_parse_post')) {
 }
 if (!function_exists('kanpro_entitycontact_validate')) {
     // Valida contato por entidade. Pura (sem $DB/GLPI) p/ ser testável.
+    // Modelo: 1 linha = 1 valor (kind email|phone) — N e-mails + M WhatsApps/entidade.
     // Devolve ['values' => [...pronto p/ gravar...], 'errors' => [...]].
     function kanpro_entitycontact_validate(array $input): array {
         $errors = [];
@@ -133,26 +134,37 @@ if (!function_exists('kanpro_entitycontact_validate')) {
         if ($entities_id <= 0) {
             $errors[] = 'Entidade inválida.';
         }
+        $kind = strtolower(trim((string)($input['kind'] ?? '')));
+        if (!in_array($kind, ['email', 'phone'], true)) {
+            $errors[] = 'Tipo inválido (e-mail ou WhatsApp).';
+        }
         $name = function_exists('kanpro_clean_text')
             ? kanpro_clean_text($input['name'] ?? '', 255)
             : substr(trim((string)($input['name'] ?? '')), 0, 255);
         if ($name === '') {
             $errors[] = 'Nome obrigatório.';
         }
-        $email = strtolower(trim((string)($input['email'] ?? '')));
-        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'E-mail inválido.';
-        }
-        $phone = (string)preg_replace('/[^0-9]/', '', (string)($input['phone'] ?? ''));
-        if ($phone !== '' && (strlen($phone) < 8 || strlen($phone) > 15)) {
-            $errors[] = 'Telefone inválido (8 a 15 dígitos).';
-        }
-        if ($email === '' && $phone === '') {
-            $errors[] = 'Informe ao menos e-mail ou telefone.';
+        $email = '';
+        $phone = '';
+        if ($kind === 'email') {
+            $email = strtolower(trim((string)($input['email'] ?? '')));
+            if ($email === '') {
+                $errors[] = 'E-mail obrigatório.';
+            } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $errors[] = 'E-mail inválido.';
+            }
+        } elseif ($kind === 'phone') {
+            $phone = (string)preg_replace('/[^0-9]/', '', (string)($input['phone'] ?? ''));
+            if ($phone === '') {
+                $errors[] = 'Telefone obrigatório.';
+            } elseif (strlen($phone) < 8 || strlen($phone) > 15) {
+                $errors[] = 'Telefone inválido (8 a 15 dígitos).';
+            }
         }
         return [
             'values' => [
                 'entities_id' => $entities_id,
+                'kind'        => $kind,
                 'name'        => $name,
                 'email'       => $email,
                 'phone'       => $phone,
