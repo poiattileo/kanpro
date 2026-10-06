@@ -7492,38 +7492,6 @@
       const b2 = document.getElementById('picker-body');
       if(b2){ b2.style.maxHeight='76vh'; b2.style.overflowY='auto'; }
     },
-    // marca como notificado e remove o card da lista sem sair do picker
-    notifyFromRetirada(cardId, btn){
-      const cid = parseInt(cardId);
-      if(!(cid > 0)) return;
-      if(btn){ btn.disabled = true; btn.innerHTML = '...'; }
-      const c = this.cards.find(x=> String(x.id)===String(cid));
-      const prev = c ? (c.is_notified == 1 ? 1 : 0) : 0;
-      if(c) c.is_notified = 1;
-      this.ajax('toggle_notified', {cards_id: cid}).then(res=>{
-        if(!res || !res.success){
-          if(c) c.is_notified = prev;
-          this.renderBoard();
-          alert((res&&res.msg)||'Não foi possível marcar como notificado');
-          this.showRetiradaPicker();
-          return;
-        }
-        this.renderBoard();
-        // tira da lista e refaz as contagens sem precisar reabrir o picker
-        const res2 = this._lastRetirada || {schools:[]};
-        if(res2.schools){
-          res2.schools = res2.schools.map(s=>{
-            if(!s.cards.some(x=> x.id===cid)) return s;
-            return Object.assign({}, s, {cards: s.cards.filter(x=> x.id!==cid), count: s.count-1});
-          }).filter(s=> s.cards.length > 0);
-          res2.total_schools = res2.schools.length;
-          res2.total_cards = Math.max(0, (res2.total_cards||0) - 1);
-          res2.notified_cards = (res2.notified_cards||0) + 1;
-        }
-        this.showRetiradaPicker();
-        this.showToast(`#${cid} marcado como notificado`);
-      });
-    },
     copyRetiradaList(){
       // texto pronto p/ colar no WhatsApp: uma escola por linha
       const schools = (this._lastRetirada && this._lastRetirada.schools) || [];
