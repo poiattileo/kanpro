@@ -7453,9 +7453,6 @@
       });
     },
     showRetiradaPicker(){
-      // estilos do painel reaplicados a cada render (o closePicker reseta o minWidth)
-      const p = document.getElementById('kanpro-picker');
-      if(p){ p.style.minWidth='560px'; p.style.maxWidth='96vw'; p.style.width='660px'; p.style.maxHeight='92vh'; p.style.display='flex'; p.style.flexDirection='column'; }
       const res = this._lastRetirada || {schools:[]};
       const schools = res.schools || [];
       const notif = res.notified_cards || 0;
@@ -7479,6 +7476,10 @@
         html += `<button onclick="Kanpro.copyRetiradaList()" style="margin-top:12px;background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-weight:700;width:100%"><i class="ti ti-copy"></i> Copiar lista p/ avisar</button>`;
       }
       this.showPicker({title:'🔔 Avisar retiradas', html});
+      // tamanho DEPOIS do showPicker: ele reseta o cssText (300-360px) e
+      // apagava qualquer largura aplicada antes — era por isso que seguia pequeno
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='560px'; p.style.maxWidth='96vw'; p.style.width='660px'; p.style.maxHeight='92vh'; p.style.display='flex'; p.style.flexDirection='column'; }
       const b2 = document.getElementById('picker-body');
       if(b2){ b2.style.maxHeight='76vh'; b2.style.overflowY='auto'; }
     },
