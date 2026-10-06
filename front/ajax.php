@@ -1131,7 +1131,40 @@ function kanpro_move_card_to_retirada(int $cards_id): array {
     } catch (Throwable $e) { return $noop; }
 }
 
-// Cria um chamado GLPI a partir do cartão e vincula (tickets_id).
+// Move o card para a lista de categoria "Concluído" (pós-assinatura).
+// Só sai da Retirada; sem lista Concluído ou já estando nela: não faz nada.
+// Nunca joga exceção. Retorna ['moved'=>bool,'lists_id'=>int,'list_name'=>string].
+function kanpro_move_card_to_done(int $cards_id): array {
+    global $DB;
+    $noop = ['moved'=>false,'lists_id'=>0,'list_name'=>''];
+    try {
+        if ($cards_id <= 0) return $noop;
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return $noop;
+        $bid = (int)($c->fields['plugin_kanpro_boards_id'] ?? 0);
+        $curLid = (int)($c->fields['plugin_kanpro_lists_id'] ?? 0);
+        if ($bid <= 0) return $noop;
+        if (function_exists('kanpro_list_category') && kanpro_list_category($curLid) !== 'retirada') return $noop;
+        $dest = kanpro_find_list_by_type($bid, 'done');
+        if (!$dest) {
+            // legado: lista chamada "Concluído/Concluída" sem list_type
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_lists','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'is_archived'=>0],'ORDER'=>'rank ASC']) as $l) {
+                $nm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
+                $nm = trim(strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']));
+                if ($nm === 'concluido' || $nm === 'concluida') { $dest = $l; break; }
+            }
+        }
+        if (!$dest) return $noop;
+        $destLid = (int)($dest['id'] ?? 0);
+        if ($destLid <= 0 || $destLid === $curLid) return $noop;
+        $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$destLid],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+        $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$destLid,'rank'=>$rank,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cards_id]);
+        kanpro_touch_card($cards_id);
+        PluginKanproBoard::logActivity($bid, $cards_id, $destLid, 'card_move', "Assinado e movido para '{$dest['name']}'");
+        return ['moved'=>true,'lists_id'=>$destLid,'list_name'=>(string)($dest['name'] ?? 'Concluído')];
+    } catch (Throwable $e) { return $noop; }
+}
 // Usado na conversão para manutenção (automático) e no botão Chamado.
 // Se o cartão já tem chamado válido, só retorna o vínculo existente.
 function kanpro_create_ticket_from_card(int $cards_id, int $force_entities_id = 0, string $origin_label = ''): array {
@@ -3100,7 +3133,7 @@ switch ($action) {
 
         $transfer_status = [];
         if ($DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) {
-            foreach ($all_cards as $c) {
+            foreach ($all_cards as $cidx => $c) {
                 if (empty($c['is_maintenance'])) continue;
                 $like = "%[KanPro #{$c['id']}]%";
                 $trIter = $DB->request(['FROM'=>'glpi_plugin_assetmgrstatus_transfers','WHERE'=>['reason'=>['LIKE',$like]],'ORDER'=>'id DESC','LIMIT'=>1]);
@@ -3110,7 +3143,15 @@ switch ($action) {
                 $hasRec = !empty($tr['assinatura_image']);
                 $hasTec = !empty($tr['assinatura_tecnico_image']);
                 $isAssinado = $hasRec && $hasTec;
-                if ($isAssinado) $transfer_status[$c['id']] = ['label'=>'Concluído','status'=>'concluido'];
+                if ($isAssinado) {
+                    $transfer_status[$c['id']] = ['label'=>'Concluído','status'=>'concluido'];
+                    // sweep: assinado ainda na Retirada vai sozinho p/ Concluído
+                    // (corrige a linha na resposta p/ a UI atualizar no mesmo ciclo)
+                    try {
+                        $mv = kanpro_move_card_to_done((int)$c['id']);
+                        if (!empty($mv['moved'])) $all_cards[$cidx]['plugin_kanpro_lists_id'] = (int)$mv['lists_id'];
+                    } catch (Throwable $e) {}
+                }
                 else $transfer_status[$c['id']] = ['label'=>'Retirada','status'=>'retirada'];
             }
         }
