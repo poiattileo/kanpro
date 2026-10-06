@@ -5010,6 +5010,7 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Cartão não é de manutenção. Converta primeiro.']);
+        kanpro_need_card_editable($cid);
         kanpro_need_not_finalized($cid);
         kanpro_need_not_chamado_locked($cid);
         // Parse definições

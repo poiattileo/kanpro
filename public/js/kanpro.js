@@ -3792,7 +3792,7 @@
       });
       html += `</div>`;
       html += finalizeFootHtml;
-      html += (lockedFinal || chamadoLocked ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      html += (lockedFinal || chamadoLocked || cardPending ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
         ${cardPending ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
       </div>`);
@@ -4497,6 +4497,7 @@
     },
     openMaintenanceSetup(isAppend=false){
       if(this.finalizedGuard()) return;
+      if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
       try {
         const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
         if ((ms||[]).some(m=> m && Number(m.is_locked)==1)) { this.showToast('🔒 Chamado travado — aguardando Chamado criado. Nada pode ser editado/adicionado até liberar.'); return; }
