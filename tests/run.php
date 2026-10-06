@@ -188,7 +188,8 @@ kanpro_test('parse_post tudo vazio zera (desliga envios)', function () {
 
 // ---------------------------------------------------------------------------
 // Validador de contato por entidade (kanpro_entitycontact_validate — puro)
-// Modelo: 1 linha = 1 valor (kind email|phone); N e-mails + M WhatsApps/entidade.
+// Modelo: 1 linha = 1 valor; o tipo é inferido pelo campo preenchido
+// (só e-mail ou só telefone por vez) — sem select de tipo no form.
 // ---------------------------------------------------------------------------
 kanpro_test('entitycontact_validate existe', function () {
     assert_true(function_exists('kanpro_entitycontact_validate'));
@@ -196,58 +197,54 @@ kanpro_test('entitycontact_validate existe', function () {
 
 kanpro_test('entitycontact_validate aceita e-mail', function () {
     $r = kanpro_entitycontact_validate([
-        'entities_id' => '3', 'kind' => 'email', 'name' => 'Diretoria',
-        'email' => '  Diretoria@Exemplo.com ', 'phone' => '(11) 99999-9999', 'is_active' => '1',
+        'entities_id' => '3', 'name' => 'Diretoria',
+        'email' => '  Diretoria@Exemplo.com ', 'phone' => '', 'is_active' => '1',
     ]);
     assert_same([], $r['errors']);
     assert_same(3, $r['values']['entities_id']);
     assert_same('email', $r['values']['kind']);
     assert_same('Diretoria', $r['values']['name']);
     assert_same('diretoria@exemplo.com', $r['values']['email']);
-    assert_same('', $r['values']['phone'], 'kind email ignora telefone');
+    assert_same('', $r['values']['phone']);
     assert_same(1, $r['values']['is_active']);
 });
 
 kanpro_test('entitycontact_validate aceita whatsapp', function () {
     $r = kanpro_entitycontact_validate([
-        'entities_id' => '1', 'kind' => 'phone', 'name' => 'Plantão',
-        'email' => 'x@y.com', 'phone' => '(11) 99999-9999',
+        'entities_id' => '1', 'name' => 'Plantão',
+        'email' => '', 'phone' => '(11) 99999-9999',
     ]);
     assert_same([], $r['errors']);
     assert_same('phone', $r['values']['kind']);
     assert_same('11999999999', $r['values']['phone']);
-    assert_same('', $r['values']['email'], 'kind phone ignora e-mail');
+    assert_same('', $r['values']['email']);
     assert_same(0, $r['values']['is_active'], 'ausente = inativo (checkbox desmarcado)');
 });
 
 kanpro_test('entitycontact_validate exige entidade', function () {
-    $r = kanpro_entitycontact_validate(['entities_id' => '0', 'kind' => 'email', 'name' => 'X', 'email' => 'a@b.com', 'phone' => '']);
+    $r = kanpro_entitycontact_validate(['entities_id' => '0', 'name' => 'X', 'email' => 'a@b.com', 'phone' => '']);
     assert_true(count($r['errors']) > 0, 'deveria ter erro de entidade');
 });
 
 kanpro_test('entitycontact_validate exige nome', function () {
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'kind' => 'email', 'name' => '  ', 'email' => 'a@b.com', 'phone' => '']);
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => '  ', 'email' => 'a@b.com', 'phone' => '']);
     assert_true(count($r['errors']) > 0, 'deveria ter erro de nome');
 });
 
-kanpro_test('entitycontact_validate rejeita kind inválido', function () {
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'kind' => 'sms', 'name' => 'X', 'email' => 'a@b.com', 'phone' => '11999999999']);
-    assert_true(count($r['errors']) > 0, 'deveria ter erro de tipo');
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => 'a@b.com', 'phone' => '']);
-    assert_true(count($r['errors']) > 0, 'kind ausente deveria falhar');
+kanpro_test('entitycontact_validate rejeita os dois preenchidos', function () {
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => 'a@b.com', 'phone' => '11999999999']);
+    assert_true(count($r['errors']) > 0, '1 linha = 1 valor: deveria falhar');
 });
 
 kanpro_test('entitycontact_validate email exige e-mail válido', function () {
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'kind' => 'email', 'name' => 'X', 'email' => '', 'phone' => '']);
-    assert_true(count($r['errors']) > 0, 'kind email sem e-mail deveria falhar');
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'kind' => 'email', 'name' => 'X', 'email' => 'nao-email', 'phone' => '']);
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => '', 'phone' => '']);
+    assert_true(count($r['errors']) > 0, 'nenhum preenchido deveria falhar');
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => 'nao-email', 'phone' => '']);
     assert_true(count($r['errors']) > 0, 'deveria ter erro de e-mail');
 });
 
 kanpro_test('entitycontact_validate phone exige telefone válido', function () {
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'kind' => 'phone', 'name' => 'X', 'email' => '', 'phone' => '']);
-    assert_true(count($r['errors']) > 0, 'kind phone sem telefone deveria falhar');
-    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'kind' => 'phone', 'name' => 'X', 'email' => '', 'phone' => '123']);
+    $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => 'X', 'email' => '', 'phone' => '123']);
     assert_true(count($r['errors']) > 0, 'deveria ter erro de telefone');
 });
 

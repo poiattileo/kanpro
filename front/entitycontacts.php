@@ -110,12 +110,7 @@ foreach ($entities as $eid => $ename) {
     echo "<option value='{$eid}'>" . htmlspecialchars($ename) . "</option>";
 }
 echo "</select></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>Tipo</strong><br><small>1 contato por linha — cadastre N e-mails + M WhatsApps</small></td><td><select name='kind' style='width:100%'>";
-echo "<option value='email'>✉️ E-mail</option>";
-echo "<option value='phone'>📱 WhatsApp</option>";
-echo "</select></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Ex: Diretoria, Responsável TI</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Nome do contato'></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>E-mail</strong></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo'></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>E-mail</strong><br><small>Só um por vez: ou e-mail, ou telefone</small></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Ativo</strong></td><td><input type='hidden' name='is_active' value='0'><input type='checkbox' name='is_active' value='1' checked> recebe futuras notificações</td></tr>";
 echo "<tr class='tab_bg_2'><td colspan='2' class='center' style='padding:12px'>";
