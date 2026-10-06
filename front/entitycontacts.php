@@ -13,6 +13,9 @@ if (isset($_POST['add'])) {
     $parsed = function_exists('kanpro_entitycontact_validate')
         ? kanpro_entitycontact_validate($_POST)
         : ['values' => [], 'errors' => ['Validador indisponível (inc/acting.php).']];
+    // volta p/ o form mantendo a entidade (o resto reseta p/ próximo cadastro)
+    $backEntity = (int)(($parsed['values']['entities_id'] ?? 0) ?: ($_POST['entities_id'] ?? 0));
+    $backUrl = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/entitycontacts.php' . ($backEntity > 0 ? '?entities_id=' . $backEntity : '');
     if (!empty($parsed['errors'])) {
         foreach ($parsed['errors'] as $e) {
             Session::addMessageAfterRedirect($e, false, ERROR);
@@ -36,7 +39,7 @@ if (isset($_POST['add'])) {
             Session::addMessageAfterRedirect('Falha ao cadastrar: ' . $e->getMessage(), false, ERROR);
         }
     }
-    Html::back();
+    Html::redirect($backUrl);
 }
 
 if (isset($_POST['delete'])) {
@@ -98,6 +101,8 @@ try {
 
 $csrf = Session::getNewCSRFToken();
 $form_action = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/entitycontacts.php';
+// entidade mantida após cadastrar (volta na URL) — resto do form reseta
+$selEntity = (int)($_GET['entities_id'] ?? 0);
 
 echo "<div class='spaced' style='max-width:1100px;margin:0 auto'>";
 
@@ -108,7 +113,8 @@ echo "<tr class='headerRow'><th colspan='2'>📇 Novo contato por entidade</th><
 echo "<tr class='tab_bg_1'><td width='30%'><strong>Entidade</strong></td><td><select name='entities_id' style='width:100%'>";
 echo "<option value='0'>— selecione —</option>";
 foreach ($entities as $eid => $ename) {
-    echo "<option value='{$eid}'>" . htmlspecialchars($ename) . "</option>";
+    $sel = ($eid === $selEntity && $eid > 0) ? ' selected' : '';
+    echo "<option value='{$eid}'{$sel}>" . htmlspecialchars($ename) . "</option>";
 }
 echo "</select></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Opcional — vazio usa o próprio contato</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Ex: Diretoria, Responsável TI'></td></tr>";
