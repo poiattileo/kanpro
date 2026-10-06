@@ -119,7 +119,7 @@ foreach ($entities as $eid => $ename) {
 echo "</select></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Opcional — vazio usa o próprio contato</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Ex: Diretoria, Responsável TI'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>E-mail</strong><br><small>Só um por vez: ou e-mail, ou telefone</small></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo'></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número'></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' id='kp-contact-phone' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Ativo</strong></td><td><input type='hidden' name='is_active' value='0'><input type='checkbox' name='is_active' value='1' checked> recebe futuras notificações</td></tr>";
 echo "<tr class='tab_bg_2'><td colspan='2' class='center' style='padding:12px'>";
 echo Html::hidden('_glpi_csrf_token', ['value' => $csrf]);
@@ -127,6 +127,7 @@ echo "<button type='submit' name='add' value='1' class='btn btn-primary'><i clas
 echo "</td></tr>";
 echo "</table>";
 Html::closeForm();
+echo "<script>document.getElementById('kp-contact-phone')?.addEventListener('input', function(){ var d = this.value.replace(/[^0-9]/g, '').slice(0, 15); if (this.value !== d) this.value = d; });</script>";
 
 // ---- lista ----
 echo "<table class='tab_cadre_fixehov' style='margin-top:16px'>";
