@@ -117,30 +117,6 @@ $csrf = Session::getNewCSRFToken();
 $form_action = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/entitycontacts.php';
 // entidade mantida após cadastrar (volta na URL) — resto do form reseta
 $selEntity = (int)($_GET['entities_id'] ?? 0);
-
-// modo edição: ?edit_id=N preenche o form
-$editRow = null;
-$editId = (int)($_GET['edit_id'] ?? 0);
-if ($editId > 0) {
-    try {
-        $found = $DB->request(['FROM' => $table, 'WHERE' => ['id' => $editId], 'LIMIT' => 1])->current();
-        if (is_array($found)) {
-            $editRow = $found;
-        }
-    } catch (Throwable $e) {}
-}
-$fv = ['id' => 0, 'entities_id' => $selEntity, 'name' => '', 'email' => '', 'phone' => '', 'is_active' => 1];
-if (is_array($editRow)) {
-    $fv = [
-        'id'          => (int)$editRow['id'],
-        'entities_id' => (int)$editRow['entities_id'],
-        'name'        => (string)($editRow['name'] ?? ''),
-        'email'       => (string)($editRow['email'] ?? ''),
-        'phone'       => (string)($editRow['phone'] ?? ''),
-        'is_active'   => !empty($editRow['is_active']) ? 1 : 0,
-    ];
-    $selEntity = $fv['entities_id'];
-}
 // dobra p/ busca (minúsculas sem acento — o JS normaliza igual do outro lado)
 $foldSearch = function ($s) {
     $s = strtolower((string)$s);
@@ -149,15 +125,10 @@ $foldSearch = function ($s) {
 
 echo "<div class='spaced' style='max-width:1100px;margin:0 auto'>";
 
-// ---- adicionar / editar ----
-echo "<form method='post' action='{$form_action}'>";
+// ---- adicionar ----
+echo "<form method='post' action='{$form_action}' id='kp-contact-addform'>";
 echo "<table class='tab_cadre_fixehov'>";
-if ($fv['id'] > 0) {
-    echo "<tr class='headerRow'><th colspan='2'>✏️ Editando contato #{$fv['id']} <a href='{$form_action}' style='color:#fff;font-weight:400;font-size:12px;margin-left:12px'>(cancelar)</a></th></tr>";
-} else {
-    echo "<tr class='headerRow'><th colspan='2'>📇 Novo contato por entidade</th></tr>";
-}
-echo Html::hidden('id', ['value' => $fv['id']]);
+echo "<tr class='headerRow'><th colspan='2'>📇 Novo contato por entidade</th></tr>";
 echo "<tr class='tab_bg_1'><td width='30%'><strong>Entidade</strong></td><td><select name='entities_id' style='width:100%'>";
 echo "<option value='0'>— selecione —</option>";
 foreach ($entities as $eid => $ename) {
@@ -165,18 +136,13 @@ foreach ($entities as $eid => $ename) {
     echo "<option value='{$eid}'{$sel}>" . htmlspecialchars($ename) . "</option>";
 }
 echo "</select></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Opcional — vazio usa o próprio contato</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Ex: Diretoria, Responsável TI' value='" . htmlspecialchars($fv['name'], ENT_QUOTES) . "'></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>E-mail</strong><br><small>Só um por vez: ou e-mail, ou telefone</small></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo' value='" . htmlspecialchars($fv['email'], ENT_QUOTES) . "'></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' id='kp-contact-phone' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número' value='" . htmlspecialchars($fv['phone'], ENT_QUOTES) . "'></td></tr>";
-echo "<tr class='tab_bg_1'><td><strong>Ativo</strong></td><td><input type='hidden' name='is_active' value='0'><input type='checkbox' name='is_active' value='1'" . ($fv['is_active'] ? ' checked' : '') . "> recebe futuras notificações</td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Opcional — vazio usa o próprio contato</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Ex: Diretoria, Responsável TI'></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>E-mail</strong><br><small>Só um por vez: ou e-mail, ou telefone</small></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo'></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' id='kp-contact-phone' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número'></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>Ativo</strong></td><td><input type='hidden' name='is_active' value='0'><input type='checkbox' name='is_active' value='1' checked> recebe futuras notificações</td></tr>";
 echo "<tr class='tab_bg_2'><td colspan='2' class='center' style='padding:12px'>";
 echo Html::hidden('_glpi_csrf_token', ['value' => $csrf]);
-if ($fv['id'] > 0) {
-    echo "<button type='submit' name='save' value='1' class='btn btn-primary'><i class='ti ti-device-floppy'></i> Salvar alterações</button> ";
-    echo "<a href='{$form_action}' class='btn btn-outline-secondary'>Cancelar</a>";
-} else {
-    echo "<button type='submit' name='save' value='1' class='btn btn-primary'><i class='ti ti-plus'></i> Cadastrar</button>";
-}
+echo "<button type='submit' name='save' value='1' class='btn btn-primary'><i class='ti ti-plus'></i> Cadastrar</button>";
 echo "</td></tr>";
 echo "</table>";
 Html::closeForm();
@@ -203,7 +169,13 @@ foreach ($rows as $r) {
     }
     $kindBadge = (($r['kind'] ?? 'email') === 'phone') ? '📱 WhatsApp' : '✉️ E-mail';
     $searchHay = htmlspecialchars($foldSearch(($entities[$reid] ?? '') . ' ' . $kindBadge . ' ' . $rname . ' ' . ($r['email'] ?? '') . ' ' . ($r['phone'] ?? '')), ENT_QUOTES);
-    echo "<tr class='tab_bg_1 center' data-search='{$searchHay}'>";
+    $dId = (int)$rid;
+    $dEid = (int)$reid;
+    $dName = htmlspecialchars((string)($r['name'] ?? ''), ENT_QUOTES);
+    $dEmail = htmlspecialchars((string)($r['email'] ?? ''), ENT_QUOTES);
+    $dPhone = htmlspecialchars((string)($r['phone'] ?? ''), ENT_QUOTES);
+    $dActive = $active ? '1' : '0';
+    echo "<tr class='tab_bg_1 center' data-search='{$searchHay}' data-id='{$dId}' data-eid='{$dEid}' data-name='{$dName}' data-email='{$dEmail}' data-phone='{$dPhone}' data-active='{$dActive}'>";
     echo "<td style='text-align:left'>" . htmlspecialchars($entities[$reid] ?? ('Entidade #' . $reid)) . "</td>";
     echo "<td style='white-space:nowrap'>" . $kindBadge . "</td>";
     echo "<td style='text-align:left'>" . htmlspecialchars($rname) . "</td>";
@@ -211,7 +183,7 @@ foreach ($rows as $r) {
     echo "<td>" . htmlspecialchars((string)($r['phone'] ?? '')) . "</td>";
     echo "<td>" . ($active ? '✅' : '⛔') . "</td>";
     echo "<td style='white-space:nowrap'>";
-    echo "<a href='{$form_action}?edit_id={$rid}' class='btn btn-sm btn-outline-secondary' title='Editar'>Editar</a> ";
+    echo "<button type='button' onclick='kpEditContact(this)' class='btn btn-sm btn-outline-secondary' title='Editar'>Editar</button> ";
     echo "<form method='post' action='{$form_action}' style='display:inline'>";
     echo Html::hidden('_glpi_csrf_token', ['value' => $csrf]);
     echo Html::hidden('id', ['value' => $rid]);
@@ -226,6 +198,7 @@ foreach ($rows as $r) {
 }
 echo "</table>";
 echo "<script>(function(){var box=document.getElementById('kp-contact-search');if(!box)return;var count=document.getElementById('kp-contacts-count');function norm(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}function apply(){var q=norm(box.value.trim());var shown=0,total=0;document.querySelectorAll('#kp-contacts-table tr[data-search]').forEach(function(tr){total++;var hit=(q===''||tr.getAttribute('data-search').indexOf(q)!==-1);tr.style.display=hit?'':'none';if(hit)shown++;});if(count)count.textContent=shown+' de '+total;}box.addEventListener('input',apply);apply();})();</script>";
+echo "<script>function kpEditContact(btn){var tr=btn?btn.closest('tr'):null;if(!tr||!tr.dataset)return;var d=tr.dataset;document.getElementById('kp-contact-modal')?.remove();var ov=document.createElement('div');ov.id='kp-contact-modal';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';var entOpts=(document.querySelector('#kp-contact-addform select[name=\"entities_id\"]')||{}).innerHTML||'';var csrf=(document.querySelector('input[name=\"_glpi_csrf_token\"]')||{}).value||'';var act=(document.querySelector('#kp-contact-addform')||{}).getAttribute?.('action')||'';ov.innerHTML=`<form method='post' action='\${act}' style='background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.35);max-width:560px;width:100%;overflow:hidden'><div style='padding:14px 16px;border-bottom:1px solid #dfe1e6;font-weight:800;font-size:14px'>✏️ Editar contato</div><div style='padding:16px;display:grid;gap:10px'><label style='font-size:12px;font-weight:700'>Entidade<select name='entities_id' style='width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;margin-top:4px'></select></label><label style='font-size:12px;font-weight:700'>Nome<input type='text' name='name' maxlength='255' style='width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;margin-top:4px;box-sizing:border-box'></label><label style='font-size:12px;font-weight:700'>E-mail<input type='text' name='email' maxlength='255' style='width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;margin-top:4px;box-sizing:border-box'></label><label style='font-size:12px;font-weight:700'>Telefone<input type='text' name='phone' maxlength='30' style='width:100%;padding:8px;border:1px solid #dfe1e6;border-radius:6px;margin-top:4px;box-sizing:border-box'></label><label style='font-size:12px'><input type='hidden' name='is_active' value='0'><input type='checkbox' name='is_active' value='1'> Ativo</label></div><div style='padding:12px 16px;background:#f4f5f7;display:flex;gap:8px;justify-content:flex-end'><button type='button' data-a='cancel' style='background:#fff;color:#172b4d;border:1px solid #dfe1e6;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700'>Cancelar</button><button type='submit' name='save' value='1' style='background:#0052cc;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:700'>Salvar</button></div><input type='hidden' name='id'><input type='hidden' name='_glpi_csrf_token'></form>`;document.body.appendChild(ov);var form=ov.querySelector('form');function set(n,v){var el=form.querySelector('[name=\"'+n+'\"]');if(el)el.value=v||'';}form.querySelector('select[name=\"entities_id\"]').innerHTML=entOpts;set('entities_id',d.eid||'0');set('name',d.name||'');set('email',d.email||'');set('phone',d.phone||'');form.querySelector('input[name=\"is_active\"][type=\"checkbox\"]').checked=(d.active==='1');set('id',d.id||'');set('_glpi_csrf_token',csrf);var phone=form.querySelector('input[name=\"phone\"]');phone?.addEventListener('input',function(){var x=this.value.replace(/[^0-9]/g,'').slice(0,15);if(this.value!==x)this.value=x;});var close=function(){ov.remove();};ov.addEventListener('click',function(e){if(e.target===ov)close();});form.querySelector('[data-a=\"cancel\"]').addEventListener('click',close);document.addEventListener('keydown',function esc(e){if(e.key==='Escape'){close();document.removeEventListener('keydown',esc);}});}</script>";
 echo "</div>";
 
 Html::footer();
