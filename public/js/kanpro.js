@@ -1393,10 +1393,11 @@
         membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
       }
 
-      // botão Notificado (mini) — SÓ na Retirada: abre o modal de envio (selo marca rápido)
+      // botão Notificado (mini) — SÓ na Retirada: apenas visual (marca/desmarca, sem WhatsApp).
+      // O envio real mora no "Avisar retiradas" do header (picker com WhatsApp).
       const notifiedBtnHtml = !isRetiradaCard ? '' : (isNotified
-        ? `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotifyModal(${card.id}, event)" title="Notificado — ver estado e notificar novamente" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
-        : `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotifyModal(${card.id}, event)" title="Abrir e notificar no WhatsApp" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
+        ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
+        : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar como notificado (só visual)" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
 
       // botão Pegar (mini) — só Pendente; admin ou membro (membro vai direto, sem pendência)
       let pegarBtnHtml = '';
@@ -2057,7 +2058,7 @@
         return;
       }
       box.innerHTML = `
-        <button onclick="Kanpro.openRetiradaNotifyModal()" title="${on ? 'Notificado — ver estado e notificar novamente' : 'Abrir e notificar no WhatsApp'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
+        <button onclick="Kanpro.toggleNotified()" title="${on ? 'Notificado — clique para desmarcar (só visual)' : 'Marcar como notificado (só visual — o envio é no Avisar retiradas)'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
           <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificar'}
         </button>${extra}`;
       box.style.display = 'flex';
@@ -4907,8 +4908,8 @@
     },
     maintLockAlert(){
       try { if(this.isCardFinalized()){ this.finalizedGuard(); return; } } catch(e){}
-      if(this.isCardWorkLocked()) alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.');
-      else alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.');
+      if(this.isCardWorkLocked()){ try { this.showAlert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.', 'Informação'); } catch(e){ alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.'); } }
+      else { try { this.showAlert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.', 'Informação'); } catch(e){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); } }
     },
     toggleMaintenanceNeeds(mid){
       if(this.finalizedGuard()) return;
@@ -7413,7 +7414,7 @@
       });
     },
     // Avisar retiradas: só o que ainda NÃO foi notificado. Cada card tem o botão
-    // "Notificar" — marca e some da lista na hora, sem precisar abrir o card.
+    // WhatsApp — abre o modal do card e envia de verdade pela fila.
     openRetiradaNotify(){
       this.showPicker({title:'🔔 Avisar retiradas', html:'<div style="padding:20px;text-align:center;color:#5e6c84">Carregando...</div>'});
       const p = document.getElementById('kanpro-picker');
@@ -7446,7 +7447,7 @@
             <div style="display:grid;gap:6px">` + s.cards.map(c=>
               `<div style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #dfe1e6;border-radius:12px;padding:4px 6px 4px 10px">
                 <button onclick="Kanpro.closePicker();Kanpro.openCard(${c.id})" title="${this.escape(c.name)}" style="background:none;border:none;cursor:pointer;font-size:12px;color:#0747a6;text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0">#${c.id} ${this.escape((c.name||'').length>28 ? c.name.slice(0,28)+'…' : c.name)}</button>
-                <button onclick="Kanpro.notifyFromRetirada(${c.id}, this)" title="Marcar como notificado e tirar da lista" style="background:#0079bf;color:#fff;border:none;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:800;flex-shrink:0;white-space:nowrap"><i class="ti ti-bell"></i> Notificar</button>
+                <button onclick="Kanpro.openRetiradaNotifyModal(${c.id}, event)" title="Abrir e notificar no WhatsApp" style="background:#25d366;color:#fff;border:none;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:800;flex-shrink:0;white-space:nowrap"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button>
               </div>`
             ).join('') + `</div>
           </div>`).join('') + `</div>`;
