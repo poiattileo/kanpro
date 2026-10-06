@@ -226,9 +226,10 @@ kanpro_test('entitycontact_validate exige entidade', function () {
     assert_true(count($r['errors']) > 0, 'deveria ter erro de entidade');
 });
 
-kanpro_test('entitycontact_validate exige nome', function () {
+kanpro_test('entitycontact_validate aceita sem nome', function () {
     $r = kanpro_entitycontact_validate(['entities_id' => '1', 'name' => '  ', 'email' => 'a@b.com', 'phone' => '']);
-    assert_true(count($r['errors']) > 0, 'deveria ter erro de nome');
+    assert_same([], $r['errors']);
+    assert_same('', $r['values']['name']);
 });
 
 kanpro_test('entitycontact_validate rejeita os dois preenchidos', function () {

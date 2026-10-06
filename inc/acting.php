@@ -138,9 +138,6 @@ if (!function_exists('kanpro_entitycontact_validate')) {
         $name = function_exists('kanpro_clean_text')
             ? kanpro_clean_text($input['name'] ?? '', 255)
             : substr(trim((string)($input['name'] ?? '')), 0, 255);
-        if ($name === '') {
-            $errors[] = 'Nome obrigatório.';
-        }
         $emailRaw = strtolower(trim((string)($input['email'] ?? '')));
         $phoneRaw = (string)preg_replace('/[^0-9]/', '', (string)($input['phone'] ?? ''));
         $kind = '';

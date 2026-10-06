@@ -110,6 +110,7 @@ foreach ($entities as $eid => $ename) {
     echo "<option value='{$eid}'>" . htmlspecialchars($ename) . "</option>";
 }
 echo "</select></td></tr>";
+echo "<tr class='tab_bg_1'><td><strong>Nome</strong><br><small>Opcional — vazio usa o próprio contato</small></td><td><input type='text' name='name' maxlength='255' style='width:100%' placeholder='Ex: Diretoria, Responsável TI'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>E-mail</strong><br><small>Só um por vez: ou e-mail, ou telefone</small></td><td><input type='text' name='email' maxlength='255' style='width:100%' placeholder='contato@exemplo'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Telefone</strong><br><small>Só dígitos (ex: 11999998888)</small></td><td><input type='text' name='phone' maxlength='30' style='width:100%' placeholder='DDD + número'></td></tr>";
 echo "<tr class='tab_bg_1'><td><strong>Ativo</strong></td><td><input type='hidden' name='is_active' value='0'><input type='checkbox' name='is_active' value='1' checked> recebe futuras notificações</td></tr>";
@@ -131,11 +132,15 @@ foreach ($rows as $r) {
     $rid = (int)($r['id'] ?? 0);
     $reid = (int)($r['entities_id'] ?? 0);
     $active = !empty($r['is_active']);
+    $rname = trim((string)($r['name'] ?? ''));
+    if ($rname === '') {
+        $rname = trim((string)($r['email'] ?? '')) !== '' ? (string)$r['email'] : (string)($r['phone'] ?? '');
+    }
     echo "<tr class='tab_bg_1 center'>";
     echo "<td style='text-align:left'>" . htmlspecialchars($entities[$reid] ?? ('Entidade #' . $reid)) . "</td>";
     $kindBadge = (($r['kind'] ?? 'email') === 'phone') ? '📱 WhatsApp' : '✉️ E-mail';
     echo "<td style='white-space:nowrap'>" . $kindBadge . "</td>";
-    echo "<td style='text-align:left'>" . htmlspecialchars((string)($r['name'] ?? '')) . "</td>";
+    echo "<td style='text-align:left'>" . htmlspecialchars($rname) . "</td>";
     echo "<td style='text-align:left'>" . htmlspecialchars((string)($r['email'] ?? '')) . "</td>";
     echo "<td>" . htmlspecialchars((string)($r['phone'] ?? '')) . "</td>";
     echo "<td>" . ($active ? '✅' : '⛔') . "</td>";

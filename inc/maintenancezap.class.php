@@ -906,7 +906,10 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 if ($eid > 0 && class_exists('PluginKanproEntityContact')) {
                     foreach (PluginKanproEntityContact::getForEntity($eid, true, 'phone') as $c) {
                         $p = self::normalizeBRPhone((string)($c['phone'] ?? ''));
-                        if ($p !== '') $labeled[] = ['phone' => $p, 'label' => trim((string)($c['name'] ?? ''))];
+                        if ($p === '') continue;
+                        $label = trim((string)($c['name'] ?? ''));
+                        if ($label === '') $label = $p;
+                        $labeled[] = ['phone' => $p, 'label' => $label];
                     }
                 }
             } catch (Throwable $e) {}
