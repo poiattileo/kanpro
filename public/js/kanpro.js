@@ -4520,12 +4520,15 @@
     },
     openMaintenanceSetup(isAppend=false){
       if(this.finalizedGuard()) return;
-      if(this.isCardWorkLocked()){ this.maintLockAlert(); return; }
+      const isAppendMode = !!isAppend;
+      const ms0 = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
+      // Trava da Pendente vale DEPOIS da configuração inicial: card recém-criado
+      // (sem máquinas) pode receber o primeiro setup; o resto continua bloqueado.
+      if(this.isCardWorkLocked() && (isAppendMode || (ms0||[]).length > 0)){ this.maintLockAlert(); return; }
       try {
         const ms = (this._lastModalData && this._lastModalData.maintenance_machines) || [];
         if ((ms||[]).some(m=> m && Number(m.is_locked)==1)) { this.showToast('🔒 Chamado travado — aguardando Chamado criado. Nada pode ser editado/adicionado até liberar.'); return; }
       } catch(e){}
-      const isAppendMode = !!isAppend;
       const title = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas — Manutenção";
       const models = this.getMaintModels();
       const bannerTitle = isAppendMode ? "Adicionar Máquinas" : "Configurar Máquinas";
@@ -7452,7 +7455,7 @@
     showRetiradaPicker(){
       // estilos do painel reaplicados a cada render (o closePicker reseta o minWidth)
       const p = document.getElementById('kanpro-picker');
-      if(p){ p.style.minWidth='480px'; p.style.maxWidth='94vw'; p.style.width='560px'; p.style.maxHeight='90vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      if(p){ p.style.minWidth='560px'; p.style.maxWidth='96vw'; p.style.width='660px'; p.style.maxHeight='92vh'; p.style.display='flex'; p.style.flexDirection='column'; }
       const res = this._lastRetirada || {schools:[]};
       const schools = res.schools || [];
       const notif = res.notified_cards || 0;
@@ -7477,7 +7480,7 @@
       }
       this.showPicker({title:'🔔 Avisar retiradas', html});
       const b2 = document.getElementById('picker-body');
-      if(b2){ b2.style.maxHeight='72vh'; b2.style.overflowY='auto'; }
+      if(b2){ b2.style.maxHeight='76vh'; b2.style.overflowY='auto'; }
     },
     // marca como notificado e remove o card da lista sem sair do picker
     notifyFromRetirada(cardId, btn){

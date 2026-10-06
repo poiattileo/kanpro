@@ -5020,7 +5020,10 @@ switch ($action) {
         $card = new PluginKanproCard();
         if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Cartão não é de manutenção. Converta primeiro.']);
-        kanpro_need_card_editable($cid);
+        // Trava da Pendente vale DEPOIS da configuração inicial: primeiro setup
+        // (card sem máquinas) passa; com máquinas, segue bloqueado.
+        $existing = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
+        if ($existing > 0 || !kanpro_card_is_locked($cid)) kanpro_need_card_editable($cid);
         kanpro_need_not_finalized($cid);
         kanpro_need_not_chamado_locked($cid);
         // Parse definições
@@ -5055,7 +5058,6 @@ switch ($action) {
         foreach ($defs as $d) $total += $d['qty'];
         if ($total <=0 || $total > 500) jexit(['success'=>false,'msg'=>'Total de máquinas inválido (1-500). Informado: '.$total]);
         // Se já existem máquinas e não é replace, bloqueia
-        $existing = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid]);
         if ($existing >0 && !$replace) {
             jexit(['success'=>false,'msg'=>'Este cartão já possui máquinas cadastradas. Use replace=1 para substituir.','existing'=>$existing,'need_replace'=>true]);
         }

@@ -442,8 +442,6 @@ try {
         if ($__km && $__km > $__kp_build) $__kp_build = (int)$__km;
     }
 } catch (Throwable $e) {}
-// Botão WhatsApp no header do quadro (visibilidade via JS: só se whatsapp_notify ligado e membro/admin)
-$zap_btn = '<button id="kanpro-zap-btn" onclick="Kanpro.sendBoardWhatsapp()" title="Avisar no WhatsApp" style="display:none;background:#25d366;border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700"><i class="ti ti-brand-whatsapp"></i> 📲 Notificar WhatsApp</button>';
 
 echo <<<HTML
 <style>
@@ -473,7 +471,6 @@ echo <<<HTML
       <div id="board-viewers-avatars" style="display:flex;margin-right:4px" title="Vendo agora"></div>
       <div id="board-members-avatars" style="display:flex;margin-right:8px"></div>
       {$assinatura_btn}
-      {$zap_btn}
       <button onclick="Kanpro.toggleDarkMode()" id="kanpro-dark-btn" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer" title="Alternar modo escuro"><i class="ti ti-moon"></i></button>
       <button onclick="Kanpro.openBoardMenu()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer"><i class="ti ti-dots"></i> Mostrar menu</button>
       <button onclick="Kanpro.openGlobalSearch()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer" title="Buscar em todos os quadros"><i class="ti ti-search"></i> Busca global</button>
