@@ -595,8 +595,8 @@
       if(document.getElementById('kp-build-banner')) return;
       const bar = document.createElement('div');
       bar.id = 'kp-build-banner';
-      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:25000;background:#0052cc;color:#fff;padding:8px 16px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.3)';
-      bar.innerHTML = `<span>🔄 Nova versão disponível</span><button id="kp-build-reload" style="background:#fff;color:#0052cc;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-weight:800">Recarregar agora</button><button id="kp-build-later" title="Avisar depois" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6);padding:5px 12px;border-radius:6px;cursor:pointer">depois</button>`;
+      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:25000;background:linear-gradient(135deg,#0052cc 0%,#0065ff 60%,#00b8d9 100%);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:center;gap:16px;font-size:16px;font-weight:800;box-shadow:0 4px 16px rgba(0,82,204,.5);letter-spacing:.01em';
+      bar.innerHTML = `<span style="font-size:20px">🔄</span><span>Nova versão disponível — recarregue para receber as novidades</span><button id="kp-build-reload" style="background:#fff;color:#0052cc;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 2px 8px rgba(0,0,0,.3);animation:kp-blink 1.2s ease-in-out infinite">Recarregar agora</button><button id="kp-build-later" title="Avisar depois" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.7);padding:9px 14px;border-radius:8px;cursor:pointer;font-size:13px">depois</button><style>@keyframes kp-blink{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}</style>`;
       document.body.appendChild(bar);
       bar.querySelector('#kp-build-reload').addEventListener('click', ()=> location.reload());
       bar.querySelector('#kp-build-later').addEventListener('click', ()=> bar.remove());
