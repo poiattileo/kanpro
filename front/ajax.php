@@ -4743,6 +4743,37 @@ switch ($action) {
         PluginKanproBoard::logActivity((int)$row['plugin_kanpro_boards_id'], $cid, (int)$row['plugin_kanpro_lists_id'], $new ? 'card_notified' : 'card_unnotified', $new ? 'Marcado como notificado sobre o chamado' : 'Desmarcado como notificado');
         jexit(['success'=>true,'is_notified'=>$new]);
 
+    case 'retirada_notify_info':
+        // Leitura p/ o modal Notificar (destinatários + estado). Precisa edição (revela telefones).
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        kanpro_need_chamado_released($cid);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        kanpro_require_board_edit((int)($row['plugin_kanpro_boards_id'] ?? 0));
+        if (kanpro_list_category((int)($row['plugin_kanpro_lists_id'] ?? 0)) !== 'retirada') jexit(['success'=>false,'msg'=>'Só cards da Retirada.']);
+        if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
+        $t = PluginKanproMaintenanceZap::retiradaNotifyTargets($cid);
+        if (empty($t['ok'])) jexit(['success'=>false,'msg'=>($t['error'] ?? 'Falha')]);
+        jexit(['success'=>true,'info'=>$t]);
+
+    case 'retirada_notify_send':
+        // Enfileira 1 job por destino (contatos da entidade + fone da escola) e marca notificado.
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        kanpro_need_chamado_released($cid);
+        $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['id'=>$cid]])->current();
+        if (!$row) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        kanpro_require_board_edit((int)($row['plugin_kanpro_boards_id'] ?? 0));
+        if (kanpro_list_category((int)($row['plugin_kanpro_lists_id'] ?? 0)) !== 'retirada') jexit(['success'=>false,'msg'=>'Só cards da Retirada.']);
+        if (!class_exists('PluginKanproMaintenanceZap')) jexit(['success'=>false,'msg'=>'Zap indisponível']);
+        $auid = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        $r = PluginKanproMaintenanceZap::sendRetiradaNotify($cid, $auid);
+        if (empty($r['ok'])) jexit(['success'=>false,'msg'=>($r['error'] ?? 'Falha ao enfileirar')]);
+        jexit(['success'=>true,'queued'=>($r['queued'] ?? 0),'phones'=>($r['phones'] ?? [])]);
+
     // --- BOARD ACTIVITY ---
     case 'get_board_activity':
         $bid = (int)($_REQUEST['boards_id'] ?? 0);

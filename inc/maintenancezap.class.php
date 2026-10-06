@@ -662,9 +662,10 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /**
      * Enfileira um envio (produtor). Rápido: só valida e insere.
      * $replace=true apaga pendente anterior da mesma chave (forceResend).
+     * $force=true pula a trava alreadySent (ação explícita do usuário).
      * Devolve ['ok'=>true,'queued'=>true,'phone'=>?] ou ['ok'=>false,'error'=>?].
      */
-    static function enqueue(string $kind, int $cards_id, string $milestone, string $phone, string $text, bool $replace = false): array {
+    static function enqueue(string $kind, int $cards_id, string $milestone, string $phone, string $text, bool $replace = false, bool $force = false): array {
         global $DB;
         try {
             if (!$DB->tableExists('glpi_plugin_kanpro_zapqueue')) return ['ok' => false, 'error' => 'fila indisponível'];
@@ -673,7 +674,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $text = trim($text);
             if ($phone === '' || $text === '') return ['ok' => false, 'error' => 'sem telefone/texto'];
             $milestone = mb_substr(trim($milestone), 0, 30);
-            if (self::alreadySent($cards_id, $milestone)) return ['ok' => false, 'error' => 'duplicate'];
+            if (!$force && self::alreadySent($cards_id, $milestone)) return ['ok' => false, 'error' => 'duplicate'];
             if ($replace) {
                 try { $DB->delete('glpi_plugin_kanpro_zapqueue', ['plugin_kanpro_cards_id' => $cards_id, 'milestone' => $milestone, 'status' => 'pending']); } catch (Throwable $e) {}
             } elseif (self::hasQueued($cards_id, $milestone)) {
@@ -866,6 +867,119 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     /** Atalho com trava de duplicado (entrada/retirada/cancelado) */
     static function sendOnce(string $type, int $cards_id, array $extra = [], ?string $phone = null, int $timeout = 8): array {
         return self::send($type, $cards_id, $extra, $type, $phone, $timeout);
+    }
+
+    /**
+     * Junta destinatários (phone => label), primeiro vence, sem vazios.
+     * Usado pelo Notificar da Retirada: contatos da entidade + fone da escola.
+     *
+     * @param array<int,array<string,mixed>> $labeled
+     * @return array<string,string>
+     */
+    static function mergeNotifyPhones(array $labeled): array {
+        $out = [];
+        foreach ($labeled as $item) {
+            if (!is_array($item)) continue;
+            $phone = trim((string)($item['phone'] ?? ''));
+            if ($phone === '' || isset($out[$phone])) continue;
+            $label = trim((string)($item['label'] ?? ''));
+            $out[$phone] = $label !== '' ? $label : $phone;
+        }
+        return $out;
+    }
+
+    /**
+     * Alvos do Notificar da Retirada: contatos WhatsApp da entidade (ativos)
+     * + telefone da escola, deduplicados. Não envia nada, só resolve.
+     * Devolve ['ok'=>true,'card_name'=>,'entity_name'=>,'is_notified'=>,'queued'=>,'recipients'=>[...]].
+     */
+    static function retiradaNotifyTargets(int $cards_id): array {
+        global $DB;
+        try {
+            if ($cards_id <= 0) return ['ok' => false, 'error' => 'Cartão inválido'];
+            if (!class_exists('PluginKanproCard')) return ['ok' => false, 'error' => 'Cartão indisponível'];
+            $card = new PluginKanproCard();
+            if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Cartão não encontrado'];
+            $eid = (int)($card->fields['entities_id'] ?? 0);
+            $labeled = [];
+            try {
+                if ($eid > 0 && class_exists('PluginKanproEntityContact')) {
+                    foreach (PluginKanproEntityContact::getForEntity($eid, true, 'phone') as $c) {
+                        $p = self::normalizeBRPhone((string)($c['phone'] ?? ''));
+                        if ($p !== '') $labeled[] = ['phone' => $p, 'label' => trim((string)($c['name'] ?? ''))];
+                    }
+                }
+            } catch (Throwable $e) {}
+            try {
+                $school = self::normalizeBRPhone((string)self::resolvePhone($cards_id));
+                if ($school !== '') $labeled[] = ['phone' => $school, 'label' => 'Telefone da escola'];
+            } catch (Throwable $e) {}
+            $entityName = '';
+            try {
+                if ($eid > 0 && isset($DB)) {
+                    $er = $DB->request(['SELECT' => ['completename', 'name'], 'FROM' => 'glpi_entities', 'WHERE' => ['id' => $eid], 'LIMIT' => 1])->current();
+                    if (is_array($er)) $entityName = trim((string)($er['completename'] ?? $er['name'] ?? ''));
+                }
+            } catch (Throwable $e) {}
+            $recipients = [];
+            foreach (self::mergeNotifyPhones($labeled) as $phone => $label) {
+                $recipients[] = ['phone' => $phone, 'label' => $label];
+            }
+            return [
+                'ok'          => true,
+                'card_name'   => trim((string)($card->fields['name'] ?? '')) !== '' ? (string)$card->fields['name'] : ('Card #' . $cards_id),
+                'entity_name' => $entityName,
+                'is_notified' => !empty($card->fields['is_notified']) ? 1 : 0,
+                'queued'      => self::hasQueued($cards_id, 'retirada_notify'),
+                'recipients'  => $recipients,
+            ];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Notificar da Retirada (botão do card): enfileira 1 job por destino
+     * (contatos da entidade + fone da escola) e marca notificado.
+     * Ação explícita: ignora alreadySent (usa force + replace).
+     * Devolve ['ok'=>true,'queued'=>N,'phones'=>[...]] ou ['ok'=>false,'error'=>?].
+     */
+    static function sendRetiradaNotify(int $cards_id, int $users_id = 0): array {
+        global $DB;
+        try {
+            $t = self::retiradaNotifyTargets($cards_id);
+            if (empty($t['ok'])) return $t;
+            if (empty($t['recipients'])) {
+                return ['ok' => false, 'error' => 'sem telefone (cadastre contatos na entidade ou o fone da escola)'];
+            }
+            $txt = null;
+            try {
+                $txt = self::renderTxt('retirada', self::baseData($cards_id));
+            } catch (Throwable $e) { $txt = null; }
+            if ($txt === null || trim((string)$txt) === '') {
+                $txt = "Card ({$t['card_name']}) disponível para retirada" . ($t['entity_name'] !== '' ? " — {$t['entity_name']}" : '');
+            }
+            $sent = 0; $errors = []; $phones = [];
+            foreach ($t['recipients'] as $rcp) {
+                $q = self::enqueue('retirada', $cards_id, 'retirada_notify', (string)$rcp['phone'], (string)$txt, true, true);
+                if (!empty($q['ok'])) { $sent++; $phones[] = (string)$rcp['phone']; }
+                else $errors[] = (string)$rcp['label'] . ': ' . ($q['error'] ?? 'falha');
+            }
+            if ($sent > 0) {
+                try {
+                    $DB->update('glpi_plugin_kanpro_cards', [
+                        'is_notified' => 1, 'notified_by' => $users_id,
+                        'notified_date' => date('Y-m-d H:i:s'), 'date_mod' => date('Y-m-d H:i:s'),
+                    ], ['id' => $cards_id]);
+                } catch (Throwable $e) {}
+                self::logCard($cards_id, "WhatsApp retirada na fila para {$sent} destino(s): " . implode(',', $phones));
+            } else {
+                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'falha'];
+            }
+            return ['ok' => true, 'queued' => $sent, 'phones' => $phones];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
     }
 
     /**

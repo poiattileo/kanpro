@@ -1393,10 +1393,10 @@
         membersHtml = `<div class="kp-card-members">${members.slice(0,4).map(m=>this.avatarHtml(m.picture_url, m.initials, m.name, 'sm')).join('')}${members.length>4?`<span class="kp-avatar sm" style="background:#091e42;color:#fff">+${members.length-4}</span>`:''}</div>`;
       }
 
-      // botão Notificado (mini) — SÓ na Retirada, p/ marcar rápido sem abrir
+      // botão Notificado (mini) — SÓ na Retirada: abre o modal de envio (selo marca rápido)
       const notifiedBtnHtml = !isRetiradaCard ? '' : (isNotified
-        ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcado como notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
-        : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar que foi notificado sobre o chamado" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificado?</button>`);
+        ? `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotify(${card.id}, event)" title="Notificado — ver estado e notificar novamente" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
+        : `<button onclick="event.stopPropagation();Kanpro.openRetiradaNotify(${card.id}, event)" title="Abrir e notificar no WhatsApp" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
 
       // botão Pegar (mini) — só Pendente; admin ou membro (membro vai direto, sem pendência)
       let pegarBtnHtml = '';
@@ -1964,6 +1964,76 @@
         if(c){ c.is_notified = prev; this.renderBoard(); }
       });
     },
+    // Modal Notificar da Retirada: mostra destinos (contatos da entidade + fone
+    // da escola) e envia de verdade p/ fila. Selo continua marcando rápido.
+    openRetiradaNotify(cardId, ev){
+      if(ev && ev.stopPropagation) ev.stopPropagation();
+      const cid = parseInt(cardId || this.currentCardId);
+      if(!(cid > 0)) return;
+      this.showPicker({title:'🔔 Notificar retirada', html:'<div style="padding:20px;text-align:center;color:#5e6c84">Carregando...</div>'});
+      this.ajax('retirada_notify_info', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro'); this.closePicker(); return; }
+        this._lastRetNotify = {cid, info: res.info};
+        this.showRetiradaNotifyModal();
+      }).catch(()=>{ this.closePicker(); });
+    },
+    showRetiradaNotifyModal(){
+      const st = this._lastRetNotify;
+      if(!st) return;
+      const cid = st.cid, info = st.info || {};
+      const notified = info.is_notified == 1;
+      const recips = info.recipients || [];
+      let html = `<div style="font-size:13px;color:#172b4d;margin-bottom:4px"><strong>#${cid} ${this.escape(info.card_name||'')}</strong>${info.entity_name?` <span style="color:#5e6c84">— ${this.escape(info.entity_name)}</span>`:''}</div>`;
+      html += notified
+        ? `<div style="margin:8px 0;color:#006644;font-weight:800">🔔 Notificado ✓${info.queued?` <span style="color:#975500">(envio na fila)</span>`:''}</div>`
+        : `<div style="margin:8px 0;color:#5e6c84">Ainda não notificado.</div>`;
+      if(!recips.length){
+        html += `<div style="background:#ffebe6;border:1px solid #ffbdad;border-radius:8px;padding:10px 12px;font-size:12px;color:#bf2600;margin-bottom:10px">Sem destino: cadastre contatos WhatsApp na entidade ou o fone da escola.</div>`;
+      } else {
+        html += `<div style="display:grid;gap:6px;margin-bottom:10px">` + recips.map(r=>
+          `<div style="display:flex;align-items:center;gap:8px;background:#f4f5f7;border-radius:8px;padding:8px 12px;font-size:12px"><i class="ti ti-brand-whatsapp" style="color:#25d366;font-size:16px"></i><span style="font-weight:700">${this.escape(r.label||'')}</span><span style="color:#5e6c84;margin-left:auto">${this.escape(r.phone||'')}</span></div>`
+        ).join('') + `</div>`;
+      }
+      html += `<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">`;
+      if(notified) html += `<button onclick="Kanpro.unmarkRetiradaNotify(${cid})" style="background:#fff;color:#172b4d;border:1px solid #dfe1e6;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700">Desmarcar</button>`;
+      if(recips.length) html += `<button id="kp-ret-send" onclick="Kanpro.sendRetiradaNotify(${cid}, this)" style="background:#25d366;color:#fff;border:1px solid #25d366;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:800"><i class="ti ti-brand-whatsapp"></i> ${notified ? 'Notificar novamente' : '📲 Enviar WhatsApp'}</button>`;
+      html += `<button onclick="Kanpro.closePicker()" style="background:#fff;color:#172b4d;border:1px solid #dfe1e6;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700">Fechar</button></div>`;
+      this.showPicker({title:'🔔 Notificar retirada', html});
+    },
+    sendRetiradaNotify(cid, btn){
+      cid = parseInt(cid);
+      if(!(cid > 0)) return;
+      if(btn){ btn.disabled = true; btn.innerHTML = 'Enviando...'; }
+      this.ajax('retirada_notify_send', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){
+          alert((res&&res.msg)||'Não foi possível enfileirar');
+          this.showRetiradaNotifyModal();
+          return;
+        }
+        const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
+        if(c){ c.is_notified = 1; this.renderBoard(); }
+        this.showToast(`📲 ${res.queued||1} na fila`);
+        this.openRetiradaNotify(cid);
+        if(this.currentCardId == cid) this.refreshCardModal();
+      }).catch(()=>{
+        alert('Não foi possível enfileirar');
+        this.showRetiradaNotifyModal();
+      });
+    },
+    unmarkRetiradaNotify(cid){
+      cid = parseInt(cid);
+      if(!(cid > 0)) return;
+      this.ajax('toggle_notified', {cards_id: cid}).then(res=>{
+        if(!res || !res.success || !res.is_notified){
+          const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
+          if(c){ c.is_notified = 0; this.renderBoard(); }
+          this.openRetiradaNotify(cid);
+          if(this.currentCardId == cid) this.refreshCardModal();
+        } else {
+          this.openRetiradaNotify(cid);
+        }
+      }).catch(()=>{ this.openRetiradaNotify(cid); });
+    },
     renderNotifiedInModal(isNotified, cardData){
       const box = document.getElementById('card-modal-badges');
       if(!box) return;
@@ -1987,8 +2057,8 @@
         return;
       }
       box.innerHTML = `
-        <button onclick="Kanpro.toggleNotified()" title="${on ? 'Marcado como notificado — clique para desmarcar' : 'Marcar que foi notificado sobre o chamado'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
-          <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificado?'}
+        <button onclick="Kanpro.openRetiradaNotify()" title="${on ? 'Notificado — ver estado e notificar novamente' : 'Abrir e notificar no WhatsApp'}" style="background:${on ? '#61bd4f' : '#fff'};color:${on ? '#fff' : '#172b4d'};border:1px solid ${on ? '#61bd4f' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
+          <i class="ti ${on ? 'ti-bell-ring' : 'ti-bell'}"></i> 🔔 ${on ? 'Notificado ✓' : 'Notificar'}
         </button>${extra}`;
       box.style.display = 'flex';
     },
