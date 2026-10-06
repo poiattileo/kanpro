@@ -889,8 +889,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Alvos do Notificar da Retirada: contatos WhatsApp da entidade (ativos)
-     * + telefone da escola, deduplicados. Não envia nada, só resolve.
+     * Alvos do Notificar da Retirada: SÓ contatos WhatsApp ativos da entidade
+     * (aba Contatos). Sem fallback p/ fone da escola. Não envia nada, só resolve.
      * Devolve ['ok'=>true,'card_name'=>,'entity_name'=>,'is_notified'=>,'queued'=>,'recipients'=>[...]].
      */
     static function retiradaNotifyTargets(int $cards_id): array {
@@ -912,10 +912,6 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                         $labeled[] = ['phone' => $p, 'label' => $label];
                     }
                 }
-            } catch (Throwable $e) {}
-            try {
-                $school = self::normalizeBRPhone((string)self::resolvePhone($cards_id));
-                if ($school !== '') $labeled[] = ['phone' => $school, 'label' => 'Telefone da escola'];
             } catch (Throwable $e) {}
             $entityName = '';
             try {
@@ -953,7 +949,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $t = self::retiradaNotifyTargets($cards_id);
             if (empty($t['ok'])) return $t;
             if (empty($t['recipients'])) {
-                return ['ok' => false, 'error' => 'sem telefone (cadastre contatos na entidade ou o fone da escola)'];
+                return ['ok' => false, 'error' => 'sem telefone (cadastre contatos WhatsApp ativos na entidade)'];
             }
             $txt = null;
             try {

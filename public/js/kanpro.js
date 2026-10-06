@@ -1988,7 +1988,7 @@
         ? `<div style="margin:8px 0;color:#006644;font-weight:800">🔔 Notificado ✓${info.queued?` <span style="color:#975500">(envio na fila)</span>`:''}</div>`
         : `<div style="margin:8px 0;color:#5e6c84">Ainda não notificado.</div>`;
       if(!recips.length){
-        html += `<div style="background:#ffebe6;border:1px solid #ffbdad;border-radius:8px;padding:10px 12px;font-size:12px;color:#bf2600;margin-bottom:10px">Sem destino: cadastre contatos WhatsApp na entidade ou o fone da escola.</div>`;
+        html += `<div style="background:#ffebe6;border:1px solid #ffbdad;border-radius:8px;padding:10px 12px;font-size:12px;color:#bf2600;margin-bottom:10px">Sem destino: cadastre contatos WhatsApp ativos na entidade.</div>`;
       } else {
         html += `<div style="display:grid;gap:6px;margin-bottom:10px">` + recips.map(r=>
           `<div style="display:flex;align-items:center;gap:8px;background:#f4f5f7;border-radius:8px;padding:8px 12px;font-size:12px"><i class="ti ti-brand-whatsapp" style="color:#25d366;font-size:16px"></i><span style="font-weight:700">${this.escape(r.label||'')}</span><span style="color:#5e6c84;margin-left:auto">${this.escape(r.phone||'')}</span></div>`
