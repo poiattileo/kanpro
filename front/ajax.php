@@ -4856,20 +4856,14 @@ switch ($action) {
         $schools = [];
         $notifiedCards = 0;
         if (!empty($retLists)) {
-            $hasNotifCol = $DB->fieldExists('glpi_plugin_kanpro_cards', 'is_notified');
+            // lista COMPLETA da Retirada (notificados ou não): o status viaja por card
             $cardWhere = ['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>array_keys($retLists),'is_archived'=>0];
-            if ($hasNotifCol) $cardWhere['is_notified'] = 0;
             $rcards = [];
             $eids = [];
             foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>$cardWhere,'ORDER'=>'id ASC']) as $c) {
                 $rcards[] = $c;
+                if (!empty($c['is_notified'])) $notifiedCards++;
                 if ((int)($c['entities_id'] ?? 0) > 0) $eids[] = (int)$c['entities_id'];
-            }
-            // contador dos já notificados (só p/ mostrar no cabeçalho, não entram na lista)
-            if ($hasNotifCol) {
-                foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>$cardWhere]) as $_n) {
-                    if (!empty($_n['is_notified'])) $notifiedCards++;
-                }
             }
             $enames = [];
             if (!empty($eids)) {
@@ -4892,7 +4886,7 @@ switch ($action) {
                     $sname = trim($c['name'] ?? '') !== '' ? trim($c['name']) : ('Cartão #' . (int)$c['id']);
                 }
                 if (!isset($groups[$key])) $groups[$key] = ['name'=>$sname, 'cards'=>[]];
-                $groups[$key]['cards'][] = ['id'=>(int)$c['id'],'name'=>(string)($c['name'] ?? ''),'list'=>(string)($retLists[(int)$c['plugin_kanpro_lists_id']] ?? '')];
+                $groups[$key]['cards'][] = ['id'=>(int)$c['id'],'name'=>(string)($c['name'] ?? ''),'list'=>(string)($retLists[(int)$c['plugin_kanpro_lists_id']] ?? ''),'is_notified'=>!empty($c['is_notified']) ? 1 : 0];
             }
             foreach ($groups as $g) {
                 usort($g['cards'], function ($a, $b) { return $a['id'] <=> $b['id']; });

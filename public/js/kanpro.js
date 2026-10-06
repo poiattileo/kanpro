@@ -7456,7 +7456,8 @@
       const res = this._lastRetirada || {schools:[]};
       const schools = res.schools || [];
       const notif = res.notified_cards || 0;
-      let html = `<div style="font-size:12px;color:#5e6c84;margin-bottom:10px">Coluna <strong>Retirada</strong>, só o que ainda <strong>não foi notificado</strong>: <strong>${res.total_schools||0}</strong> ${res.total_schools===1?'escola':'escolas'} • <strong>${res.total_cards||0}</strong> ${res.total_cards===1?'cartão pendente':'cartões pendentes'}.${notif?` <span style="color:#61bd4f;font-weight:700">(${notif} já notificado${notif===1?'':'s'})</span>`:''}</div>`;
+      const pend = Math.max(0, (res.total_cards||0) - notif);
+      let html = `<div style="font-size:12px;color:#5e6c84;margin-bottom:10px">Coluna <strong>Retirada</strong>: <strong>${res.total_schools||0}</strong> ${res.total_schools===1?'escola':'escolas'} • <strong>${res.total_cards||0}</strong> ${res.total_cards===1?'cartão':'cartões'} (<strong>${pend}</strong> pendente${pend===1?'':'s'} • <strong>${notif}</strong> notificado${notif===1?'':'s'}).</div>`;
       if(!schools.length){
         html += `<div style="text-align:center;padding:24px;color:#61bd4f;font-weight:700">🎉 Nenhuma escola pendente de aviso</div>`;
       } else {
@@ -7466,12 +7467,14 @@
               <span style="font-weight:800;color:#172b4d;font-size:13px">${this.escape(s.name)}</span>
               <span style="background:#00b8d9;color:#fff;min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;padding:0 6px">${s.count}</span>
             </div>
-            <div style="display:grid;gap:6px">` + s.cards.map(c=>
-              `<div style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #dfe1e6;border-radius:12px;padding:4px 6px 4px 10px">
+            <div style="display:grid;gap:6px">` + [...(s.cards||[])].sort((a,b)=> ((a.is_notified?1:0)-(b.is_notified?1:0)) || (a.id-b.id)).map(c=>{
+              const n = c.is_notified == 1;
+              return `<div style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #dfe1e6;border-radius:12px;padding:4px 6px 4px 10px">
                 <button onclick="Kanpro.closePicker();Kanpro.openCard(${c.id})" title="${this.escape(c.name)}" style="background:none;border:none;cursor:pointer;font-size:12px;color:#0747a6;text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0">#${c.id} ${this.escape((c.name||'').length>28 ? c.name.slice(0,28)+'…' : c.name)}</button>
-                <button onclick="Kanpro.openRetiradaNotifyModal(${c.id}, event)" title="Abrir e notificar no WhatsApp" style="background:#25d366;color:#fff;border:none;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:800;flex-shrink:0;white-space:nowrap"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button>
-              </div>`
-            ).join('') + `</div>
+                ${n ? `<span title="Notificado" style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;flex-shrink:0;white-space:nowrap">🔔 Notificado ✓</span>` : `<span title="Ainda não notificado" style="background:#fffae6;color:#975500;border:1px solid #ffab00;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;flex-shrink:0;white-space:nowrap">⏳ Pendente</span>`}
+                <button onclick="Kanpro.openRetiradaNotifyModal(${c.id}, event)" title="${n ? 'Notificado — ver estado e notificar novamente' : 'Abrir e notificar no WhatsApp'}" style="background:#25d366;color:#fff;border:none;padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:800;flex-shrink:0;white-space:nowrap"><i class="ti ti-brand-whatsapp"></i> ${n ? 'Novamente' : 'WhatsApp'}</button>
+              </div>`;
+            }).join('') + `</div>
           </div>`).join('') + `</div>`;
         html += `<button onclick="Kanpro.copyRetiradaList()" style="margin-top:12px;background:#0079bf;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-weight:700;width:100%"><i class="ti ti-copy"></i> Copiar lista p/ avisar</button>`;
       }
