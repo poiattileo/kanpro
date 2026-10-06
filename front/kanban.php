@@ -433,6 +433,15 @@ try {
     }
 } catch (Throwable $e) {}
 $board_name_esc = htmlspecialchars($board->fields['name'] ?? '', ENT_QUOTES);
+// Carimbo do build p/ banner "nova versão" (mesma fonte do ?v= do setup.php):
+// o JS compara com o selo do polling e avisa quem está com aba aberta.
+$__kp_build = 0;
+try {
+    foreach (['public/js/kanpro.js','public/js/kanpro.modal.js','public/js/kanpro.dnd.js','public/js/kanpro.maintenance.js','public/js/kanpro.butler.js','public/js/kanpro.chamado.js','public/js/history.js','public/css/kanpro.css'] as $__kf) {
+        $__km = @filemtime(__DIR__ . '/../' . $__kf);
+        if ($__km && $__km > $__kp_build) $__kp_build = (int)$__km;
+    }
+} catch (Throwable $e) {}
 // Botão WhatsApp no header do quadro (visibilidade via JS: só se whatsapp_notify ligado e membro/admin)
 $zap_btn = '<button id="kanpro-zap-btn" onclick="Kanpro.sendBoardWhatsapp()" title="Avisar no WhatsApp" style="display:none;background:#25d366;border:none;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:700"><i class="ti ti-brand-whatsapp"></i> 📲 Notificar WhatsApp</button>';
 
@@ -753,6 +762,7 @@ window.KANPRO = {
   ticketMap: {$ticket_map_json},
   ajax_url: "{$ajax_url}",
   csrf_token: "{$csrf_token}",
+  build: {$__kp_build},
   canEdit: {$canedit},
   boardColor: "{$board_color}",
   openCardId: {$open_card_id_json},

@@ -20,6 +20,7 @@
     attCounts: K.attCounts || {},
     transferStatus: K.transferStatus || {},
     ticketMap: K.ticketMap || {},
+    bootBuild: K.build || null,
     members: K.members || [],
     allUsers: K.allUsers || [],
     ajax_url: K.ajax_url || '/plugins/kanpro/front/ajax.php',
@@ -344,6 +345,7 @@
       return this.ajax('get_board_stamp', {boards_id: this.board.id}).then(stampRes=>{
         if(stampRes && stampRes.success && stampRes.stamp){
           this.renderViewerAvatars(stampRes.viewers || []);
+          try { this.maybeShowBuildBanner(stampRes.build); } catch(e){}
           if(this._lastStamp && stampRes.stamp === this._lastStamp){
             this._unchangedRounds = (this._unchangedRounds||0) + 1;
             return;
@@ -578,6 +580,26 @@
         document.addEventListener('keydown', esc);
         setTimeout(()=> ov.querySelector('#kp-confirm-yes')?.focus(), 30);
       });
+    },
+
+    // Banner "nova versão": o ?v= atualiza quem navega; quem fica com a aba
+    // aberta só descobre pelo selo do polling. Mostra uma única vez.
+    maybeShowBuildBanner(serverBuild){
+      const srv = parseInt(serverBuild || 0);
+      const boot = parseInt(this.bootBuild || 0);
+      if(!(srv > 0) || !(boot > 0) || srv === boot || this._buildAlertShown) return;
+      this._buildAlertShown = true;
+      this.showBuildBanner();
+    },
+    showBuildBanner(){
+      if(document.getElementById('kp-build-banner')) return;
+      const bar = document.createElement('div');
+      bar.id = 'kp-build-banner';
+      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:25000;background:#0052cc;color:#fff;padding:8px 16px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+      bar.innerHTML = `<span>🔄 Nova versão disponível</span><button id="kp-build-reload" style="background:#fff;color:#0052cc;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-weight:800">Recarregar agora</button><button id="kp-build-later" title="Avisar depois" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6);padding:5px 12px;border-radius:6px;cursor:pointer">depois</button>`;
+      document.body.appendChild(bar);
+      bar.querySelector('#kp-build-reload').addEventListener('click', ()=> location.reload());
+      bar.querySelector('#kp-build-later').addEventListener('click', ()=> bar.remove());
     },
 
     /* ---------- BUSCA RÁPIDA (Ctrl+K) ---------- */

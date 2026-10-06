@@ -2794,7 +2794,17 @@ switch ($action) {
                 }
                 $viewers[] = ['users_id' => $uid2, 'name' => $uname, 'initials' => $initials];
             }
-            jexit(['success' => true, 'stamp' => $stamp, 'viewers' => $viewers]);
+            // carimbo do build (mesma fonte do ?v= e do window.KANPRO.build):
+            // o polling compara e o JS avisa quem está com aba aberta
+            $__build = 0;
+            try {
+                $__plugDir = dirname(__DIR__);
+                foreach (['public/js/kanpro.js','public/js/kanpro.modal.js','public/js/kanpro.dnd.js','public/js/kanpro.maintenance.js','public/js/kanpro.butler.js','public/js/kanpro.chamado.js','public/js/history.js','public/css/kanpro.css'] as $__bf) {
+                    $__bm = @filemtime($__plugDir . '/' . $__bf);
+                    if ($__bm && $__bm > $__build) $__build = (int)$__bm;
+                }
+            } catch (Throwable $e) {}
+            jexit(['success' => true, 'stamp' => $stamp, 'viewers' => $viewers, 'build' => $__build]);
         } catch (Throwable $e) {
             jexit(['success' => false]);
         }
