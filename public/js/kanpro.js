@@ -593,13 +593,19 @@
     },
     showBuildBanner(){
       if(document.getElementById('kp-build-banner')) return;
-      const bar = document.createElement('div');
-      bar.id = 'kp-build-banner';
-      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:25000;background:linear-gradient(135deg,#0052cc 0%,#0065ff 60%,#00b8d9 100%);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:center;gap:16px;font-size:16px;font-weight:800;box-shadow:0 4px 16px rgba(0,82,204,.5);letter-spacing:.01em';
-      bar.innerHTML = `<span style="font-size:20px">🔄</span><span>Nova versão disponível — recarregue para receber as novidades</span><button id="kp-build-reload" style="background:#fff;color:#0052cc;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 2px 8px rgba(0,0,0,.3);animation:kp-blink 1.2s ease-in-out infinite">Recarregar agora</button><button id="kp-build-later" title="Avisar depois" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.7);padding:9px 14px;border-radius:8px;cursor:pointer;font-size:13px">depois</button><style>@keyframes kp-blink{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}</style>`;
-      document.body.appendChild(bar);
-      bar.querySelector('#kp-build-reload').addEventListener('click', ()=> location.reload());
-      bar.querySelector('#kp-build-later').addEventListener('click', ()=> bar.remove());
+      const ov = document.createElement('div');
+      ov.id = 'kp-build-banner';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+      ov.innerHTML = `<div style="background:#fff;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.4);max-width:440px;width:100%;overflow:hidden;text-align:center">
+        <div style="background:linear-gradient(135deg,#0052cc,#00b8d9);padding:20px;color:#fff;font-size:40px">🔄</div>
+        <div style="padding:20px 24px">
+          <div style="font-size:18px;font-weight:800;color:#172b4d;margin-bottom:8px">Nova versão disponível</div>
+          <div style="font-size:13px;color:#5e6c84;margin-bottom:16px;line-height:1.5">O KanPro foi atualizado. Recarregue para receber as novidades.</div>
+          <button id="kp-build-reload" style="background:#0052cc;color:#fff;border:none;padding:12px 32px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px;width:100%">Recarregar agora</button>
+        </div>
+      </div>`;
+      document.body.appendChild(ov);
+      ov.querySelector('#kp-build-reload').addEventListener('click', ()=> location.reload());
     },
 
     /* ---------- BUSCA RÁPIDA (Ctrl+K) ---------- */
