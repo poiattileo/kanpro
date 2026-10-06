@@ -423,10 +423,47 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return $map[$s] ?? (string)$st;
     }
 
-    /** Lista em texto puro: "#seq — modelo (Status)" por linha */
+    /**
+     * Agrupa itens iguais (modelo + status): 1x vira "#seq — modelo (Status)",
+     * Nx vira "Nx modelos (Status)". Puro p/ testes.
+     *
+     * @param array<int,array{seq:int,model:string,status:string}> $items
+     * @return array<int,string>
+     */
+    static function stackMachineLines(array $items): array {
+        $groups = [];
+        $order = [];
+        foreach ($items as $it) {
+            if (!is_array($it)) continue;
+            $model = trim((string)($it['model'] ?? ''));
+            if ($model === '') $model = 'Máquina';
+            $status = trim((string)($it['status'] ?? ''));
+            $key = $model . "\0" . $status;
+            if (!isset($groups[$key])) {
+                $groups[$key] = ['seq' => (int)($it['seq'] ?? 0), 'model' => $model, 'status' => $status, 'n' => 0];
+                $order[] = $key;
+            }
+            $groups[$key]['n']++;
+        }
+        $lines = [];
+        foreach ($order as $key) {
+            $g = $groups[$key];
+            if ($g['n'] <= 1) {
+                $lines[] = "#{$g['seq']} — {$g['model']} ({$g['status']})";
+            } else {
+                // plural na primeira palavra: "Tablet Positivo" -> "Tablets Positivo"
+                $words = explode(' ', $g['model']);
+                if (!preg_match('/s$/i', $words[0])) $words[0] .= 's';
+                $lines[] = "{$g['n']}x " . implode(' ', $words) . " ({$g['status']})";
+            }
+        }
+        return $lines;
+    }
+
+    /** Lista em texto puro, agrupada: "Nx modelos (Status)" ou "#seq — modelo (Status)" */
     static function machinesListText(int $cards_id): string {
         global $DB;
-        $lines = [];
+        $items = [];
         try {
             if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) return '(sem máquinas vinculadas)';
             $iter = $DB->request([
@@ -437,11 +474,12 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             foreach ($iter as $m) {
                 $seq   = (int)($m['seq'] ?? 0);
                 $model = trim((string)($m['model'] ?? ('Máquina #' . $seq)));
-                $lines[] = "#{$seq} — {$model} (" . self::statusLabel($m['status'] ?? '') . ')';
+                $items[] = ['seq' => $seq, 'model' => $model, 'status' => self::statusLabel($m['status'] ?? '')];
             }
         } catch (Throwable $e) {
             return '(não foi possível listar)';
         }
+        $lines = self::stackMachineLines($items);
         return $lines ? implode("\n", $lines) : '(sem máquinas vinculadas)';
     }
 

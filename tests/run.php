@@ -293,4 +293,33 @@ kanpro_test('entity_short_name cai no último nível do completename', function 
 });
 
 // ---------------------------------------------------------------------------
+// Agrupamento da lista de máquinas (stackMachineLines — puro)
+// ---------------------------------------------------------------------------
+kanpro_test('stackMachineLines agrupa iguais', function () {
+    $items = [];
+    for ($i = 1; $i <= 70; $i++) {
+        $items[] = ['seq' => $i, 'model' => 'Tablet Positivo', 'status' => 'OK'];
+    }
+    assert_same(['70x Tablets Positivo (OK)'], PluginKanproMaintenanceZap::stackMachineLines($items));
+});
+
+kanpro_test('stackMachineLines separa por status e unitário mantém #seq', function () {
+    $lines = PluginKanproMaintenanceZap::stackMachineLines([
+        ['seq' => 1, 'model' => 'Tablet Positivo', 'status' => 'OK'],
+        ['seq' => 2, 'model' => 'Tablet Positivo', 'status' => 'OK'],
+        ['seq' => 3, 'model' => 'Tablet Positivo', 'status' => 'Garantia'],
+        ['seq' => 4, 'model' => 'Notebook Lenovo', 'status' => 'OK'],
+    ]);
+    assert_same([
+        '2x Tablets Positivo (OK)',
+        '#3 — Tablet Positivo (Garantia)',
+        '#4 — Notebook Lenovo (OK)',
+    ], $lines);
+});
+
+kanpro_test('stackMachineLines vazio devolve vazio', function () {
+    assert_same([], PluginKanproMaintenanceZap::stackMachineLines([]));
+});
+
+// ---------------------------------------------------------------------------
 exit(kanpro_summary());
