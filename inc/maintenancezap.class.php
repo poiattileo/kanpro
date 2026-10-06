@@ -1860,11 +1860,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zaplembrete9']);
             } catch (Throwable $e) {}
             // consumidor da fila de envios: roda via cron do SO (modo externo),
-            // a cada 5min, em lotes (param). Entrega os enfileirados com retry.
+            // a cada 1min, em lotes (param). Entrega os enfileirados com retry.
             // Modo interno NÃO vale aqui: neste ambiente só o externo dispara
             // (zapatraso interno parado desde 29/09, lembretes externos ok).
             $upsert('zapqueue', [
-                'frequency'     => 300,
+                'frequency'     => 60,
                 'param'         => 20,
                 'state'         => 1,
                 'mode'          => 2, // MODE_EXTERNAL: exige cron do SO — igual aos lembretes
