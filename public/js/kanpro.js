@@ -1354,12 +1354,12 @@
       }
       if (comments>0) badges.push(`<span class="kp-badge"><i class="ti ti-message"></i> ${comments}</span>`);
       if (atts>0) badges.push(`<span class="kp-badge"><i class="ti ti-paperclip"></i> ${atts}</span>`);
-      // Notificado — SÓ na lista Retirada (selo clicável, não abre o modal)
+      // Notificado — SÓ na lista Retirada (selo abre o modal, igual ao botão)
       const isNotified = (card.is_notified == 1);
       let isRetiradaCard = false;
       try { isRetiradaCard = this.isCardInListType(card, 'retirada'); } catch(e){ isRetiradaCard = false; }
       if (isRetiradaCard && isNotified) {
-        badges.push(`<span class="kp-badge" title="Notificado sobre o chamado (clique para desmarcar)" onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
+        badges.push(`<span class="kp-badge" title="Notificado — ver estado e notificar novamente" onclick="event.stopPropagation();Kanpro.openRetiradaNotify(${card.id}, event)" style="background:#61bd4f;color:#fff;font-weight:700;border:1px solid #61bd4f;cursor:pointer"><i class="ti ti-bell-ring"></i> 🔔 Notificado</span>`);
       }
       // Travada aguardando chamado — selo de bloqueio
       const mProgLock = this.maintenanceProgress && this.maintenanceProgress[card.id];
