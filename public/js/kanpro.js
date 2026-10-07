@@ -2586,6 +2586,15 @@
         if(!res || !res.success){ this.showAlert((res&&res.msg)||'Erro ao confirmar', 'Erro'); return; }
         this.showToast('Origem liberada ✓ — zap em 5s, excluindo em 30s ⏳' + (res.tech_name ? ` • 👨‍🔧 ${res.tech_name}` : ''));
         this.refreshCardModal();
+        // Atualiza o card origem (tablet) imediatamente se vier na resposta
+        if(res.source_cards_id){
+          this.ajax('get_card', {cards_id: res.source_cards_id}).then(rc=>{
+            if(rc && rc.success && rc.data){
+              const idx = (this.cards||[]).findIndex(c=> String(c.id)===String(rc.data.id));
+              if(idx>=0){ this.cards[idx] = {...this.cards[idx], ...rc.data}; this.renderBoard(); }
+            }
+          });
+        }
         this.forceSync();
         this.scheduleLiberadoZap(cid, 5);
         this.schedulePendenciaAutoDelete(cid, 30);
