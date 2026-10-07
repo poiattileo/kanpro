@@ -1431,17 +1431,21 @@
         ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
         : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar como notificado (só visual)" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
 
-      // botão Pegar (mini) — Pendente e Chamados Espera; admin ou membro
+      // botão Pegar (mini) — Pendente e Chamados Espera; admin ou membro.
+      // Origem de chamado não liberada: sem Pegar até o "Chamado aberto".
       let pegarBtnHtml = '';
       try {
         const lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
         const lt = this.listTypeOf(lst);
         const isPending = lt && lt.code === 'pending';
         const isEspera = lt && lt.code === 'chamados_espera';
-        if ((isPending || isEspera) && this.canPegar()) {
+        const isUnlib = isPending && String(card.chamado_status || '') === 'pendente';
+        if ((isPending || isEspera) && !isUnlib && this.canPegar()) {
           const fn = isEspera ? `Kanpro.pegarEsperaCard(${card.id}, event)` : `Kanpro.pegarPendingCard(${card.id}, event)`;
           const dest = isEspera ? 'Em Andamento Chamado' : 'Em Andamento';
           pegarBtnHtml = `<button onclick="event.stopPropagation();${fn}" title="Pegar: mover para ${dest} e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+        } else if (isUnlib) {
+          pegarBtnHtml = `<div title="Aguarde o Chamado aberto em Abrir chamado" style="margin-top:6px;width:100%;background:#fffae6;border:1px dashed #ffab00;color:#975500;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box">⏳ Aguardando abertura</div>`;
         }
       } catch(e){}
 
@@ -2222,7 +2226,8 @@
         const ticBtn = document.querySelector('#kanpro-card-modal button[onclick*="ticketButton"]');
         const escBtn = document.querySelector('#kanpro-card-modal button[onclick*="editMaintenanceCardTitle"]');
         const allSide = [...document.querySelectorAll('#kanpro-card-modal .kp-sidebar-btn')];
-        if (isMaint) {
+        const hideSide = isMaint || (isPending && String(data.chamado_status || '') === 'pendente');
+        if (hideSide) {
           if(ticBtn) ticBtn.style.display = 'none';
           if(escBtn) escBtn.style.display = 'none';
           allSide.forEach(b=>{
@@ -2247,8 +2252,10 @@
           });
         }
       } catch(e){}
-      // Pegar: Pendente ou Chamados Espera; admin ou membro (direto) — topo + sidebar
-      if((isPending || this.isCardInListType(data, 'chamados_espera')) && this.canPegar()){
+      // Pegar: Pendente ou Chamados Espera; admin ou membro (direto) — topo + sidebar.
+      // Origem de chamado não liberada: sem Pegar até o "Chamado aberto".
+      const isUnlibModal = isPending && String(data.chamado_status || '') === 'pendente';
+      if((isPending || this.isCardInListType(data, 'chamados_espera')) && !isUnlibModal && this.canPegar()){
         const isEsp = this.isCardInListType(data, 'chamados_espera');
         const pegarFn = isEsp ? 'pegarEsperaCard' : 'pegarPendingCard';
         const pegarDest = isEsp ? 'Em Andamento Chamado' : 'Em Andamento';
@@ -3326,6 +3333,14 @@
       try { this.renderNotifiedInModal(data.is_notified == 1 ? 1 : 0, data); } catch(e){}
       // pendência chamado / pegar / solicitar (botões do fluxo)
       try { this.renderChamadoInModal(data); } catch(e){ console.error(e); }
+      // origem de chamado não liberada: esconde composer de comentário e add de anexo
+      try {
+        const unlib = this.isCardInListType(data, 'pending') && String(data.chamado_status || '') === 'pendente';
+        const cc = document.getElementById('card-comment-composer');
+        if(cc) cc.style.display = unlib ? 'none' : '';
+        const al = document.getElementById('card-attach-add-label');
+        if(al) al.style.display = unlib ? 'none' : '';
+      } catch(e){}
       // cover
       const cover = $('#card-modal-cover');
       if(data.cover_color){

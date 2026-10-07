@@ -162,7 +162,7 @@
         }
         try { K.closePicker && K.closePicker(); } catch(_){}
         let msg = (flow === 'chamados_pendencia')
-          ? ('📞 Chamado #' + res.tickets_id + ' criado → ' + (res.espera_list_name || 'Chamados Espera'))
+          ? ('📞 Chamado #' + res.tickets_id + ' criado → Pendente (travado) + cópia em Abrir chamado')
           : ('📞 Chamado #' + res.tickets_id + ' criado e distribuído' + (res.zap_ok ? '' : ' (zap pode ter falhado — ver atividade)'));
         if (files.length) msg += res.attachments_fail ? ` • 📎 ${res.attachments_ok || 0}/${files.length} anexo(s) (${res.attachments_fail} falhou)` : ` • 📎 ${files.length} anexo(s)`;
         K.showToast && K.showToast(msg);
