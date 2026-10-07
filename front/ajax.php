@@ -900,6 +900,8 @@ function kanpro_find_list_by_type(int $boards_id, string $type): ?array {
                 $nm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
                 $nm = strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
                 if ($type === 'pending' && $nm === 'pendente') return $l;
+                if ($type === 'chamados_pendencia' && $nm === 'chamados pendencia') return $l;
+                if ($type === 'chamados_espera' && $nm === 'chamados espera') return $l;
                 if ($type === 'andamento' && $nm === 'em andamento') return $l;
                 if ($type === 'pend_chamado' && (strpos($nm, 'pendencia') !== false && strpos($nm, 'chamado') !== false)) return $l;
                 if ($type === 'abrir_chamado' && $nm === 'abrir chamado') return $l;
@@ -968,6 +970,7 @@ function kanpro_list_blocked_for_create(string $cat): ?string {
         'andamento'          => 'Em Andamento',
         'retirada'           => 'Retirada',
         'done'               => 'Concluído',
+        'chamados_espera'    => 'Chamados Espera',
         'abrir_chamado'      => 'Abrir chamado',
         'andamento_chamado'  => 'Em Andamento Chamado',
         'chamado_finalizado' => 'Chamado finalizado',
@@ -988,6 +991,8 @@ function kanpro_list_category(int $lists_id): string {
     if ($nm === 'em andamento') return 'andamento';
     if ($nm === 'retirada') return 'retirada';
     if ($nm === 'concluido' || $nm === 'concluida') return 'done';
+    if ($nm === 'chamados pendencia') return 'chamados_pendencia';
+    if ($nm === 'chamados espera') return 'chamados_espera';
     if (strpos($nm, 'pendencia') !== false && strpos($nm, 'chamado') !== false) return 'pend_chamado';
     if ($nm === 'abrir chamado') return 'abrir_chamado';
     if ($nm === 'em andamento chamado') return 'andamento_chamado';
@@ -3831,6 +3836,91 @@ switch ($action) {
         } catch (Throwable $e) { $zapRes = ['ok' => false, 'error' => $e->getMessage()]; }
         jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'zap_ok'=>!empty($zapRes['ok']),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
 
+    case 'add_chamados_pendencia_card':
+        // Fluxo Chamados Pendencia: título + descrição + origem + anexos, abre o
+        // ticket no GLPI e o card cai direto na lista Chamados Espera (sem clone,
+        // sem Abrir/Andamento Chamado). Espelha add_chamado_card.
+        needEdit();
+        $lists_id = (int)($_POST['lists_id'] ?? 0);
+        kanpro_require_board_edit(kanpro_board_id_for_list($lists_id));
+        if (kanpro_list_category($lists_id) !== 'chamados_pendencia') {
+            jexit(['success'=>false,'msg'=>'Chamados novos nascem na lista Chamados Pendencia.']);
+        }
+        $name = function_exists('kanpro_clean_text') ? kanpro_clean_text($_POST['name'] ?? '', 255) : trim(strip_tags($_POST['name'] ?? ''));
+        $desc = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['description'] ?? '') : trim(strip_tags($_POST['description'] ?? ''));
+        if ($name === '') jexit(['success'=>false,'msg'=>'Título obrigatório']);
+        $plist = new PluginKanproList();
+        if (!$plist->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
+        $bid = (int)$plist->fields['plugin_kanpro_boards_id'];
+        $espera = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'chamados_espera') : null;
+        if (!$espera) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Chamados Espera" neste quadro.']);
+        if (!class_exists('Ticket') || !Session::haveRight('ticket', CREATE)) {
+            jexit(['success'=>false,'msg'=>'Sem permissão para criar chamados no GLPI (perfil sem ticket CREATE).']);
+        }
+        $actor = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        // Origem do chamado: URE (padrão, entidade do quadro/ativa) ou Escola (entidade selecionada).
+        $origin = strtolower(trim($_POST['origin'] ?? 'ure'));
+        if (!in_array($origin, ['ure','escola'], true)) $origin = 'ure';
+        $originEntitiesId = 0;
+        $originLabel = 'URE';
+        if ($origin === 'escola') {
+            $originEntitiesId = (int)($_POST['entities_id'] ?? 0);
+            if ($originEntitiesId <= 0) jexit(['success'=>false,'msg'=>'Selecione a escola (entidade).']);
+            $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$originEntitiesId]])->current();
+            if (!$entRow || !empty($entRow['is_deleted'])) jexit(['success'=>false,'msg'=>'Escola (entidade) não encontrada.']);
+            $originLabel = 'Escola: ' . trim(($entRow['completename'] ?? $entRow['name'] ?? ('#' . $originEntitiesId)));
+        }
+        $now = date('Y-m-d H:i:s');
+        $card = new PluginKanproCard();
+        $origId = (int)$card->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$lists_id,
+            'name'=>$name,'description'=>$desc,'entities_id'=>$originEntitiesId,
+            'users_id'=>$actor,'date_creation'=>$now,'date_mod'=>$now]);
+        if (!$origId) jexit(['success'=>false,'msg'=>'Não foi possível criar o cartão (tente de novo)']);
+        // solicitante fica vinculado ao card (membro) — vale p/ ver o finalizado depois
+        try { $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$origId,'users_id'=>$actor]); } catch (Throwable $e) {}
+        // ticket GLPI acompanha tudo (obrigatório: sem ticket não há fluxo)
+        $tk = function_exists('kanpro_create_ticket_from_card') ? kanpro_create_ticket_from_card($origId, $originEntitiesId, $originLabel) : ['ok'=>false,'error'=>'integração indisponível'];
+        if (empty($tk['ok'])) {
+            $card->delete(['id'=>$origId], true);
+            jexit(['success'=>false,'msg'=>'Chamado GLPI não criado: ' . ($tk['error'] ?? 'erro')]);
+        }
+        $tickets_id = (int)($tk['id'] ?? 0);
+        $card->getFromDB($origId);
+        // anexos do modal de criação: vão p/ o card (ainda na entrada, sem trava)
+        $attOk = 0; $attFail = 0;
+        try {
+            if (!empty($_FILES['files']) && class_exists('PluginKanproAttachment')) {
+                $F = $_FILES['files'];
+                $norm = [];
+                if (is_array($F['name'] ?? null)) {
+                    foreach ($F['name'] as $i => $nm) {
+                        $norm[] = ['name'=>$nm,'type'=>$F['type'][$i] ?? '','tmp_name'=>$F['tmp_name'][$i] ?? '','error'=>$F['error'][$i] ?? UPLOAD_ERR_NO_FILE,'size'=>$F['size'][$i] ?? 0];
+                    }
+                } else {
+                    $norm[] = $F;
+                }
+                foreach ($norm as $f) {
+                    if (($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
+                    $aid = PluginKanproAttachment::handleUpload($origId, $f);
+                    if ($aid) $attOk++; else $attFail++;
+                }
+            }
+        } catch (Throwable $e) { $attFail++; }
+        // cai na Espera (fim da fila)
+        try {
+            $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>(int)$espera['id']],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+            $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
+            if ($rank <= 0) $rank = 1024;
+        } catch (Throwable $e) { $rank = 1024; }
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$espera['id'],'rank'=>$rank,'date_mod'=>$now], ['id'=>$origId]);
+        if (function_exists('kanpro_touch_card')) kanpro_touch_card($origId);
+        // Butler: entrada por fluxo também dispara automações da lista
+        if (function_exists('kanpro_run_rules')) {
+            kanpro_run_rules($bid, $origId, (int)$espera['id']);
+        }
+        PluginKanproBoard::logActivity($bid, $origId, (int)$espera['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}) → '{$espera['name']}'");
+        jexit(['success'=>true,'id'=>$origId,'tickets_id'=>$tickets_id,'espera_lists_id'=>(int)$espera['id'],'espera_list_name'=>(string)($espera['name'] ?? 'Chamados Espera'),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
+
     case 'chamado_mark_open':
         // Botão "Chamado aberto" (card clone em Abrir chamado): libera p/ ser realizado.
         needEdit();
@@ -6669,6 +6759,42 @@ switch ($action) {
         jexit($respPeg);
 
     // --- CARD <-> CHAMADO GLPI ---
+    case 'pegar_espera_card':
+        // Pegar na Chamados Espera (estilo membro): move p/ Em Andamento + atribui.
+        // Sem pendência, sem trava, sem zap.
+        needEdit();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $bid = (int)$c->fields['plugin_kanpro_boards_id'];
+        if (kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']) !== 'chamados_espera') {
+            jexit(['success'=>false,'msg'=>'Só card da lista Chamados Espera pode ser pego']);
+        }
+        $isAdminPegar = kanpro_can_manage_members($bid);
+        $myRolePegar = kanpro_my_board_role($bid);
+        if (!$isAdminPegar && !in_array($myRolePegar, ['member','admin'], true)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode pegar']);
+        $dest = kanpro_find_list_by_type($bid, 'andamento');
+        if (!$dest) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Em Andamento" neste quadro','need_list'=>true]);
+        $destLid = (int)$dest['id'];
+        $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        try {
+            $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$destLid],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+            $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
+        } catch (Throwable $e) { $rank = 1024; }
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$destLid,'rank'=>$rank,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]);
+        try {
+            if ($who > 0 && $DB->tableExists('glpi_plugin_kanpro_cards_members')) {
+                if (!countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$who])) {
+                    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cid,'users_id'=>$who]);
+                }
+            }
+        } catch (Throwable $e) {}
+        kanpro_touch_member($cid, $who);
+        kanpro_touch_card($cid);
+        PluginKanproBoard::logActivity($bid, $cid, $destLid, 'card_move', "Pego na Espera e movido para '{$dest['name']}'");
+        jexit(['success'=>true,'dest_lists_id'=>$destLid]);
+
     case 'link_ticket':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);

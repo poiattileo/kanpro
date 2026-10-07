@@ -149,6 +149,8 @@ if (count($iterator) === 0) {
                 elseif ($lnorm === 'pendente') $ltype = 'pending';
                 elseif ($lnorm === 'em andamento') $ltype = 'andamento';
                 elseif ($lnorm === 'retirada') $ltype = 'retirada';
+                elseif ($lnorm === 'chamados pendencia') $ltype = 'chamados_pendencia';
+                elseif ($lnorm === 'chamados espera') $ltype = 'chamados_espera';
                 elseif (strpos($lnorm, 'pendencia') !== false && strpos($lnorm, 'chamado') !== false) $ltype = 'pend_chamado';
                 elseif ($lnorm === 'abrir chamado') $ltype = 'abrir_chamado';
                 elseif ($lnorm === 'em andamento chamado') $ltype = 'andamento_chamado';
@@ -172,6 +174,10 @@ if (count($iterator) === 0) {
                 $badge = 'background:#00b8d9;color:#fff'; // Retirada = ciano
             } elseif ($ltype === 'pend_chamado') {
                 $badge = 'background:#e1316f;color:#fff'; // Pendência Chamado = rosa
+            } elseif ($ltype === 'chamados_pendencia') {
+                $badge = 'background:#c026d3;color:#fff'; // Chamados Pendencia = roxo
+            } elseif ($ltype === 'chamados_espera') {
+                $badge = 'background:#e67e22;color:#fff'; // Chamados Espera = laranja-queimado
             } elseif ($ltype === 'abrir_chamado') {
                 $badge = 'background:#00875a;color:#fff'; // Abrir chamado = verde-escuro
             } elseif ($ltype === 'andamento_chamado') {
