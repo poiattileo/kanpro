@@ -2880,27 +2880,86 @@
     taskCardAddItem(){
       const box = document.getElementById('task-items');
       if(!box) return;
+      this._taskRowSeq = (this._taskRowSeq || 0) + 1;
+      const rid = 'task-row-' + this._taskRowSeq + '-' + Date.now().toString(36);
       const row = document.createElement('div');
       row.className = 'task-item-row';
-      row.style.cssText = 'display:flex;gap:6px;align-items:center';
+      row.id = rid;
+      row._stagedFiles = [];
       row.innerHTML = `<input type="text" maxlength="255" placeholder="Item do checklist... (Enter adiciona outro)" class="task-item-input task-field" style="padding:8px 10px;font-size:13px;flex:1;min-width:0">
-        <label title="Anexar arquivos a este item (quantos quiser)" style="flex-shrink:0;background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:13px">📎<input type="file" multiple class="task-item-files" style="display:none"></label>
+        <button onclick="Kanpro.openTaskItemAttModal('${rid}')" title="Anexos deste item" style="flex-shrink:0;background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:13px">📎</button>
         <span class="task-item-fcount" style="font-size:11px;color:#5e6c84;flex-shrink:0;white-space:nowrap"></span>`;
       const inp = row.querySelector('.task-item-input');
       inp.onkeydown = (e)=>{
         if(e.key === 'Enter'){ e.preventDefault(); Kanpro.taskCardAddItem(); }
       };
-      const fi = row.querySelector('.task-item-files');
-      const fc = row.querySelector('.task-item-fcount');
-      fi.onchange = ()=>{
-        const n = (fi.files || []).length;
-        fc.textContent = n ? `📎${n} ✕` : '';
-        fc.title = n ? 'Clique para limpar a seleção' : '';
-        fc.style.cursor = n ? 'pointer' : '';
-        fc.onclick = n ? ()=>{ fi.value=''; fc.textContent=''; fc.title=''; fc.style.cursor=''; fc.onclick=null; } : null;
-      };
       box.appendChild(row);
       inp.focus();
+    },
+    updateTaskRowBadge(row){
+      if(!row) return;
+      const n = ((row._stagedFiles) || []).length;
+      row.querySelector('.task-item-fcount').textContent = n ? `📎${n}` : '';
+    },
+    openTaskItemAttModal(rid){
+      this._taskAttRow = rid;
+      this.renderTaskItemAttModal();
+    },
+    renderTaskItemAttModal(){
+      document.getElementById('kp-taskatt-overlay')?.remove();
+      const row = document.getElementById(this._taskAttRow || '');
+      if(!row) return;
+      const itemName = (row.querySelector('.task-item-input').value || '').trim() || 'Item sem título';
+      const files = row._stagedFiles || [];
+      const listHtml = files.length ? files.map((f, i)=>{
+        let thumb;
+        if(f.type && f.type.indexOf('image/') === 0){
+          try { if(!f._previewUrl) f._previewUrl = URL.createObjectURL(f); } catch(e){}
+          thumb = f._previewUrl
+            ? `<img src="${f._previewUrl}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0">`
+            : `<div style="width:48px;height:48px;background:#dfe1e6;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0">🖼️</div>`;
+        } else {
+          thumb = `<div style="width:48px;height:48px;background:#dfe1e6;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px">📄</div>`;
+        }
+        return `<div style="display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:6px 8px">${thumb}<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(f.name)}</div><div style="font-size:11px;color:#5e6c84">${(f.size / 1024).toFixed(0)} KB</div></div><button onclick="Kanpro.taskItemAttRemove(${i})" title="Remover" style="background:#ffebe6;color:#bf2600;border:1px solid #ffbdad;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:700;flex-shrink:0">✕</button></div>`;
+      }).join('') : `<div style="text-align:center;color:#5e6c84;font-size:12px;padding:12px">Nenhum anexo ainda.</div>`;
+      const ov = document.createElement('div');
+      ov.id = 'kp-taskatt-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+      ov.innerHTML = `
+        <div style="background:#fff;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.35);max-width:480px;width:100%;overflow:hidden;max-height:88vh;display:flex;flex-direction:column">
+          <div style="padding:14px 16px;border-bottom:1px solid #dfe1e6;font-weight:800;font-size:14px">📎 Anexos — ${this.escape(itemName)}</div>
+          <div style="padding:14px 16px;overflow-y:auto;display:grid;gap:8px">${listHtml}</div>
+          <div style="padding:12px 16px;background:#f4f5f7;display:flex;gap:8px;align-items:center">
+            <label style="flex:1;background:#fff;border:1px dashed #97a0af;border-radius:6px;padding:9px;text-align:center;cursor:pointer;font-size:13px;font-weight:700;color:#172b4d">＋ Adicionar arquivos<input id="kp-taskatt-input" type="file" multiple style="display:none"></label>
+            <button onclick="Kanpro.taskItemAttDone()" style="background:#0052cc;color:#fff;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;font-weight:800">OK</button>
+          </div>
+        </div>`;
+      document.body.appendChild(ov);
+      ov.addEventListener('click', e=>{ if(e.target === ov) this.taskItemAttDone(); });
+      ov.querySelector('#kp-taskatt-input').addEventListener('change', e=> this.taskItemAttAdd(e.target));
+    },
+    taskItemAttAdd(input){
+      const row = document.getElementById(this._taskAttRow || '');
+      const files = Array.from((input && input.files) || []);
+      if(row && files.length) row._stagedFiles = (row._stagedFiles || []).concat(files);
+      this.updateTaskRowBadge(row);
+      this.renderTaskItemAttModal();
+    },
+    taskItemAttRemove(idx){
+      const row = document.getElementById(this._taskAttRow || '');
+      if(!row) return;
+      const f = (row._stagedFiles || [])[idx];
+      try { if(f && f._previewUrl) URL.revokeObjectURL(f._previewUrl); } catch(e){}
+      row._stagedFiles.splice(idx, 1);
+      this.updateTaskRowBadge(row);
+      this.renderTaskItemAttModal();
+    },
+    taskItemAttDone(){
+      const row = document.getElementById(this._taskAttRow || '');
+      this.updateTaskRowBadge(row);
+      document.getElementById('kp-taskatt-overlay')?.remove();
+      this._taskAttRow = null;
     },
     confirmTaskCard(listId, btn){
       const titleEl = document.getElementById('task-title');
@@ -2908,7 +2967,7 @@
       if(!title){ titleEl.focus(); return; }
       const entries = Array.from(document.querySelectorAll('#task-items .task-item-row')).map(r=>({
         name: ((r.querySelector('.task-item-input') || {}).value || '').trim(),
-        files: Array.from((r.querySelector('.task-item-files') || {}).files || [])
+        files: Array.from((r._stagedFiles) || [])
       }));
       const noName = entries.find(e=> e.files.length && !e.name);
       if(noName){ alert('Dê um título ao item que tem anexos.'); return; }
