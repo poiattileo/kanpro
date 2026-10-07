@@ -2937,6 +2937,16 @@
         </div>`;
       document.body.appendChild(ov);
       ov.addEventListener('click', e=>{ if(e.target === ov) this.taskItemAttDone(); });
+      // ESC fecha o overlay junto com o resto (o handler global não conhece este overlay)
+      try { if(this._taskAttKey) document.removeEventListener('keydown', this._taskAttKey); } catch(e){}
+      this._taskAttKey = (e)=>{
+        if(e.key === 'Escape'){
+          document.getElementById('kp-taskatt-overlay')?.remove();
+          try { document.removeEventListener('keydown', this._taskAttKey); } catch(_){}
+          this._taskAttKey = null;
+        }
+      };
+      document.addEventListener('keydown', this._taskAttKey);
       ov.querySelector('#kp-taskatt-input').addEventListener('change', e=> this.taskItemAttAdd(e.target));
     },
     taskItemAttAdd(input){
@@ -2959,6 +2969,8 @@
       const row = document.getElementById(this._taskAttRow || '');
       this.updateTaskRowBadge(row);
       document.getElementById('kp-taskatt-overlay')?.remove();
+      try { if(this._taskAttKey) document.removeEventListener('keydown', this._taskAttKey); } catch(e){}
+      this._taskAttKey = null;
       this._taskAttRow = null;
     },
     confirmTaskCard(listId, btn){
