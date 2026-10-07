@@ -279,7 +279,7 @@ function plugin_kanpro_install(): bool {
                 `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
                 `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
-                `role`                        VARCHAR(20)  NOT NULL DEFAULT 'member' COMMENT 'admin,member,observer',
+                `role`                        VARCHAR(20)  NOT NULL DEFAULT 'member' COMMENT 'admin,member,observer,gerente',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
                 UNIQUE KEY `uniq_board_user` (`plugin_kanpro_boards_id`, `users_id`)
@@ -583,7 +583,7 @@ function plugin_kanpro_install(): bool {
                 `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
                 `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
                 `profiles_id`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_profiles.id',
-                `role`                        VARCHAR(20)  NOT NULL DEFAULT 'member' COMMENT 'admin,member',
+                `role`                        VARCHAR(20)  NOT NULL DEFAULT 'member' COMMENT 'admin,member,gerente',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
                 UNIQUE KEY `uniq_board_profile` (`plugin_kanpro_boards_id`, `profiles_id`),

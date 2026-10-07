@@ -343,7 +343,7 @@ if (!function_exists('kanpro_board_profile_role')) {
             if (!$DB->tableExists('glpi_plugin_kanpro_boards_profiles')) return null;
             $pids = kanpro_my_profile_ids();
             if (empty($pids)) return null;
-            $rank = ['observer' => 1, 'member' => 2, 'admin' => 3];
+                $rank = ['observer' => 1, 'member' => 2, 'admin' => 3, 'gerente' => 4];
             $best = null;
             foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_boards_profiles', 'WHERE' => ['plugin_kanpro_boards_id' => (int)$bid, 'profiles_id' => $pids]]) as $r) {
                 $x = $r['role'] ?? 'member';
@@ -382,7 +382,7 @@ if (!function_exists('kanpro_can_view_board')) {
 }
 
 if (!function_exists('kanpro_my_board_role')) {
-    // Papel direto do visualizador no quadro (observer < member < admin; vale pessoa + sessão + perfil GLPI).
+    // Papel direto do visualizador no quadro (observer < member < admin < gerente; vale pessoa + sessão + perfil GLPI).
     // Movido de front/ajax.php p/ a lib compartilhada (vale no form, kanban e gear).
     function kanpro_my_board_role($bid) {
         global $DB;
@@ -423,10 +423,10 @@ if (!function_exists('kanpro_is_board_creator')) {
 }
 
 if (!function_exists('kanpro_can_manage_members')) {
-    // Quem pode gerenciar acesso/família: criador, admin do quadro ou UPDATE global em legado aberto.
+    // Quem pode gerenciar acesso/família: criador, admin ou gerente do quadro (ou UPDATE global em legado aberto).
     function kanpro_can_manage_members($bid) {
         if (kanpro_is_board_creator($bid)) return true;
-        if (kanpro_my_board_role($bid) === 'admin') return true;
+        if (in_array(kanpro_my_board_role($bid), ['admin', 'gerente'], true)) return true;
         if (Session::haveRight('plugin_kanpro', UPDATE)) {
             try {
                 global $DB;
@@ -439,6 +439,17 @@ if (!function_exists('kanpro_can_manage_members')) {
     }
 }
 
+if (!function_exists('kanpro_can_see_all')) {
+    // Ver-tudo (ex.: Chamado finalizado): criador ou gerente. Admin vê só vinculados.
+    function kanpro_can_see_all($bid) {
+        try {
+            if (kanpro_is_board_creator($bid)) return true;
+            if (kanpro_my_board_role($bid) === 'gerente') return true;
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
 if (!function_exists('kanpro_can_manage_models')) {
     // Modelos de máquinas: criador/admin (via manage_members) + membro do quadro.
     function kanpro_can_manage_models($bid) {
@@ -447,7 +458,7 @@ if (!function_exists('kanpro_can_manage_models')) {
         } catch (Throwable $e) {}
         try {
             $role = function_exists('kanpro_my_board_role') ? kanpro_my_board_role($bid) : null;
-            if ($role === 'member' || $role === 'admin') return true;
+            if (in_array($role, ['member', 'admin', 'gerente'], true)) return true;
         } catch (Throwable $e) {}
         return false;
     }
@@ -517,10 +528,10 @@ if (!function_exists('kanpro_can_manage_list')) {
                 global $DB;
                 try {
                     foreach ($DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => $viewerIds]]) as $mr) {
-                        if (($mr['role'] ?? '') === 'admin') return true;
+                        if (in_array(($mr['role'] ?? ''), ['admin', 'gerente'], true)) return true;
                     }
                 } catch (Throwable $e) {}
-                if (function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($boards_id) === 'admin') return true;
+                if (function_exists('kanpro_board_profile_role') && in_array(kanpro_board_profile_role($boards_id), ['admin', 'gerente'], true)) return true;
                 // fallback estrito: UPDATE só em quadro legado aberto
                 if (Session::haveRight('plugin_kanpro', UPDATE)) {
                     try {
