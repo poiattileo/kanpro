@@ -1317,6 +1317,18 @@
           div.title = '🔒 Bloqueado — aguarde o "Chamado aberto" em Abrir chamado';
         }
       } catch(_){}
+      // Tablet liberado aguardando confirmação do técnico: borda dourada + topo da lista
+      const isTabletLiberado = String(card.chamado_status || '') === 'liberado' && Number(card.tablet_liberado_pending || 0) === 1;
+      if (isTabletLiberado) {
+        div.classList.add('kp-tablet-liberado');
+        div.dataset.tabletLiberado = "1";
+        div.style.borderColor = '#f2d600';
+        div.style.borderWidth = '3px';
+        div.style.boxShadow = '0 0 0 3px rgba(242,214,0,.35), 0 2px 6px rgba(0,0,0,.15)';
+        div.style.background = '#fffdf0';
+        div.title = '✨ Tablet liberado — técnico pode confirmar';
+        badges.push(`<span class="kp-badge" style="background:#f2d600;color:#172b4d;font-weight:700;border:1px solid #f2d600"><i class="ti ti-star"></i> Aguardando confirmação</span>`);
+      }
       // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
       const tStat = this.transferStatus && this.transferStatus[card.id];
       if (tStat) {
@@ -2323,6 +2335,17 @@
         const old = document.getElementById('kp-chamado-origem');
         if(old) old.remove();
       }
+      // Tablet liberado aguardando confirmação do técnico: botão "Confirmar" (só quem finalizou)
+      const isTabletLiberadoModal = String(data.chamado_status || '') === 'liberado' && Number(data.tablet_liberado_pending || 0) === 1;
+      if(isTabletLiberadoModal){
+        const currentUserId = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (window.KanproCurrentUserId || 0);
+        const tabletFinalizedBy = Number(data.tablet_finalized_by || 0);
+        const canConfirmTablet = tabletFinalizedBy > 0 && currentUserId > 0 && tabletFinalizedBy === currentUserId;
+        if(act && canConfirmTablet){
+          act.innerHTML += `<button onclick="Kanpro.confirmTabletLiberado()" title="Confirmar e mover para Retirada (só quem finalizou)" style="background:#f2d600;color:#172b4d;border:1px solid #f2d600;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-check-circle"></i> ✨ Confirmar</button>`;
+          if(box && act.innerHTML.trim()) box.style.display = 'flex';
+        }
+      }
       // origem travada: aviso no modal
       const lockedN = (data.maintenance_progress && data.maintenance_progress.locked) || ((data.maintenance_machines||[]).filter(m=> m.is_locked==1).length);
       const oldLock = document.getElementById('kp-chamado-lockwarn');
@@ -2567,6 +2590,15 @@
         this.scheduleLiberadoZap(cid, 5);
         this.schedulePendenciaAutoDelete(cid, 30);
       });
+    },
+    async confirmTabletLiberado(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      const res = await this.ajax('confirm_tablet_liberado', {cards_id: cid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao confirmar', 'Erro'); return; }
+      this.showToast('✨ Tablet confirmado — movido para ' + (res.list_name || 'Retirada'));
+      this.closeCardModal();
+      this.forceSync();
     },
     scheduleLiberadoZap(pid, seconds){
       try {

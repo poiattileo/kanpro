@@ -220,8 +220,16 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_by` INT NOT NULL DEFAULT '0' COMMENT 'quem solicitou/pegou (users_id)' AFTER `chamado_status`");
         }
+        // Tablet fluxo 2 finalizares: quem fez o 1º Finalizar (tablet_finalized_by)
+        // e flag de aguardando confirmação pós-liberado (tablet_liberado_pending)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tablet_finalized_by')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tablet_finalized_by` INT NOT NULL DEFAULT '0' COMMENT 'users_id de quem fez o 1º Finalizar no tablet' AFTER `chamado_by`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tablet_liberado_pending')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tablet_liberado_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=tablet liberado aguardando Confirmar do técnico' AFTER `tablet_finalized_by`");
+        }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
-            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `chamado_by`");
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `tablet_liberado_pending`");
         }
     }
 

@@ -395,6 +395,10 @@
 #card-modal-maintenance { animation: kp-fadeIn .2s ease; }
 .kp-card.kp-urgent, .kp-card[data-urgent="1"] { border-color: #eb5a46 !important; box-shadow: 0 0 0 2px rgba(235,90,70,.18), 0 1px 3px rgba(0,0,0,.12) !important; background: #fff5f5 !important; }
 
+/* Tablet liberado aguardando confirmação do técnico — destaque dourado */
+.kp-card.kp-tablet-liberado, .kp-card[data-tablet-liberado="1"] { border-color: #f2d600 !important; border-width: 3px !important; box-shadow: 0 0 0 3px rgba(242,214,0,.35), 0 2px 6px rgba(0,0,0,.15) !important; background: #fffdf0 !important; }
+.kp-card.kp-tablet-liberado:hover, .kp-card[data-tablet-liberado="1"]:hover { box-shadow: 0 0 0 4px rgba(242,214,0,.45), 0 4px 12px rgba(0,0,0,.18) !important; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .kp-list { width: 260px; min-width: 260px; }

@@ -6247,6 +6247,9 @@ switch ($action) {
                 if (empty($tabPend['pendencia_id'])) {
                     jexit(['success'=>false,'msg'=>'Falha ao criar Pendência Chamado do Tablet: ' . ($tabPend['warning'] ?? $tabPend['zap_error'] ?? 'erro')]);
                 }
+                // Grava quem fez o 1º Finalizar no tablet (para depois validar no Confirmar)
+                $actorId = kanpro_acting_user_id();
+                $DB->update('glpi_plugin_kanpro_cards', ['tablet_finalized_by' => $actorId, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $cid]);
                 $finTidTab = function_exists('kanpro_card_ticket_id') ? kanpro_card_ticket_id($cid) : 0;
                 if ($finTidTab) {
                     try { kanpro_ticket_followup($finTidTab, "[KanPro] Tablet 1o Finalizar\n\nManutencao concluida no KanPro. Pendencia Chamado #{$tabPend['pendencia_id']} criada (" . count($restMids) . " maquina(s)). Aguardando Chamado criado no CRM para liberar e finalizar novamente."); } catch (Throwable $e) {}
@@ -6691,7 +6694,18 @@ switch ($action) {
         $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $pid]);
         // Carimba a origem como liberada: a pendência auto-exclui em 30s e sem isso o
         // Tablet voltava p/ 'none' e o 2º Finalizar criava outra pendência (loop infinito).
-        try { $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $srcId]); } catch (Throwable $e) {}
+        try {
+            $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $srcId]);
+            // Se a origem é um tablet que fez 1º Finalizar: seta flag p/ Confirmar + move pro topo
+            $srcChk = new PluginKanproCard();
+            if ($srcChk->getFromDB($srcId) && !empty($srcChk->fields['tablet_finalized_by'])) {
+                $DB->update('glpi_plugin_kanpro_cards', ['tablet_liberado_pending' => 1, 'date_mod' => $nowUnlock], ['id' => $srcId]);
+                // Move pro topo da lista (rank menor que o primeiro)
+                $first = $DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $srcLid, 'is_archived' => 0], 'ORDER' => 'rank ASC', 'LIMIT' => 1])->current();
+                $newRank = $first ? ((float)$first['rank'] - 1024) : 1;
+                $DB->update('glpi_plugin_kanpro_cards', ['rank' => $newRank, 'date_mod' => $nowUnlock], ['id' => $srcId]);
+            }
+        } catch (Throwable $e) {}
         kanpro_touch_card($srcId);
         kanpro_touch_card($pid);
         $srcCard = new PluginKanproCard();
@@ -6725,6 +6739,28 @@ switch ($action) {
             } catch (Throwable $e) {}
         }
         jexit(['success'=>true,'source_cards_id'=>$srcId,'unlocked'=>count($mids),'still_locked'=>$stillLocked,'tech_name'=>$techName]);
+
+    case 'confirm_tablet_liberado':
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        // Só card tablet liberado aguardando confirmação
+        if (($c->fields['chamado_status'] ?? '') !== 'liberado') jexit(['success'=>false,'msg'=>'Card não está liberado']);
+        if (empty($c->fields['tablet_liberado_pending'])) jexit(['success'=>false,'msg'=>'Nada para confirmar']);
+        $actorId = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        if ((int)($c->fields['tablet_finalized_by'] ?? 0) !== $actorId) jexit(['success'=>false,'msg'=>'Somente o técnico que finalizou pode confirmar']);
+        $bid = (int)$c->fields['plugin_kanpro_boards_id'];
+        // Move pra Retirada
+        $retMove = kanpro_move_card_to_retirada($cid);
+        if (!$retMove['moved']) jexit(['success'=>false,'msg'=>'Falha ao mover para Retirada (lista não existe ou já está lá)']);
+        // Limpa flag de confirmação pendente
+        $DB->update('glpi_plugin_kanpro_cards', ['tablet_liberado_pending' => 0, 'date_mod' => date('Y-m-d H:i:s')], ['id' => $cid]);
+        kanpro_touch_card($cid);
+        PluginKanproBoard::logActivity($bid, $cid, $retMove['lists_id'], 'tablet_confirmed', "Tablet confirmado pelo técnico #{$actorId} — movido para '{$retMove['list_name']}'");
+        jexit(['success'=>true,'moved'=>true,'list_name'=>$retMove['list_name'],'lists_id'=>$retMove['lists_id']]);
 
     case 'pegar_pending_card':
         needEdit();
