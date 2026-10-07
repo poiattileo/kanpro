@@ -3143,6 +3143,26 @@
         }
       });
     },
+    checkItemAttAdd(itemId, input){
+      const files = Array.from((input && input.files) || []);
+      if(!files.length) return;
+      input.disabled = true;
+      let ok = 0, fail = 0, i = 0;
+      const step = ()=>{
+        if(i >= files.length){
+          this.showToast(fail ? `📎 ${ok}/${files.length} enviado(s), ${fail} falhou` : `📎 ${ok} anexo(s) no item ✓`);
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.renderBoard(); } });
+          return;
+        }
+        const f = files[i++];
+        const fd = new FormData();
+        fd.append('cards_id', this.currentCardId);
+        fd.append('checklist_items_id', itemId);
+        fd.append('file', f, f.name);
+        this.ajax('upload_attachment', fd, true).then(r=>{ if(r && r.success) ok++; else fail++; step(); }).catch(()=>{ fail++; step(); });
+      };
+      step();
+    },
 
     // Modal cartão
     openCard(cardId){
@@ -3332,9 +3352,16 @@
       descEl.style.fontStyle = data.description ? 'normal' : 'italic';
       descEdit.value = data.description || '';
 
-      // checklists
+      // checklists (anexo por item liberado em A Fazer / Em Progresso)
       const clContainer = $('#card-modal-checklists');
       clContainer.innerHTML='';
+      const allowItemAtt = !locked && (()=>{
+        try {
+          const l = (this.lists || []).find(x=> x.id == data.plugin_kanpro_lists_id);
+          const t = this.listTypeOf(l);
+          return !!t && (t.code === 'todo' || t.code === 'doing');
+        } catch(e){ return false; }
+      })();
       (data.checklists||[]).forEach(cl=>{
         const done = cl.items.filter(i=> i.is_checked==1).length;
         const total = cl.items.length;
@@ -3352,6 +3379,7 @@
               <div class="kp-checkitem ${it.is_checked?'checked':''}" data-item-id="${it.id}">
                 <input type="checkbox" ${it.is_checked?'checked':''} ${locked?'disabled':''} onchange="Kanpro.toggleCheckItem(${it.id}, this.checked)">
                 <span style="flex:1;cursor:${locked?'default':'pointer'}" onclick="${locked?'':`Kanpro.editCheckItem(${it.id})`}">${this.escape(it.name)}</span>
+                ${allowItemAtt ? `<label title="Anexar arquivos a este item" style="background:none;border:none;cursor:pointer;opacity:.6;font-size:13px">📎<input type="file" multiple style="display:none" onchange="Kanpro.checkItemAttAdd(${it.id}, this)"></label>` : ''}
                 ${locked ? '' : `<button onclick="Kanpro.deleteCheckItem(${it.id})" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-trash"></i></button>`}
               </div>${this.checkItemAttHtml(it)}`).join('')}
           </div>

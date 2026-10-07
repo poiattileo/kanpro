@@ -880,11 +880,13 @@ function kanpro_touch_member(int $cards_id, ?int $users_id = null) {
 
 // Categorias de lista (listas de ajuste): backlog=Pautas futuras, todo=A Fazer,
 // doing=Em Progresso, done=Concluído, awaiting=Aguardando Chegada, pending=Pendente,
-// andamento=Em Andamento, retirada=Retirada, pend_chamado=Pendência Chamado. '' = lista normal (vale dedução pelo nome p/ legado),
+// andamento=Em Andamento, retirada=Retirada, pend_chamado=Pendência Chamado,
+// chamados_pendencia=Chamados Pendencia, chamados_espera=Chamados Espera.
+// '' = lista normal (vale dedução pelo nome p/ legado),
 // 'none' = normal explícito (usuário tirou a categoria: nome NÃO reaplica).
 function kanpro_valid_list_type(string $t): string {
     $t = trim(strtolower($t));
-    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'awaiting', 'pending', 'andamento', 'retirada', 'pend_chamado', 'abrir_chamado', 'andamento_chamado', 'chamado_finalizado', 'none'], true) ? $t : '';
+    return in_array($t, ['backlog', 'todo', 'doing', 'done', 'awaiting', 'pending', 'andamento', 'retirada', 'pend_chamado', 'chamados_pendencia', 'chamados_espera', 'abrir_chamado', 'andamento_chamado', 'chamado_finalizado', 'none'], true) ? $t : '';
 }
 
 // Acha a lista do quadro pela categoria (vale dedução pelo nome p/ legado).
