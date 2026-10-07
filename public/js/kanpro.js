@@ -750,12 +750,12 @@
       if(!card) return true;
       // aguardando aprovação: invisível para não-admins
       if((card.approval_from||0) > 0 && !this.isBoardAdmin()) return false;
-      // Chamado finalizado: ver-tudo só criador/gerente; resto vê card vinculado
-      // (membro do card ou criador). Espelha a trava do chamado_detail no backend.
+      // Concluído/Chamado finalizado: ver-tudo só criador/gerente; resto vê card vinculado
+      // (membro do card ou criador). Espelha as travas de get_card/chamado_detail.
       try {
         const lst = (this.lists||[]).find(l=> l.id==card.plugin_kanpro_lists_id);
         const t = this.listTypeOf ? this.listTypeOf(lst) : null;
-        if(t && t.code === 'chamado_finalizado' && !this.canSeeAll()){
+        if(t && (t.code === 'chamado_finalizado' || t.code === 'done') && !this.canSeeAll()){
           const ids = this.myUserIds ? this.myUserIds() : [];
           if(ids.includes(parseInt(card.users_id))) return true;
           const mems = (this.cardMembers && this.cardMembers[card.id]) || [];
@@ -765,7 +765,7 @@
       } catch(e){}
       return true;
     },
-    /* ---------- filtro do Chamado finalizado (por usuário e data, só Admin) ---------- */
+    /* ---------- filtro do Finalizado (por usuário e data; útil p/ gerente ver por pessoa) ---------- */
     finFilterFor(listId){
       this._finFilter = this._finFilter || {};
       if(!this._finFilter[listId]) this._finFilter[listId] = {user:'', from:'', to:''};
@@ -787,7 +787,7 @@
     finFilterPass(list, card){
       try {
         const lt = this.listTypeOf ? this.listTypeOf(list) : null;
-        if(!lt || lt.code !== 'chamado_finalizado') return true;
+        if(!lt || (lt.code !== 'chamado_finalizado' && lt.code !== 'done')) return true;
         const f = this.finFilterFor(list.id);
         if(!f.user && !f.from && !f.to) return true;
         // usuário: membro do card ou criador
@@ -1176,7 +1176,7 @@
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
-        ${(code0 === 'chamado_finalizado' ? this.renderFinFilter(list) : '')}
+        ${(code0 === 'chamado_finalizado' || code0 === 'done' ? this.renderFinFilter(list) : '')}
         <div class="kp-list-cards" data-list-id="${list.id}">
         </div>
         ${addCardHtml}
