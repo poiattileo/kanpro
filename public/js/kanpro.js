@@ -2988,10 +2988,67 @@
       const atts = (it && it.attachments) || [];
       if(!atts.length) return '';
       return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px 26px">` + atts.map(a=>{
-        const url = K.ajax_url.replace('ajax.php', 'attachment.php?id=' + a.id);
         const nm = String(a.name || 'anexo');
-        return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#0747a6;background:#e6fcff;border:1px solid #b3f0ff;border-radius:10px;padding:2px 4px 2px 8px;white-space:nowrap;max-width:240px"><a href="${url}" target="_blank" title="${this.escape(nm)}" style="color:#0747a6;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📎 ${this.escape(nm)}</a><button onclick="Kanpro.deleteAttachment(${a.id})" title="Excluir anexo" style="background:none;border:none;cursor:pointer;color:#eb5a46;font-size:11px;padding:0 2px">✕</button></span>`;
-      }).join('') + `</div>`;
+        return `<button onclick="Kanpro.openItemAttModal(${it.id})" title="${this.escape(nm)} — ver anexos" style="font-size:11px;color:#0747a6;background:#e6fcff;border:1px solid #b3f0ff;border-radius:10px;padding:2px 8px;cursor:pointer;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis">📎 ${this.escape(nm)}${atts.length > 1 ? ` (+${atts.length - 1})` : ''}</button>`;
+      }).slice(0, 1).join('') + `</div>`;
+    },
+    findCheckItem(itemId){
+      try {
+        const cls = ((this._lastModalData && this._lastModalData.checklists) || []);
+        for(const cl of cls){
+          const it = (cl.items || []).find(x=> String(x.id) === String(itemId));
+          if(it) return it;
+        }
+      } catch(e){}
+      return null;
+    },
+    openItemAttModal(itemId){
+      const it = this.findCheckItem(itemId);
+      if(!it){ try { this.showToast('Item não encontrado'); } catch(e){} return; }
+      const atts = it.attachments || [];
+      if(!atts.length){ this.closePicker(); return; }
+      const rows = atts.map(a=>{
+        const url = K.ajax_url.replace('ajax.php', 'attachment.php?id=' + a.id);
+        const isImage = a.mime && a.mime.indexOf('image/') === 0;
+        const isPdf = a.mime === 'application/pdf';
+        const escapedName = this.escape(a.name).replace(/'/g, "\\'");
+        let thumb;
+        if(isImage){
+          thumb = `<img src="${url}" alt="${this.escape(a.name)}" onclick="Kanpro.previewImage('${url}', '${escapedName}')" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0">`;
+        } else if(isPdf){
+          thumb = `<div onclick="Kanpro.previewPdf('${url}', '${escapedName}')" style="width:56px;height:56px;background:#eb5a46;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;color:#fff"><i class="ti ti-file-type-pdf" style="font-size:24px"></i></div>`;
+        } else {
+          thumb = `<div style="width:56px;height:56px;background:#dfe1e6;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file" style="font-size:22px"></i></div>`;
+        }
+        return `
+        <div style="display:flex;gap:10px;padding:10px;background:#fff;border:1px solid #dfe1e6;border-radius:8px;align-items:center">
+          ${thumb}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(a.name)}</div>
+            <div style="font-size:11px;color:#5e6c84">${this.formatFileSize(a.filesize)} • ${this.formatDate(a.date_creation)} • <a href="${url}" target="_blank">Abrir</a></div>
+          </div>
+          <button onclick="Kanpro.deleteItemAtt(${it.id}, ${a.id}, this)" title="Excluir este anexo" style="background:#ffebe6;color:#bf2600;border:1px solid #ffbdad;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;flex-shrink:0"><i class="ti ti-trash"></i> Excluir</button>
+        </div>`;
+      }).join('');
+      this.showPicker({title: `📎 Anexos — ${it.name}`, html: `<div style="display:grid;gap:8px">${rows}</div>`});
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth = '320px'; p.style.maxWidth = '480px'; p.style.width = 'min(480px, 94vw)'; }
+    },
+    async deleteItemAtt(itemId, attId, btn){
+      if(!await this.kpConfirm('Excluir este anexo?')) return;
+      if(btn) btn.disabled = true;
+      this.ajax('delete_attachment', {id: attId}).then(res=>{
+        if(res && res.success){
+          this.attCounts[this.currentCardId] = Math.max(0, (this.attCounts[this.currentCardId] || 1) - 1);
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{
+            if(r.success){ this.renderCardModal(r.data); this.renderBoard(); }
+            this.openItemAttModal(itemId);
+          });
+        } else {
+          alert((res && res.msg) || 'Não foi possível excluir');
+          if(btn) btn.disabled = false;
+        }
+      });
     },
 
     // Modal cartão
