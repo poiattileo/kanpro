@@ -1058,6 +1058,22 @@ function kanpro_need_chamado_released(int $cards_id) {
 // Card do fluxo Chamado (Abrir/Andamento/Finalizado/Pendência): anexos são
 // registro (igual comentário em card travado) — upload/exclusão liberados.
 function kanpro_is_chamado_flow_card(int $cards_id): bool {
+// Origem de chamado ainda não liberada: card na Pendente com chamado_status
+// 'pendente' (aguardando "Chamado aberto" em Abrir chamado). Tudo bloqueado.
+function kanpro_is_unliberated_chamado(int $cards_id): bool {
+    try {
+        if ($cards_id <= 0 || !function_exists('kanpro_list_category')) return false;
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return false;
+        if (kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)) !== 'pending') return false;
+        return (($c->fields['chamado_status'] ?? '') === 'pendente');
+    } catch (Throwable $e) { return false; }
+}
+function kanpro_need_liberated_chamado(int $cards_id) {
+    if (kanpro_is_unliberated_chamado($cards_id)) {
+        jexit(['success'=>false,'msg'=>'Aguarde o "Chamado aberto" em Abrir chamado para liberar este card.']);
+    }
+}
     try {
         if ($cards_id <= 0 || !function_exists('kanpro_list_category')) return false;
         $c = new PluginKanproCard();
@@ -3840,8 +3856,8 @@ switch ($action) {
 
     case 'add_chamados_pendencia_card':
         // Fluxo Chamados Pendencia: título + descrição + origem + anexos, abre o
-        // ticket no GLPI e o card cai direto na lista Chamados Espera (sem clone,
-        // sem Abrir/Andamento Chamado). Espelha add_chamado_card.
+        // ticket no GLPI; o card cai na Pendente TODO travado e uma cópia vai p/
+        // Abrir chamado (botão de abrir libera a origem e mostra o Pegar).
         needEdit();
         $lists_id = (int)($_POST['lists_id'] ?? 0);
         kanpro_require_board_edit(kanpro_board_id_for_list($lists_id));
@@ -3854,8 +3870,10 @@ switch ($action) {
         $plist = new PluginKanproList();
         if (!$plist->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         $bid = (int)$plist->fields['plugin_kanpro_boards_id'];
-        $espera = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'chamados_espera') : null;
-        if (!$espera) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Chamados Espera" neste quadro.']);
+        $pendente = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'pending') : null;
+        if (!$pendente) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Pendente" neste quadro.']);
+        $abrir = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'abrir_chamado') : null;
+        if (!$abrir) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Abrir chamado" neste quadro.']);
         if (!class_exists('Ticket') || !Session::haveRight('ticket', CREATE)) {
             jexit(['success'=>false,'msg'=>'Sem permissão para criar chamados no GLPI (perfil sem ticket CREATE).']);
         }
@@ -3908,20 +3926,33 @@ switch ($action) {
                 }
             }
         } catch (Throwable $e) { $attFail++; }
-        // cai na Espera (fim da fila)
+        // origem cai na Pendente TODO travada (fim da fila)
         try {
-            $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>(int)$espera['id']],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+            $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>(int)$pendente['id']],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
             $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
             if ($rank <= 0) $rank = 1024;
         } catch (Throwable $e) { $rank = 1024; }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$espera['id'],'rank'=>$rank,'date_mod'=>$now], ['id'=>$origId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$pendente['id'],'rank'=>$rank,'chamado_status'=>'pendente','date_mod'=>$now], ['id'=>$origId]);
         if (function_exists('kanpro_touch_card')) kanpro_touch_card($origId);
-        // Butler: entrada por fluxo também dispara automações da lista
-        if (function_exists('kanpro_run_rules')) {
-            kanpro_run_rules($bid, $origId, (int)$espera['id']);
+        // cópia p/ Abrir chamado (botão de abrir libera a origem na Pendente)
+        $clone = new PluginKanproCard();
+        $cloneId = (int)$clone->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>(int)$abrir['id'],
+            'name'=>$name,'description'=>$desc,'tickets_id'=>$tickets_id,
+            'entities_id'=>(int)($card->fields['entities_id'] ?? 0),
+            'chamado_source_id'=>$origId,'chamado_status'=>'pendente','chamado_by'=>$actor,
+            'users_id'=>$actor,'date_creation'=>$now,'date_mod'=>$now]);
+        if (!$cloneId) {
+            jexit(['success'=>false,'msg'=>'Falha ao clonar para Abrir chamado']);
         }
-        PluginKanproBoard::logActivity($bid, $origId, (int)$espera['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}) → '{$espera['name']}'");
-        jexit(['success'=>true,'id'=>$origId,'tickets_id'=>$tickets_id,'espera_lists_id'=>(int)$espera['id'],'espera_list_name'=>(string)($espera['name'] ?? 'Chamados Espera'),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
+        try { $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cloneId,'users_id'=>$actor]); } catch (Throwable $e) {}
+        if (function_exists('kanpro_touch_card')) kanpro_touch_card($cloneId);
+        // Butler: entrada por fluxo também dispara automações das listas
+        if (function_exists('kanpro_run_rules')) {
+            kanpro_run_rules($bid, $origId, (int)$pendente['id']);
+            kanpro_run_rules($bid, $cloneId, (int)$abrir['id']);
+        }
+        PluginKanproBoard::logActivity($bid, $origId, (int)$pendente['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}): clone #{$cloneId} em Abrir chamado, original travado na Pendente");
+        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'pendente_list_name'=>(string)($pendente['name'] ?? 'Pendente'),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
 
     case 'chamado_mark_open':
         // Botão "Chamado aberto" (card clone em Abrir chamado): libera p/ ser realizado.
@@ -4797,6 +4828,7 @@ switch ($action) {
         $cid = (int)($_POST['cards_id'] ?? 0);
         kanpro_require_board_edit(kanpro_board_id_for_card($cid));
         kanpro_need_chamado_released($cid);
+        kanpro_need_liberated_chamado($cid);
         $content = function_exists('kanpro_clean_rich') ? kanpro_clean_rich($_POST['content'] ?? '') : trim(strip_tags($_POST['content'] ?? ''));
         $content = trim($content);
         if (!$content) jexit(['success'=>false]);
@@ -4850,6 +4882,7 @@ switch ($action) {
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
         if (!kanpro_is_chamado_flow_card($cid)) kanpro_need_chamado_released($cid);
+        kanpro_need_liberated_chamado($cid);
         if (!isset($_FILES['file'])) jexit(['success'=>false,'msg'=>'Nenhum arquivo']);
         // anexo de item do checklist: valida que o item é de checklist deste card
         $itemId = (int)($_POST['checklist_items_id'] ?? 0);
@@ -4872,6 +4905,7 @@ switch ($action) {
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_attachments','WHERE'=>['id'=>$id]])->current();
         $attCid = (int)($row['plugin_kanpro_cards_id'] ?? 0);
         if (!kanpro_is_chamado_flow_card($attCid)) kanpro_need_chamado_released($attCid);
+        kanpro_need_liberated_chamado($attCid);
         if ($row && !empty($row['filepath'])) {
             $path = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $row['filepath'];
             if (file_exists($path)) @unlink($path);
@@ -6677,6 +6711,8 @@ switch ($action) {
             }
         }
         if (!$isPending) jexit(['success'=>false,'msg'=>'Só card da lista Pendente pode ser pego']);
+        // origem de chamado ainda não liberada: sem Pegar até o "Chamado aberto"
+        kanpro_need_liberated_chamado($cid);
         // admin do quadro: fluxo completo (Pegar + Pendência Chamado com trava + zap).
         // membro do quadro: pega direto p/ Em Andamento, SEM gerar Pendência Chamado (sem trava/verificação).
         // (botão só aparece p/ admin/membro, mas valida no servidor; observer continua só-visualização)

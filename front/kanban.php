@@ -560,13 +560,13 @@ echo <<<HTML
         <div style="margin-bottom:20px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-paperclip"></i><strong>Anexos</strong></div>
           <div id="card-modal-attachments" style="display:grid;gap:8px"></div>
-          <label style="display:inline-flex;align-items:center;gap:6px;background:#eaecf0;padding:6px 12px;border-radius:4px;cursor:pointer;margin-top:8px"><i class="ti ti-upload"></i> Adicionar anexo <input type="file" id="card-attach-input" style="display:none" onchange="Kanpro.uploadAttachment(this)"></label>
+          <label id="card-attach-add-label" style="display:inline-flex;align-items:center;gap:6px;background:#eaecf0;padding:6px 12px;border-radius:4px;cursor:pointer;margin-top:8px"><i class="ti ti-upload"></i> Adicionar anexo <input type="file" id="card-attach-input" style="display:none" onchange="Kanpro.uploadAttachment(this)"></label>
         </div>
 
         <!-- Comentários -->
         <div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-message"></i><strong>Comentários</strong></div>
-          <div style="display:flex;gap:8px;margin-bottom:12px">
+          <div id="card-comment-composer" style="display:flex;gap:8px;margin-bottom:12px">
             <div style="width:32px;height:32px;border-radius:50%;background:#dfe1e6;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">EU</div>
             <div style="flex:1">
               <textarea id="card-comment-input" placeholder="Escrever um comentário... (@nome menciona, **negrito**)" style="width:100%;padding:10px;border:none;border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);min-height:40px;resize:vertical"></textarea>
