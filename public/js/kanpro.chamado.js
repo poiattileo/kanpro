@@ -82,8 +82,11 @@
       if (btn) btn.disabled = true;
       K.ajax('delete_attachment', {id: attId}).then(()=> this.open(cardId));
     },
-    // Criação guiada na Pendência Chamado: título + descrição + origem (URE ou Escola)
-    create(listsId){
+    // Criação guiada: título + descrição + origem (URE ou Escola) + anexos.
+    // flow 'pend_chamado' (completo, c/ clone) ou 'chamados_pendencia' (card+ticket, cai na Espera).
+    create(listsId, flow){
+      flow = (flow === 'chamados_pendencia') ? 'chamados_pendencia' : 'pend_chamado';
+      C._flow = flow;
       picker('📞 Novo chamado', `
         <div style="display:grid;gap:10px">
           <div style="font-size:12px;color:#5e6c84">Cria o card, abre o <strong>ticket no GLPI</strong>, clona para <strong>Abrir chamado</strong> e move o original para <strong>Em Andamento Chamado</strong>.</div>
@@ -105,7 +108,7 @@
             <input id="kc-files" type="file" multiple onchange="KanproChamado.listFiles(this)" style="width:100%;font-size:12px;color:#5e6c84">
             <div id="kc-files-list" style="display:grid;gap:4px;margin-top:6px;font-size:12px;color:#5e6c84"></div>
           </div>
-          <button id="kc-save" onclick="KanproChamado.confirmCreate(${Number(listsId)}, this)" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">Criar chamado</button>
+          <button id="kc-save" onclick="KanproChamado.confirmCreate(${Number(listsId)}, this, '${flow}')" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">Criar chamado</button>
         </div>`);
       setTimeout(()=> document.getElementById('kc-title')?.focus(), 60);
     },
@@ -133,7 +136,9 @@
       const files = Array.from((input && input.files) || []);
       box.innerHTML = files.map(f=>`<div>📎 ${esc(f.name)} <span style="color:#97a0af">(${(f.size/1024).toFixed(0)} KB)</span></div>`).join('');
     },
-    confirmCreate(listsId, btn){
+    confirmCreate(listsId, btn, flow){
+      flow = (flow === 'chamados_pendencia') ? 'chamados_pendencia' : 'pend_chamado';
+      const action = (flow === 'chamados_pendencia') ? 'add_chamados_pendencia_card' : 'add_chamado_card';
       const title = document.getElementById('kc-title')?.value.trim() || '';
       const desc = document.getElementById('kc-desc')?.value.trim() || '';
       const origin = document.querySelector('input[name="kc-origin"]:checked')?.value || 'ure';
@@ -149,14 +154,16 @@
       fd.append('origin', origin);
       fd.append('entities_id', entities_id);
       files.forEach(f=> fd.append('files[]', f, f.name));
-      K.ajax('add_chamado_card', fd, true).then(res=>{
+      K.ajax(action, fd, true).then(res=>{
         if (!res || !res.success) {
           alert((res && res.msg) || 'Erro');
           if (btn) { btn.disabled = false; btn.textContent = 'Criar chamado'; }
           return;
         }
         try { K.closePicker && K.closePicker(); } catch(_){}
-        let msg = '📞 Chamado #' + res.tickets_id + ' criado e distribuído' + (res.zap_ok ? '' : ' (zap pode ter falhado — ver atividade)');
+        let msg = (flow === 'chamados_pendencia')
+          ? ('📞 Chamado #' + res.tickets_id + ' criado → ' + (res.espera_list_name || 'Chamados Espera'))
+          : ('📞 Chamado #' + res.tickets_id + ' criado e distribuído' + (res.zap_ok ? '' : ' (zap pode ter falhado — ver atividade)'));
         if (files.length) msg += res.attachments_fail ? ` • 📎 ${res.attachments_ok || 0}/${files.length} anexo(s) (${res.attachments_fail} falhou)` : ` • 📎 ${files.length} anexo(s)`;
         K.showToast && K.showToast(msg);
         try { K.forceSync && K.forceSync(); } catch(_){}
@@ -469,7 +476,9 @@
         try { const el = eOrListId.target.closest && eOrListId.target.closest('.kp-list'); if (el) lid = el.dataset.listId; } catch(_){}
       }
       try {
-        if (catOf(lid) === 'pend_chamado') { if (eOrListId && eOrListId.stopPropagation) eOrListId.stopPropagation(); C.create(lid); return; }
+        const cat = catOf(lid);
+        if (cat === 'pend_chamado') { if (eOrListId && eOrListId.stopPropagation) eOrListId.stopPropagation(); C.create(lid, 'pend_chamado'); return; }
+        if (cat === 'chamados_pendencia') { if (eOrListId && eOrListId.stopPropagation) eOrListId.stopPropagation(); C.create(lid, 'chamados_pendencia'); return; }
       } catch(_){}
       return __showAdd.call(this, eOrListId, listId);
     };

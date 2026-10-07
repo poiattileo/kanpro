@@ -907,6 +907,8 @@
               <option value="doing">🔵 Em Progresso</option>
               <option value="retirada">📦 Retirada</option>
               <option value="pend_chamado">📞 Pendência chamados</option>
+              <option value="chamados_pendencia">📞 Chamados Pendencia</option>
+              <option value="chamados_espera">⏳ Chamados Espera</option>
               <option value="done">🟢 Concluído</option>
             </select>
             <div class="kp-composer-actions">
@@ -1145,7 +1147,7 @@
       // "+ cartão" depende da categoria: travado nas de ajuste, vira criação de Manutenção na Pendente
       const lt0 = this.listTypeOf(list);
       const code0 = lt0 ? lt0.code : '';
-      const blocked0 = !!this.LIST_CREATE_BLOCKED[code0];
+      const blocked0 = !!this.LIST_CREATE_BLOCKED[code0] || code0 === 'pend_chamado';
       const isMaint0 = (code0 === 'pending');
       const addCardHtml = blocked0
         ? `<button class="kp-add-card" disabled style="opacity:.5;cursor:not-allowed" title="A lista &quot;${this.escape(lt0.label)}&quot; não aceita cartão novo — ele entra pelo fluxo"><i class="ti ti-lock" style="font-size:13px"></i> Não é possível criar cartão aqui</button>`
@@ -1427,14 +1429,16 @@
         ? `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Notificado — clique para desmarcar" style="margin-top:6px;width:100%;background:#e3fcef;border:1px solid #61bd4f;color:#006644;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell-ring"></i> 🔔 Notificado ✓</button>`
         : `<button onclick="event.stopPropagation();Kanpro.toggleNotified(${card.id}, event)" title="Marcar como notificado (só visual)" style="margin-top:6px;width:100%;background:#fff;border:1px dashed #97a0af;color:#5e6c84;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-bell"></i> Notificar</button>`);
 
-      // botão Pegar (mini) — só Pendente; admin ou membro (membro vai direto, sem pendência)
+      // botão Pegar (mini) — Pendente e Chamados Espera; admin ou membro
       let pegarBtnHtml = '';
       try {
         const lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
         const lt = this.listTypeOf(lst);
         const isPending = lt && lt.code === 'pending';
-        if (isPending && this.canPegar()) {
-          pegarBtnHtml = `<button onclick="event.stopPropagation();Kanpro.pegarPendingCard(${card.id}, event)" title="Pegar: mover para Em Andamento e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+        const isEspera = lt && lt.code === 'chamados_espera';
+        if ((isPending || isEspera) && this.canPegar()) {
+          const fn = isEspera ? `Kanpro.pegarEsperaCard(${card.id}, event)` : `Kanpro.pegarPendingCard(${card.id}, event)`;
+          pegarBtnHtml = `<button onclick="event.stopPropagation();${fn}" title="Pegar: mover para Em Andamento e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         }
       } catch(e){}
 
@@ -2240,10 +2244,11 @@
           });
         }
       } catch(e){}
-      // Pegar: só Pendente; admin (c/ Pendência Chamado) ou membro (direto) — topo + sidebar
-      if(isPending && this.canPegar()){
-        if(btnPegar) btnPegar.style.display = '';
-        if(act) act.innerHTML += `<button onclick="Kanpro.pegarPendingCard()" title="Pegar: mover para Em Andamento e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+      // Pegar: Pendente ou Chamados Espera; admin ou membro (direto) — topo + sidebar
+      if((isPending || this.isCardInListType(data, 'chamados_espera')) && this.canPegar()){
+        const pegarFn = this.isCardInListType(data, 'chamados_espera') ? 'pegarEsperaCard' : 'pegarPendingCard';
+        if(btnPegar){ btnPegar.style.display = ''; btnPegar.onclick = ()=> Kanpro[pegarFn](); }
+        if(act) act.innerHTML += `<button onclick="Kanpro.${pegarFn}()" title="Pegar: mover para Em Andamento e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         // BUGFIX: renderNotifiedInModal esconde o box quando não é Retirada — se enchemos o act aqui, precisa reexibir
         if(box && act && act.innerHTML.trim()) box.style.display = 'flex';
       }
@@ -2678,6 +2683,21 @@
       if(err) err.style.display = 'none';
       if(btn){ btn.disabled = true; btn.textContent = 'Pegando...'; }
       this.doPegarPendingCard(cid);
+    },
+    async pegarEsperaCard(cardId, ev){
+      if(ev && ev.stopPropagation) ev.stopPropagation();
+      const cid = cardId || this.currentCardId;
+      if(!cid) return;
+      if(!this.canPegar()){ alert('Somente Membro ou Admin do quadro pode pegar.'); return; }
+      const ok = await this.showConfirm('Pegar este chamado? Vai para Em Andamento e fica atribuído a você.', '✋ Pegar chamado?', 'Pegar');
+      if(!ok) return;
+      this.ajax('pegar_espera_card', {cards_id: cid}).then(res=>{
+        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
+        this.showToast('Pego ✓ → Em Andamento');
+        if(this.currentCardId == cid) this.closeCardModal();
+        this.forceSync();
+        setTimeout(()=> this.forceSync(), 1500);
+      });
     },
     doPegarPendingCard(cid){
       this.ajax('pegar_pending_card', {cards_id: cid}).then(res=>{
@@ -7338,15 +7358,17 @@
       andamento: {label: 'Em Andamento',       color: '#0052cc', fg: '#fff',    dot: '🔷'},
       retirada:  {label: 'Retirada',           color: '#00b8d9', fg: '#fff',    dot: '📦'},
       pend_chamado: {label: 'Pendência chamados', color: '#e1316f', fg: '#fff', dot: '📞'},
+      chamados_pendencia: {label: 'Chamados Pendencia', color: '#c026d3', fg: '#fff', dot: '📞'},
+      chamados_espera: {label: 'Chamados Espera', color: '#e67e22', fg: '#fff', dot: '⏳'},
       abrir_chamado: {label: 'Abrir chamado', color: '#00875a', fg: '#fff', dot: '📩'},
       andamento_chamado: {label: 'Em Andamento Chamado', color: '#403294', fg: '#fff', dot: '🔄'},
       chamado_finalizado: {label: 'Chamado finalizado', color: '#006644', fg: '#fff', dot: '✅'},
     },
     // estas categorias só notificam no Seus Quadros — no kanban ficam invisíveis
-    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, pend_chamado: 1},
+    LIST_TYPE_QUIET: {awaiting: 1, pending: 1, andamento: 1, retirada: 1, pend_chamado: 1, chamados_pendencia: 1, chamados_espera: 1},
     // categorias de ajuste: o cartão entra sozinho pelo fluxo (Solicitar Chamado / Pegar /
     // Notificado / Finalizar / fluxo Abrir Chamado) — nunca se cria cartão novo aqui
-    LIST_CREATE_BLOCKED: {andamento: 1, retirada: 1, done: 1, abrir_chamado: 1, andamento_chamado: 1, chamado_finalizado: 1},
+    LIST_CREATE_BLOCKED: {andamento: 1, retirada: 1, done: 1, abrir_chamado: 1, andamento_chamado: 1, chamado_finalizado: 1, chamados_espera: 1},
     listTypeOf(list){
       if(!list) return null;
       const t = String(list.list_type || '').trim().toLowerCase();
@@ -7363,6 +7385,8 @@
       if(n === 'em andamento') return Object.assign({code: 'andamento'}, this.LIST_TYPES.andamento);
       if(n === 'retirada') return Object.assign({code: 'retirada'}, this.LIST_TYPES.retirada);
       if(n === 'pendencia chamado' || n === 'pendencia chamados' || n === 'pendencia de chamado') return Object.assign({code: 'pend_chamado'}, this.LIST_TYPES.pend_chamado);
+      if(n === 'chamados pendencia') return Object.assign({code: 'chamados_pendencia'}, this.LIST_TYPES.chamados_pendencia);
+      if(n === 'chamados espera') return Object.assign({code: 'chamados_espera'}, this.LIST_TYPES.chamados_espera);
       if(n === 'abrir chamado') return Object.assign({code: 'abrir_chamado'}, this.LIST_TYPES.abrir_chamado);
       if(n === 'em andamento chamado') return Object.assign({code: 'andamento_chamado'}, this.LIST_TYPES.andamento_chamado);
       if(n === 'chamado finalizado' || n === 'chamados finalizados') return Object.assign({code: 'chamado_finalizado'}, this.LIST_TYPES.chamado_finalizado);
