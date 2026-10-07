@@ -1381,6 +1381,8 @@
       if (tkMap) {
         const tkTitle = 'Chamado #' + tkMap.id + (tkMap.name ? ' — ' + tkMap.name : '') + (tkMap.status_label ? ' (' + tkMap.status_label + ')' : '');
         badges.push(`<span class="kp-badge" title="${this.escape(tkTitle)}" style="background:#e6fcff;color:#0747a6;font-weight:700;border:1px solid #4c9aff"><i class="ti ti-ticket"></i> #${tkMap.id}</span>`);
+      } else if (Number(card.tickets_id || 0) > 0) {
+        badges.push(`<span class="kp-badge" title="Chamado GLPI #${card.tickets_id}" style="background:#e6fcff;color:#0747a6;font-weight:700;border:1px solid #4c9aff"><i class="ti ti-ticket"></i> #${card.tickets_id}</span>`);
       }
       if (comments>0) badges.push(`<span class="kp-badge"><i class="ti ti-message"></i> ${comments}</span>`);
       if (atts>0) badges.push(`<span class="kp-badge"><i class="ti ti-paperclip"></i> ${atts}</span>`);
@@ -1438,7 +1440,8 @@
         const isEspera = lt && lt.code === 'chamados_espera';
         if ((isPending || isEspera) && this.canPegar()) {
           const fn = isEspera ? `Kanpro.pegarEsperaCard(${card.id}, event)` : `Kanpro.pegarPendingCard(${card.id}, event)`;
-          pegarBtnHtml = `<button onclick="event.stopPropagation();${fn}" title="Pegar: mover para Em Andamento e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+          const dest = isEspera ? 'Em Andamento Chamado' : 'Em Andamento';
+          pegarBtnHtml = `<button onclick="event.stopPropagation();${fn}" title="Pegar: mover para ${dest} e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         }
       } catch(e){}
 
@@ -2246,9 +2249,11 @@
       } catch(e){}
       // Pegar: Pendente ou Chamados Espera; admin ou membro (direto) — topo + sidebar
       if((isPending || this.isCardInListType(data, 'chamados_espera')) && this.canPegar()){
-        const pegarFn = this.isCardInListType(data, 'chamados_espera') ? 'pegarEsperaCard' : 'pegarPendingCard';
+        const isEsp = this.isCardInListType(data, 'chamados_espera');
+        const pegarFn = isEsp ? 'pegarEsperaCard' : 'pegarPendingCard';
+        const pegarDest = isEsp ? 'Em Andamento Chamado' : 'Em Andamento';
         if(btnPegar){ btnPegar.style.display = ''; btnPegar.onclick = ()=> Kanpro[pegarFn](); }
-        if(act) act.innerHTML += `<button onclick="Kanpro.${pegarFn}()" title="Pegar: mover para Em Andamento e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
+        if(act) act.innerHTML += `<button onclick="Kanpro.${pegarFn}()" title="Pegar: mover para ${pegarDest} e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         // BUGFIX: renderNotifiedInModal esconde o box quando não é Retirada — se enchemos o act aqui, precisa reexibir
         if(box && act && act.innerHTML.trim()) box.style.display = 'flex';
       }
@@ -2689,11 +2694,11 @@
       const cid = cardId || this.currentCardId;
       if(!cid) return;
       if(!this.canPegar()){ alert('Somente Membro ou Admin do quadro pode pegar.'); return; }
-      const ok = await this.showConfirm('Pegar este chamado? Vai para Em Andamento e fica atribuído a você.', '✋ Pegar chamado?', 'Pegar');
+      const ok = await this.showConfirm('Pegar este chamado? Vai para Em Andamento Chamado e fica atribuído a você.', '✋ Pegar chamado?', 'Pegar');
       if(!ok) return;
       this.ajax('pegar_espera_card', {cards_id: cid}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
-        this.showToast('Pego ✓ → Em Andamento');
+        this.showToast('Pego ✓ → Em Andamento Chamado');
         if(this.currentCardId == cid) this.closeCardModal();
         this.forceSync();
         setTimeout(()=> this.forceSync(), 1500);

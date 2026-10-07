@@ -6762,7 +6762,7 @@ switch ($action) {
 
     // --- CARD <-> CHAMADO GLPI ---
     case 'pegar_espera_card':
-        // Pegar na Chamados Espera (estilo membro): move p/ Em Andamento + atribui.
+        // Pegar na Chamados Espera: move p/ Em Andamento Chamado + atribui.
         // Sem pendência, sem trava, sem zap.
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
@@ -6776,8 +6776,8 @@ switch ($action) {
         $isAdminPegar = kanpro_can_manage_members($bid);
         $myRolePegar = kanpro_my_board_role($bid);
         if (!$isAdminPegar && !in_array($myRolePegar, ['member','admin'], true)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode pegar']);
-        $dest = kanpro_find_list_by_type($bid, 'andamento');
-        if (!$dest) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Em Andamento" neste quadro','need_list'=>true]);
+        $dest = kanpro_find_list_by_type($bid, 'andamento_chamado');
+        if (!$dest) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Em Andamento Chamado" neste quadro','need_list'=>true]);
         $destLid = (int)$dest['id'];
         $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
         try {
