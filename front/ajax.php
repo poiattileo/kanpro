@@ -6529,7 +6529,29 @@ switch ($action) {
         try { $stillLocked = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id' => $srcId, 'is_locked' => 1]); } catch (Throwable $e) {}
         PluginKanproBoard::logActivity($srcBid, $srcId, $srcLid, 'chamado_released', "Chamado criado confirmado (pendência #{$pid}) — máquinas liberadas (restam {$stillLocked} travada(s))");
         PluginKanproBoard::logActivity($bidC, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_released', "Chamado criado — origem #{$srcId} liberada (mids:" . count($mids) . " restam:{$stillLocked})");
-        jexit(['success'=>true,'source_cards_id'=>$srcId,'unlocked'=>count($mids),'still_locked'=>$stillLocked]);
+        // técnico opcional: encaminha o ticket do chamado (substitui atribuição atual)
+        $techName = '';
+        $techId = (int)($_POST['tech_users_id'] ?? 0);
+        if ($techId > 0) {
+            try {
+                $tu = new User();
+                if ($tu->getFromDB($techId) && empty($tu->fields['is_deleted']) && !empty($tu->fields['is_active'])) {
+                    $tkId = (int)($srcCard->fields['tickets_id'] ?? 0);
+                    if ($tkId > 0 && class_exists('Ticket') && class_exists('Ticket_User')) {
+                        $t = new Ticket();
+                        if ($t->getFromDB($tkId)) {
+                            $DB->delete('glpi_tickets_users', ['tickets_id' => $tkId, 'type' => 2]);
+                            $tu2 = new Ticket_User();
+                            if ($tu2->add(['tickets_id' => $tkId, 'users_id' => $techId, 'type' => 2])) {
+                                $techName = $tu->getFriendlyName();
+                                PluginKanproBoard::logActivity($srcBid, $srcId, $srcLid, 'chamado_released', "Ticket #{$tkId} encaminhado para {$techName}");
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+        jexit(['success'=>true,'source_cards_id'=>$srcId,'unlocked'=>count($mids),'still_locked'=>$stillLocked,'tech_name'=>$techName]);
 
     case 'pegar_pending_card':
         needEdit();

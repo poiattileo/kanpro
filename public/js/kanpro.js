@@ -2502,15 +2502,31 @@
           if(m) nMach = parseInt(m[1], 10) || 0;
         }
       } catch(e){}
-      const ok = await this.showConfirm(
-        `Confirmar que o chamado foi criado?\n\n📋 Pendência #${cid} "${String(pName).slice(0,60)}"\n🔗 Origem ${srcId ? '#' + srcId + ' "' + String(srcName).slice(0,60) + '"' : srcName}${nMach ? `\n🔧 ${nMach} máquina(s) serão liberadas` : ''}\n\n• Zap para os técnicos em 5s\n• Este card se auto-exclui em 30s`,
-        '📞 Chamado criado?',
-        'Liberar origem'
-      );
-      if(!ok) return;
-      this.ajax('confirm_chamado_created', {pendencia_cards_id: cid}).then(res=>{
+      const techs = (this.members||[]).map(m=>({id: parseInt(m.users_id)||0, name: m.name || ('#' + (m.users_id||'?'))})).filter(t=> t.id > 0);
+      this.showPicker({title:'📞 Chamado criado?', html: `
+        <div style="display:grid;gap:10px;font-size:13px;color:#172b4d">
+          <div>Confirmar que o chamado foi criado?</div>
+          <div style="background:#f4f5f7;border-radius:6px;padding:8px 10px">📋 Pendência #${cid} "${this.escape(String(pName).slice(0,60))}"<br>🔗 Origem ${srcId ? '#' + srcId + ' "' + this.escape(String(srcName).slice(0,60)) + '"' : this.escape(srcName)}${nMach ? `<br>🔧 ${nMach} máquina(s) serão liberadas` : ''}</div>
+          <label style="font-size:12px;font-weight:700">👨‍🔧 Encaminhar para o técnico <small style="font-weight:400">(opcional)</small>
+            <select id="kp-chamado-tech" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:13px">
+              <option value="0">— Sem técnico definido —</option>
+              ${techs.map(t=>`<option value="${t.id}">${this.escape(t.name)}</option>`).join('')}
+            </select></label>
+          <div style="font-size:11px;color:#5e6c84">• Zap para os técnicos em 5s<br>• Este card se auto-exclui em 30s</div>
+          <div style="display:flex;gap:8px">
+            <button onclick="Kanpro.closePicker()" style="flex:0 0 110px;background:#fff;border:1px solid #dfe1e6;padding:10px;border-radius:6px;cursor:pointer;font-weight:700">Cancelar</button>
+            <button id="kp-chamado-liberar" onclick="Kanpro.doLiberarChamado(${cid}, this)" style="flex:1;background:#61bd4f;color:#fff;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:800">Liberar origem</button>
+          </div>
+        </div>`});
+    },
+    doLiberarChamado(cid, btn){
+      cid = parseInt(cid);
+      if(!(cid > 0)) return;
+      const techId = parseInt(document.getElementById('kp-chamado-tech')?.value || 0) || 0;
+      if(btn){ btn.disabled = true; btn.textContent = 'Liberando...'; }
+      this.ajax('confirm_chamado_created', {pendencia_cards_id: cid, tech_users_id: techId}).then(res=>{
         if(!res || !res.success){ this.showAlert((res&&res.msg)||'Erro ao confirmar', 'Erro'); return; }
-        this.showToast('Origem liberada ✓ — zap em 5s, excluindo em 30s ⏳');
+        this.showToast('Origem liberada ✓ — zap em 5s, excluindo em 30s ⏳' + (res.tech_name ? ` • 👨‍🔧 ${res.tech_name}` : ''));
         this.refreshCardModal();
         this.forceSync();
         this.scheduleLiberadoZap(cid, 5);
