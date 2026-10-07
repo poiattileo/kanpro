@@ -1176,7 +1176,7 @@
           <button class="kp-list-actions-btn" onclick="Kanpro.toggleCollapse(${list.id})" title="${collapsed?'Expandir lista':'Recolher lista'}"><i class="ti ${collapsed?'ti-chevrons-down':'ti-chevrons-up'}"></i></button>
           <button class="kp-list-actions-btn" onclick="Kanpro.openListMenu(event, ${list.id})"><i class="ti ti-dots"></i></button>
         </div>
-        ${(code0 === 'chamado_finalizado' || code0 === 'done' ? this.renderFinFilter(list) : '')}
+        ${((code0 === 'chamado_finalizado' || code0 === 'done') && this.canSeeAll() ? this.renderFinFilter(list) : '')}
         <div class="kp-list-cards" data-list-id="${list.id}">
         </div>
         ${addCardHtml}
