@@ -368,11 +368,13 @@ window.KanproBoards = (function(){
   }
   function roleBadge(m){
     if (m.is_creator) return '<small style="background:#0079bf;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">CRIADOR</small>';
+    if (m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
     if (m.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
     if (m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">OBSERVADOR</small>';
     return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">MEMBRO</small>';
   }
   function profileBadge(p){
+    if (p.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
     if (p.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
     return '<small style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">MEMBRO</small>';
   }

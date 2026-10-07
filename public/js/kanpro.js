@@ -59,16 +59,28 @@
 
     /* ---------- helpers ---------- */
     isBoardAdmin(){
-      // vale sessão e pessoa (login compartilhado)
+      // vale sessão e pessoa (login compartilhado). Gerente tem poder de admin.
       const ids = [parseInt(K.currentUserId)];
       const a = parseInt((K && K.actingUserId) || 0);
       if(a > 0 && !ids.includes(a)) ids.push(a);
       if(this.board && ids.includes(parseInt(this.board.users_id))) return true;
       const m = (this.members||[]).find(x=> ids.includes(parseInt(x.users_id)));
-      if(m && m.role==='admin') return true;
+      if(m && (m.role==='admin' || m.role==='gerente')) return true;
       // UPDATE global só vale em quadro legado aberto (sem membros) p/ bootstrap —
       // senão todo membro com UPDATE (uso normal) veria botão de admin
       if(this.canEdit && (this.members||[]).length===0) return true;
+      return false;
+    },
+    canSeeAll(){
+      // ver-tudo (ex.: Chamado finalizado): criador ou gerente.
+      // Legado aberto (sem membros) mantém o comportamento atual.
+      try {
+        const ids = this.myUserIds ? this.myUserIds() : [];
+        if(this.board && ids.includes(parseInt(this.board.users_id))) return true;
+        const m = (this.members||[]).find(x=> ids.includes(parseInt(x.users_id)));
+        if(m && m.role==='gerente') return true;
+        if(this.canEdit && (this.members||[]).length===0) return true;
+      } catch(e){}
       return false;
     },
     myUserIds(){
@@ -100,7 +112,7 @@
       try {
         const ids = this.myUserIds();
         const m = (this.members||[]).find(x=> ids.includes(parseInt(x.users_id)));
-        return !!(m && (m.role === 'member' || m.role === 'admin'));
+        return !!(m && (m.role === 'member' || m.role === 'admin' || m.role === 'gerente'));
       } catch(e){ return false; }
     },
     updateZapButton(){
@@ -738,12 +750,12 @@
       if(!card) return true;
       // aguardando aprovação: invisível para não-admins
       if((card.approval_from||0) > 0 && !this.isBoardAdmin()) return false;
-      // Chamado finalizado: admin vê tudo; membro só vê card ao qual está vinculado
+      // Chamado finalizado: ver-tudo só criador/gerente; resto vê card vinculado
       // (membro do card ou criador). Espelha a trava do chamado_detail no backend.
       try {
         const lst = (this.lists||[]).find(l=> l.id==card.plugin_kanpro_lists_id);
         const t = this.listTypeOf ? this.listTypeOf(lst) : null;
-        if(t && t.code === 'chamado_finalizado' && !this.isBoardAdmin()){
+        if(t && t.code === 'chamado_finalizado' && !this.canSeeAll()){
           const ids = this.myUserIds ? this.myUserIds() : [];
           if(ids.includes(parseInt(card.users_id))) return true;
           const mems = (this.cardMembers && this.cardMembers[card.id]) || [];
@@ -7306,6 +7318,7 @@
       const memWrap = $('#board-menu-members');
       if(memWrap){
         const roleLabel = (r)=>{
+          if(r === 'gerente') return '👑 GERENTE';
           if(r === 'admin') return '⭐ ADMIN';
           if(r === 'observer') return '👁️ OBSERVADOR';
           return '👤 MEMBRO';
@@ -7328,8 +7341,10 @@
         if(!body) return;
         if(!res.success){ body.innerHTML = '<div style="color:#bf2600">' + this.escape(res.msg || 'Erro') + '</div>'; return; }
         const canM = !!res.can_manage;
+        const isCreator = !!res.is_creator;
         const badge = (m)=>{
           if(m.is_creator) return '<small style="background:#0079bf;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">CRIADOR</small>';
+          if(m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
           if(m.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
           if(m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👁️ OBSERVADOR</small>';
           return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👤 MEMBRO</small>';
@@ -7343,6 +7358,7 @@
             ctrl = `<span style="display:flex;gap:6px;align-items:center;flex:0 0 auto">
               <select onchange="Kanpro.setBoardMemberRole(${m.users_id}, this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">
                 <option value="admin"${m.role==='admin'?' selected':''}>⭐ Admin</option>
+                ${isCreator ? `<option value="gerente"${m.role==='gerente'?' selected':''}>👑 Gerente</option>` : ''}
                 <option value="member"${m.role==='member'?' selected':''}>👤 Membro</option>
                 <option value="observer"${m.role==='observer'?' selected':''}>👁️ Observador</option>
               </select>
@@ -7361,6 +7377,7 @@
             <label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado
               <select id="kpk-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">
                 <option value="admin">⭐ Administrador</option>
+                ${isCreator ? `<option value="gerente">👑 Gerente</option>` : ''}
                 <option value="member" selected>👤 Membro</option>
                 <option value="observer">👁️ Observador</option>
               </select></label>

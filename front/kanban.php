@@ -29,18 +29,18 @@ if (!kanpro_can_view_board($boards_id)) {
     Html::redirect($CFG_GLPI['root_doc'] . '/plugins/kanpro/front/board.php');
 }
 
-// Histórico: só admin do quadro (criador, papel admin direto ou via perfil GLPI — vale sessão e pessoa)
+// Histórico: gestão do quadro (criador, admin/gerente direto ou via perfil GLPI — vale sessão e pessoa)
 $__histAdmin = ($__creator === $__me && $__me > 0);
 if (!$__histAdmin) {
     $__miter = $DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]]);
     foreach ($__miter as $__mr) {
-        if (($__mr['role'] ?? '') === 'admin') {
+        if (in_array(($__mr['role'] ?? ''), ['admin', 'gerente'], true)) {
             $__histAdmin = true;
             break;
         }
     }
 }
-if (!$__histAdmin && kanpro_board_profile_role($boards_id) === 'admin') $__histAdmin = true;
+if (!$__histAdmin && in_array(kanpro_board_profile_role($boards_id), ['admin', 'gerente'], true)) $__histAdmin = true;
 
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
 try {
