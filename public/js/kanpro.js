@@ -2864,30 +2864,54 @@
     taskCardAddItem(){
       const box = document.getElementById('task-items');
       if(!box) return;
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.maxLength = 255;
-      inp.placeholder = 'Item do checklist... (Enter adiciona outro)';
-      inp.className = 'task-item-input task-field';
-      inp.style.cssText = 'padding:8px 10px;font-size:13px';
+      const row = document.createElement('div');
+      row.className = 'task-item-row';
+      row.style.cssText = 'display:flex;gap:6px;align-items:center';
+      row.innerHTML = `<input type="text" maxlength="255" placeholder="Item do checklist... (Enter adiciona outro)" class="task-item-input task-field" style="padding:8px 10px;font-size:13px;flex:1;min-width:0">
+        <label title="Anexar arquivos a este item (quantos quiser)" style="flex-shrink:0;background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:13px">📎<input type="file" multiple class="task-item-files" style="display:none"></label>
+        <span class="task-item-fcount" style="font-size:11px;color:#5e6c84;flex-shrink:0;white-space:nowrap"></span>`;
+      const inp = row.querySelector('.task-item-input');
       inp.onkeydown = (e)=>{
         if(e.key === 'Enter'){ e.preventDefault(); Kanpro.taskCardAddItem(); }
       };
-      box.appendChild(inp);
+      const fi = row.querySelector('.task-item-files');
+      fi.onchange = ()=>{
+        const n = (fi.files || []).length;
+        row.querySelector('.task-item-fcount').textContent = n ? `📎${n}` : '';
+      };
+      box.appendChild(row);
       inp.focus();
     },
     confirmTaskCard(listId, btn){
       const titleEl = document.getElementById('task-title');
       const title = (titleEl.value || '').trim();
       if(!title){ titleEl.focus(); return; }
-      const items = Array.from(document.querySelectorAll('#task-items .task-item-input')).map(i=> i.value.trim()).filter(Boolean);
+      const entries = Array.from(document.querySelectorAll('#task-items .task-item-row')).map(r=>({
+        name: ((r.querySelector('.task-item-input') || {}).value || '').trim(),
+        files: Array.from((r.querySelector('.task-item-files') || {}).files || [])
+      }));
+      const noName = entries.find(e=> e.files.length && !e.name);
+      if(noName){ alert('Dê um título ao item que tem anexos.'); return; }
+      const items = entries.map(e=> e.name).filter(Boolean);
       const dueRaw = document.getElementById('task-due').value;
       const due = dueRaw ? dueRaw.replace('T',' ') + ':00' : '';
       const urgent = document.getElementById('task-urgent').checked ? 1 : 0;
       btn.disabled = true;
       this.ajax('add_task_card', {lists_id: listId, name: title, items: JSON.stringify(items), due_date: due, is_urgent: urgent}).then(res=>{
-        btn.disabled = false;
-        if(res.success){
+        if(!res || !res.success){
+          btn.disabled = false;
+          btn.textContent = 'Criar cartão';
+          alert((res && res.msg) || 'Erro');
+          return;
+        }
+        const named = entries.filter(e=> e.name);
+        const ids = res.item_ids || [];
+        const pairs = [];
+        named.forEach((e, i)=>{
+          if(e.files.length && ids[i]) pairs.push({itemId: ids[i], files: e.files});
+        });
+        const finish = (attOk, attFail)=>{
+          btn.disabled = false;
           this.closePicker();
           const nc = res.card || {id: res.id, plugin_kanpro_lists_id: listId, plugin_kanpro_boards_id: this.board.id, name: title, rank: 999999, description: '', due_date: due || null, start_date: null, cover_color: null, is_completed: 0, is_archived: 0, is_urgent: urgent, is_notified: 0};
           if(nc.is_notified === undefined) nc.is_notified = 0;
@@ -2899,9 +2923,33 @@
           this.checkProgress[nc.id] = {total: res.items_added || items.length, done: 0};
           this.renderBoard();
           this.updateStats();
-          this.showToast(items.length ? `Cartão criado com checklist (${items.length} ${items.length===1?'item':'itens'})` : 'Cartão criado');
-        } else alert(res.msg || 'Erro');
+          let msg = items.length ? `Cartão criado com checklist (${items.length} ${items.length===1?'item':'itens'})` : 'Cartão criado';
+          if(attOk + attFail > 0) msg += attFail ? ` • 📎 ${attOk}/${attOk + attFail} anexo(s) (${attFail} falhou)` : ` • 📎 ${attOk} anexo(s)`;
+          this.showToast(msg);
+        };
+        if(!pairs.length){ finish(0, 0); return; }
+        btn.textContent = 'Enviando anexos...';
+        this.uploadTaskItemFiles(res.id, pairs, btn, finish);
       });
+    },
+    uploadTaskItemFiles(cardId, pairs, btn, done){
+      const total = pairs.reduce((s, p)=> s + p.files.length, 0);
+      let ok = 0, fail = 0;
+      const step = (pi, fi)=>{
+        if(pi >= pairs.length){ done(ok, fail); return; }
+        const p = pairs[pi];
+        if(fi >= p.files.length){ step(pi + 1, 0); return; }
+        if(btn) btn.textContent = `Enviando anexos ${ok + fail + 1}/${total}...`;
+        const fd = new FormData();
+        fd.append('cards_id', cardId);
+        fd.append('checklist_items_id', p.itemId);
+        fd.append('file', p.files[fi], p.files[fi].name);
+        this.ajax('upload_attachment', fd, true).then(r=>{
+          if(r && r.success) ok++; else fail++;
+          step(pi, fi + 1);
+        }).catch(()=>{ fail++; step(pi, fi + 1); });
+      };
+      step(0, 0);
     },
     async quickEditCard(cardId, e){
       e.stopPropagation();
@@ -2914,6 +2962,16 @@
           else { alert(res.msg || 'Não foi possível renomear'); this.forceSync(); }
         });
       }
+    },
+
+    checkItemAttHtml(it){
+      const atts = (it && it.attachments) || [];
+      if(!atts.length) return '';
+      return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px 26px">` + atts.map(a=>{
+        const url = K.ajax_url.replace('ajax.php', 'attachment.php?id=' + a.id);
+        const nm = String(a.name || 'anexo');
+        return `<a href="${url}" target="_blank" title="${this.escape(nm)}" style="font-size:11px;color:#0747a6;background:#e6fcff;border:1px solid #b3f0ff;border-radius:10px;padding:2px 8px;text-decoration:none;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis">📎 ${this.escape(nm)}</a>`;
+      }).join('') + `</div>`;
     },
 
     // Modal cartão
@@ -3125,7 +3183,7 @@
                 <input type="checkbox" ${it.is_checked?'checked':''} ${locked?'disabled':''} onchange="Kanpro.toggleCheckItem(${it.id}, this.checked)">
                 <span style="flex:1;cursor:${locked?'default':'pointer'}" onclick="${locked?'':`Kanpro.editCheckItem(${it.id})`}">${this.escape(it.name)}</span>
                 ${locked ? '' : `<button onclick="Kanpro.deleteCheckItem(${it.id})" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-trash"></i></button>`}
-              </div>`).join('')}
+              </div>${this.checkItemAttHtml(it)}`).join('')}
           </div>
           ${locked ? '' : `<div style="display:flex;gap:8px;margin-top:8px">
             <input type="text" placeholder="Adicionar um item" style="flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px" onkeydown="if(event.key==='Enter') Kanpro.addCheckItem(${cl.id}, this)">
