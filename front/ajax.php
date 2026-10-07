@@ -3932,7 +3932,7 @@ switch ($action) {
             $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
             if ($rank <= 0) $rank = 1024;
         } catch (Throwable $e) { $rank = 1024; }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$espera['id'],'rank'=>$rank,'date_mod'=>$now], ['id'=>$origId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$espera['id'],'rank'=>$rank,'chamado_status'=>'pendente','date_mod'=>$now], ['id'=>$origId]);
         if (function_exists('kanpro_touch_card')) kanpro_touch_card($origId);
         // cópia p/ Abrir chamado (botão de abrir libera a origem na Pendente)
         $clone = new PluginKanproCard();
@@ -6808,6 +6808,11 @@ switch ($action) {
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         if (kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']) !== 'chamados_espera') {
             jexit(['success'=>false,'msg'=>'Só card da lista Chamados Espera pode ser pego']);
+        }
+        // fluxo novo: sem Pegar até o "Chamado aberto" na cópia em Abrir chamado
+        // (mark_open carimba a origem como liberado)
+        if (($c->fields['chamado_status'] ?? '') === 'pendente') {
+            jexit(['success'=>false,'msg'=>'Aguarde o "Chamado aberto" em Abrir chamado para liberar o Pegar.']);
         }
         $isAdminPegar = kanpro_can_manage_members($bid);
         $myRolePegar = kanpro_my_board_role($bid);

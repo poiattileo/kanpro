@@ -1433,18 +1433,21 @@
 
       // botão Pegar (mini) — Pendente e Chamados Espera; admin ou membro.
       // Origem de chamado não liberada: sem Pegar até o "Chamado aberto".
+      // Espera do fluxo novo: sem Pegar até a cópia ser aberta (status libera).
       let pegarBtnHtml = '';
       try {
         const lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
         const lt = this.listTypeOf(lst);
         const isPending = lt && lt.code === 'pending';
         const isEspera = lt && lt.code === 'chamados_espera';
-        const isUnlib = isPending && String(card.chamado_status || '') === 'pendente';
-        if ((isPending || isEspera) && !isUnlib && this.canPegar()) {
+        const st = String(card.chamado_status || '');
+        const isUnlib = isPending && st === 'pendente';
+        const esperaLocked = isEspera && st === 'pendente';
+        if ((isPending || isEspera) && !isUnlib && !esperaLocked && this.canPegar()) {
           const fn = isEspera ? `Kanpro.pegarEsperaCard(${card.id}, event)` : `Kanpro.pegarPendingCard(${card.id}, event)`;
           const dest = isEspera ? 'Em Andamento Chamado' : 'Em Andamento';
           pegarBtnHtml = `<button onclick="event.stopPropagation();${fn}" title="Pegar: mover para ${dest} e atribuir a mim" style="margin-top:6px;width:100%;background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
-        } else if (isUnlib) {
+        } else if (isUnlib || esperaLocked) {
           pegarBtnHtml = `<div title="Aguarde o Chamado aberto em Abrir chamado" style="margin-top:6px;width:100%;background:#fffae6;border:1px dashed #ffab00;color:#975500;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box">⏳ Aguardando abertura</div>`;
         }
       } catch(e){}
@@ -2254,11 +2257,14 @@
       } catch(e){}
       // Pegar: Pendente ou Chamados Espera; admin ou membro (direto) — topo + sidebar.
       // Origem de chamado não liberada: sem Pegar até o "Chamado aberto".
-      const isUnlibModal = isPending && String(data.chamado_status || '') === 'pendente';
-      if((isPending || this.isCardInListType(data, 'chamados_espera')) && !isUnlibModal && this.canPegar()){
-        const isEsp = this.isCardInListType(data, 'chamados_espera');
-        const pegarFn = isEsp ? 'pegarEsperaCard' : 'pegarPendingCard';
-        const pegarDest = isEsp ? 'Em Andamento Chamado' : 'Em Andamento';
+      // Espera do fluxo novo: idem até a cópia ser aberta.
+      const stModal = String(data.chamado_status || '');
+      const isUnlibModal = isPending && stModal === 'pendente';
+      const isEspModal = this.isCardInListType(data, 'chamados_espera');
+      const esperaLockedModal = isEspModal && stModal === 'pendente';
+      if((isPending || isEspModal) && !isUnlibModal && !esperaLockedModal && this.canPegar()){
+        const pegarFn = isEspModal ? 'pegarEsperaCard' : 'pegarPendingCard';
+        const pegarDest = isEspModal ? 'Em Andamento Chamado' : 'Em Andamento';
         if(btnPegar){ btnPegar.style.display = ''; btnPegar.onclick = ()=> Kanpro[pegarFn](); }
         if(act) act.innerHTML += `<button onclick="Kanpro.${pegarFn}()" title="Pegar: mover para ${pegarDest} e atribuir a mim" style="background:#0052cc;color:#fff;border:1px solid #0052cc;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-hand-grab"></i> ✋ Pegar</button>`;
         // BUGFIX: renderNotifiedInModal esconde o box quando não é Retirada — se enchemos o act aqui, precisa reexibir
