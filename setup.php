@@ -1,5 +1,5 @@
 <?php
-define('PLUGIN_KANPRO_VERSION', '1.5.2');
+define('PLUGIN_KANPRO_VERSION', '1.5.3');
 define('PLUGIN_KANPRO_MIN_GLPI', '11.0.0');
 
 function plugin_init_kanpro() {
