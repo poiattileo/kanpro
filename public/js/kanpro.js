@@ -7342,6 +7342,7 @@
         if(!res.success){ body.innerHTML = '<div style="color:#bf2600">' + this.escape(res.msg || 'Erro') + '</div>'; return; }
         const canM = !!res.can_manage;
         const isCreator = !!res.is_creator;
+        const canNameGerente = isCreator || res.my_role === 'gerente';
         const badge = (m)=>{
           if(m.is_creator) return '<small style="background:#0079bf;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">CRIADOR</small>';
           if(m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
@@ -7358,7 +7359,7 @@
             ctrl = `<span style="display:flex;gap:6px;align-items:center;flex:0 0 auto">
               <select onchange="Kanpro.setBoardMemberRole(${m.users_id}, this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">
                 <option value="admin"${m.role==='admin'?' selected':''}>⭐ Admin</option>
-                ${isCreator ? `<option value="gerente"${m.role==='gerente'?' selected':''}>👑 Gerente</option>` : ''}
+                ${canNameGerente ? `<option value="gerente"${m.role==='gerente'?' selected':''}>👑 Gerente</option>` : ''}
                 <option value="member"${m.role==='member'?' selected':''}>👤 Membro</option>
                 <option value="observer"${m.role==='observer'?' selected':''}>👁️ Observador</option>
               </select>
@@ -7377,7 +7378,7 @@
             <label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado
               <select id="kpk-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">
                 <option value="admin">⭐ Administrador</option>
-                ${isCreator ? `<option value="gerente">👑 Gerente</option>` : ''}
+                ${canNameGerente ? `<option value="gerente">👑 Gerente</option>` : ''}
                 <option value="member" selected>👤 Membro</option>
                 <option value="observer">👁️ Observador</option>
               </select></label>

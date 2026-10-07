@@ -450,6 +450,17 @@ if (!function_exists('kanpro_can_see_all')) {
     }
 }
 
+if (!function_exists('kanpro_can_name_gerente')) {
+    // Nomear/alterar/remover Gerente: criador ou quem já é gerente.
+    function kanpro_can_name_gerente($bid) {
+        try {
+            if (kanpro_is_board_creator($bid)) return true;
+            if (kanpro_my_board_role($bid) === 'gerente') return true;
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
 if (!function_exists('kanpro_can_manage_models')) {
     // Modelos de máquinas: criador/admin (via manage_members) + membro do quadro.
     function kanpro_can_manage_models($bid) {

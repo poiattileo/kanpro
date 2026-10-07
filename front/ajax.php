@@ -2001,8 +2001,8 @@ switch ($action) {
         $role = $_POST['role'] ?? 'member';
         if (!in_array($role, ['admin','member','observer','gerente'], true)) $role = 'member';
         // gerente: só o criador do quadro nomeia (admin não se autopromove)
-        if ($role === 'gerente' && !kanpro_is_board_creator($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador do quadro pode nomear Gerente.']);
+        if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
         }
         if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
         kanpro_need_manage_members($bid);
@@ -2024,8 +2024,8 @@ switch ($action) {
         }
         try {
             $curRole = ($DB->request(['SELECT'=>['role'],'FROM'=>'glpi_plugin_kanpro_boards_members','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid],'LIMIT'=>1])->current()['role'] ?? '');
-            if ($curRole === 'gerente' && !kanpro_is_board_creator($bid)) {
-                jexit(['success'=>false,'msg'=>'Somente o criador do quadro pode remover Gerente.']);
+            if ($curRole === 'gerente' && !kanpro_can_name_gerente($bid)) {
+                jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode remover Gerente.']);
             }
         } catch (Throwable $e) {}
         if (in_array($uid, [(int)Session::getLoginUserID(), kanpro_acting_user_id()], true) && kanpro_count_other_managers($bid, $uid) === 0) {
@@ -2041,8 +2041,8 @@ switch ($action) {
         $role = $_POST['role'] ?? 'member';
         if (!in_array($role, ['admin','member','observer','gerente'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin, member, observer ou gerente)']);
         // gerente: só o criador do quadro nomeia
-        if ($role === 'gerente' && !kanpro_is_board_creator($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador do quadro pode nomear Gerente.']);
+        if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
         }
         if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
         kanpro_need_manage_members($bid);
@@ -2055,8 +2055,8 @@ switch ($action) {
         // mexer em gerente (rebaixar/remover cargo) também é só criador
         try {
             $curRole = ($DB->request(['SELECT'=>['role'],'FROM'=>'glpi_plugin_kanpro_boards_members','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid],'LIMIT'=>1])->current()['role'] ?? '');
-            if ($curRole === 'gerente' && !kanpro_is_board_creator($bid)) {
-                jexit(['success'=>false,'msg'=>'Somente o criador do quadro pode alterar Gerente.']);
+            if ($curRole === 'gerente' && !kanpro_can_name_gerente($bid)) {
+                jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode alterar Gerente.']);
             }
         } catch (Throwable $e) {}
         // não permite se rebaixar sendo o último gestor (admin ou gerente)
@@ -2072,8 +2072,8 @@ switch ($action) {
         $pid = (int)($_POST['profiles_id'] ?? 0);
         $role = $_POST['role'] ?? 'member';
         if (!in_array($role, ['admin','member','gerente'], true)) $role = 'member';
-        if ($role === 'gerente' && !kanpro_is_board_creator($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador do quadro pode nomear Gerente.']);
+        if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
         }
         if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
         kanpro_need_manage_members($bid);
@@ -2116,8 +2116,8 @@ switch ($action) {
         $pid = (int)($_POST['profiles_id'] ?? 0);
         $role = $_POST['role'] ?? 'member';
         if (!in_array($role, ['admin','member','gerente'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin, member ou gerente)']);
-        if ($role === 'gerente' && !kanpro_is_board_creator($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador do quadro pode nomear Gerente.']);
+        if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
         }
         if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
         kanpro_need_manage_members($bid);
@@ -2486,7 +2486,7 @@ switch ($action) {
         } catch (Throwable $e) {}
         jexit(['success'=>true, 'board_name'=>$bchk->fields['name'] ?? '', 'members'=>$members,
             'profiles'=>$profiles, 'available_profiles'=>$available_profiles,
-            'my_role'=>kanpro_my_board_role($bid), 'is_creator'=>($me === $creatorId),
+            'my_role'=>kanpro_my_board_role($bid), 'is_creator'=>in_array($creatorId, array_unique([(int)Session::getLoginUserID(), function_exists('kanpro_acting_user_id') ? (int)kanpro_acting_user_id() : 0]), true),
             'can_manage'=>kanpro_can_manage_members($bid), 'available'=>$available, 'family'=>$__fam]);
 
     case 'search_board_users':
