@@ -370,6 +370,10 @@
         ${liberado ? '' : '<div style="font-size:11px;color:#bf2600;font-weight:700">🔒 Finalizar e anotar exigem o "Chamado aberto" em Abrir chamado.</div>'}
         <button onclick="KanproChamado.saveUpdate(${d.id}, this)" ${dis} title="${liberado ? 'Registrar atualização' : 'Bloqueado — aguarde o Chamado aberto'}" style="background:${liberado ? '#403294' : '#97a0af'};color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:${liberado ? 'pointer' : 'not-allowed'};font-weight:800">${liberado ? 'Atualizar card' : '🔒 Bloqueado — aguarde Chamado aberto'}</button>
       </div>`);
+      const pkn = document.getElementById('kanpro-picker');
+      if (pkn) { pkn.style.minWidth = '480px'; pkn.style.maxWidth = '600px'; pkn.style.width = 'min(560px, 94vw)'; }
+      const pbn = document.getElementById('picker-body');
+      if (pbn) { pbn.style.maxHeight = '88vh'; pbn.style.overflowY = 'auto'; }
       if (liberado) this.draftRestore(d.id);
     },
     // Rascunho do "O que foi realizado": salva sozinho a cada tecla (local, por card).
@@ -444,6 +448,10 @@
       picker('✅ Chamado finalizado', this.headHtml(d, '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Finalizado</span>') + hist
         + this.attSection(d)
         + `<button onclick="KanproChamado.copyFinalizado(this)" style="background:#0052cc;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">📋 Copiar informações</button></div>`);
+      const pkf = document.getElementById('kanpro-picker');
+      if (pkf) { pkf.style.minWidth = '480px'; pkf.style.maxWidth = '600px'; pkf.style.width = 'min(560px, 94vw)'; }
+      const pbf = document.getElementById('picker-body');
+      if (pbf) { pbf.style.maxHeight = '88vh'; pbf.style.overflowY = 'auto'; }
     },
     // Copia só o que foi lançado em "O que foi realizado", em ordem (um por linha)
     copyFinalizado(btn){
