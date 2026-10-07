@@ -1048,6 +1048,16 @@ function kanpro_need_chamado_released(int $cards_id) {
         jexit(['success'=>false,'msg'=>'Card bloqueado — aguarde o "Chamado aberto" em Abrir chamado.','chamado_blocked'=>true]);
     }
 }
+// Card do fluxo Chamado (Abrir/Andamento/Finalizado/Pendência): anexos são
+// registro (igual comentário em card travado) — upload/exclusão liberados.
+function kanpro_is_chamado_flow_card(int $cards_id): bool {
+    try {
+        if ($cards_id <= 0 || !function_exists('kanpro_list_category')) return false;
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return false;
+        return in_array(kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)), ['abrir_chamado','andamento_chamado','chamado_finalizado','pend_chamado'], true);
+    } catch (Throwable $e) { return false; }
+}
 // Card finalizado = já foi para Assinatura (existe transferência KanPro).
 // Depois do Finalizar não pode mais editar/adicionar/remover máquinas — só visualizar.
 function kanpro_card_is_finalized(int $cards_id): bool {
@@ -4027,7 +4037,8 @@ switch ($action) {
             'entity_name'=> (function() use ($cd) { try { global $DB; $eid = (int)($cd->fields['entities_id'] ?? 0); if ($eid <= 0) return ''; $r = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$eid]])->current(); if (!$r) return ''; return trim(($r['completename'] ?? $r['name'] ?? '')); } catch (Throwable $e) { return ''; } })(),
             'creator_id'=>(int)($cd->fields['users_id'] ?? 0),
             'creator_name'=> (function() use ($cd) { try { $u = new User(); if ($u->getFromDB((int)($cd->fields['users_id'] ?? 0))) { $n = $u->getFriendlyName(); if (trim((string)$n) === '') $n = (string)($u->fields['name'] ?? ''); return (string)$n; } } catch (Throwable $e) {} return ''; })(),
-            'date_creation'=>(string)($cd->fields['date_creation'] ?? '')],
+            'date_creation'=>(string)($cd->fields['date_creation'] ?? ''),
+            'attachments'=> (function() use ($cid) { try { if (!class_exists('PluginKanproAttachment')) return []; $out = []; foreach (PluginKanproAttachment::getForCard($cid) as $a) { $out[] = ['id'=>(int)$a['id'],'name'=>(string)($a['name'] ?? ''),'filesize'=>(int)($a['filesize'] ?? 0),'mime'=>(string)($a['mime'] ?? ''),'date_creation'=>(string)($a['date_creation'] ?? '')]; } return $out; } catch (Throwable $e) { return []; } })()],
             'updates'=>$updates,'sibling'=>$sibling,
             'can_edit'=> (Session::haveRight('plugin_kanpro', UPDATE) || Session::haveRight('plugin_kanpro', CREATE))]);
 
@@ -4746,7 +4757,7 @@ switch ($action) {
     case 'upload_attachment':
         needEdit();
         $cid = (int)($_POST['cards_id'] ?? 0);
-        kanpro_need_chamado_released($cid);
+        if (!kanpro_is_chamado_flow_card($cid)) kanpro_need_chamado_released($cid);
         if (!isset($_FILES['file'])) jexit(['success'=>false,'msg'=>'Nenhum arquivo']);
         // anexo de item do checklist: valida que o item é de checklist deste card
         $itemId = (int)($_POST['checklist_items_id'] ?? 0);
@@ -4768,7 +4779,7 @@ switch ($action) {
         $id = (int)($_POST['id'] ?? 0);
         $row = $DB->request(['FROM'=>'glpi_plugin_kanpro_attachments','WHERE'=>['id'=>$id]])->current();
         $attCid = (int)($row['plugin_kanpro_cards_id'] ?? 0);
-        kanpro_need_chamado_released($attCid);
+        if (!kanpro_is_chamado_flow_card($attCid)) kanpro_need_chamado_released($attCid);
         if ($row && !empty($row['filepath'])) {
             $path = GLPI_PLUGIN_DOC_DIR . '/kanpro/' . $row['filepath'];
             if (file_exists($path)) @unlink($path);

@@ -33,8 +33,55 @@
   function picker(title, html){
     try { K.showPicker({title, html}); } catch(e){ alert('Não foi possível abrir'); }
   }
+  function attUrl(id){
+    try {
+      const root = (K.ajax_url || '').replace(/\/plugins\/kanpro\/front\/ajax\.php$/, '');
+      return root + '/plugins/kanpro/front/attachment.php?id=' + Number(id);
+    } catch(_) { return '/plugins/kanpro/front/attachment.php?id=' + Number(id); }
+  }
 
   const C = {
+    // Anexos pós-criação (registro: vale mesmo com o card travado no fluxo)
+    attSection(d){
+      const atts = d.attachments || [];
+      const canEdit = d.can_edit !== false;
+      let h = `<div><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.04em;margin-bottom:6px">📎 ANEXOS${atts.length ? ` (${atts.length})` : ''}</div>`;
+      if (!atts.length) h += `<div style="font-size:12px;color:#5e6c84">Nenhum anexo.</div>`;
+      else h += `<div style="display:grid;gap:6px">` + atts.map(a=>`
+        <div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dfe1e6;border-radius:6px;padding:6px 10px;font-size:12px">
+          <a href="${attUrl(a.id)}" target="_blank" rel="noopener" title="${esc(a.name || '')}" style="color:#0747a6;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📎 ${esc(a.name || ('anexo #' + a.id))}</a>
+          ${canEdit ? `<button onclick="KanproChamado.attDel(${d.id}, ${a.id}, this)" title="Excluir anexo" style="background:none;border:none;cursor:pointer;flex-shrink:0">🗑️</button>` : ''}
+        </div>`).join('') + `</div>`;
+      if (canEdit) h += `<div style="display:flex;gap:8px;margin-top:8px;align-items:center"><input id="kc-att-${d.id}" type="file" multiple style="font-size:12px;flex:1;min-width:0"><button onclick="KanproChamado.attAdd(${d.id}, this)" style="background:#0079bf;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:800;font-size:12px;flex-shrink:0">Anexar</button></div><div id="kc-att-msg-${d.id}" style="font-size:11px;color:#5e6c84;min-height:14px"></div>`;
+      return h + `</div>`;
+    },
+    attAdd(cardId, btn){
+      const inp = document.getElementById('kc-att-' + cardId);
+      const files = Array.from((inp && inp.files) || []);
+      if (!files.length) { alert('Escolha ao menos um arquivo.'); return; }
+      const msg = document.getElementById('kc-att-msg-' + cardId);
+      if (btn) btn.disabled = true;
+      let ok = 0, fail = 0, i = 0;
+      const step = ()=>{
+        if (i >= files.length) {
+          if (msg) msg.textContent = fail ? `${ok}/${files.length} enviado(s), ${fail} falhou` : `${ok} anexo(s) enviado(s) ✓`;
+          this.open(cardId);
+          return;
+        }
+        const f = files[i++];
+        if (msg) msg.textContent = `Enviando ${i}/${files.length}...`;
+        const fd = new FormData();
+        fd.append('cards_id', cardId);
+        fd.append('file', f, f.name);
+        K.ajax('upload_attachment', fd, true).then(res=>{ if (res && res.success) ok++; else fail++; step(); }).catch(()=>{ fail++; step(); });
+      };
+      step();
+    },
+    attDel(cardId, attId, btn){
+      if (!confirm('Excluir este anexo?')) return;
+      if (btn) btn.disabled = true;
+      K.ajax('delete_attachment', {id: attId}).then(()=> this.open(cardId));
+    },
     // Criação guiada na Pendência Chamado: título + descrição + origem (URE ou Escola)
     create(listsId){
       picker('📞 Novo chamado', `
@@ -164,6 +211,7 @@
         : '<span style="background:#fffae6;border:1px solid #ffab00;color:#975500;padding:2px 10px;border-radius:10px;font-weight:700">⏳ Aguardando abertura</span>';
       picker('📩 Abrir chamado', this.headHtml(d, badge) + `
         <div style="font-size:12px;color:#5e6c84">Abra o chamado e clique abaixo — isso libera o card em <strong>Em Andamento Chamado</strong> para ser realizado.</div>
+        ${this.attSection(d)}
         ${opened ? '' : `<button onclick="KanproChamado.markOpen(${d.id}, this)" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">✔ Chamado aberto</button>`}
       </div>`);
     },
@@ -294,6 +342,7 @@
       picker('🔄 Em Andamento Chamado', this.headHtml(d, badge) + `
         ${lockBanner}
         <div style="display:grid;gap:6px;max-height:220px;overflow-y:auto">${hist}</div>
+        ${this.attSection(d)}
         <label style="font-size:12px;font-weight:700;color:#172b4d">O que foi realizado
           <textarea id="kc-note" rows="3" placeholder="${liberado ? 'Descreva...' : '🔒 Bloqueado — aguarde o Chamado aberto'}" ${dis} oninput="KanproChamado.draftSave(${d.id})" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:13px;font-family:inherit;${disStyle}"></textarea></label>
         <div id="kc-draft-hint" style="font-size:11px;color:#8c8c8c;min-height:14px"></div>
@@ -378,6 +427,7 @@
         + `<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px"><b>${esc(userName(u.users_id))}</b><span style="color:#5e6c84">${esc(fmtDate(u.date))}</span></div>`
         + `<div style="white-space:pre-wrap">${esc(u.note)}</div></div>`).join('') + '</div>';
       picker('✅ Chamado finalizado', this.headHtml(d, '<span style="background:#e3fcef;color:#006644;padding:2px 10px;border-radius:10px;font-weight:700">✅ Finalizado</span>') + hist
+        + this.attSection(d)
         + `<button onclick="KanproChamado.copyFinalizado(this)" style="background:#0052cc;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">📋 Copiar informações</button></div>`);
     },
     // Copia só o que foi lançado em "O que foi realizado", em ordem (um por linha)
