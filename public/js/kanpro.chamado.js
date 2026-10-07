@@ -53,6 +53,11 @@
           </div>
           <label id="kc-entity-wrap" style="display:none;font-size:12px;font-weight:700;color:#172b4d">Escola (entidade)
             <select id="kc-entity" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:13px"><option value="">Carregando escolas...</option></select></label>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#172b4d;margin-bottom:4px">📎 Anexos <small style="font-weight:400">(opcional — quantos quiser)</small></div>
+            <input id="kc-files" type="file" multiple onchange="KanproChamado.listFiles(this)" style="width:100%;font-size:12px;color:#5e6c84">
+            <div id="kc-files-list" style="display:grid;gap:4px;margin-top:6px;font-size:12px;color:#5e6c84"></div>
+          </div>
           <button id="kc-save" onclick="KanproChamado.confirmCreate(${Number(listsId)}, this)" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">Criar chamado</button>
         </div>`);
       setTimeout(()=> document.getElementById('kc-title')?.focus(), 60);
@@ -75,6 +80,12 @@
         s.dataset.loaded = '1';
       });
     },
+    listFiles(input){
+      const box = document.getElementById('kc-files-list');
+      if (!box) return;
+      const files = Array.from((input && input.files) || []);
+      box.innerHTML = files.map(f=>`<div>📎 ${esc(f.name)} <span style="color:#97a0af">(${(f.size/1024).toFixed(0)} KB)</span></div>`).join('');
+    },
     confirmCreate(listsId, btn){
       const title = document.getElementById('kc-title')?.value.trim() || '';
       const desc = document.getElementById('kc-desc')?.value.trim() || '';
@@ -82,15 +93,25 @@
       const entities_id = origin === 'escola' ? Number(document.getElementById('kc-entity')?.value || 0) : 0;
       if (!title) { alert('Título obrigatório'); return; }
       if (origin === 'escola' && !entities_id) { alert('Selecione a escola (entidade).'); return; }
-      if (btn) { btn.disabled = true; btn.textContent = 'Criando...'; }
-      K.ajax('add_chamado_card', {lists_id: listsId, name: title, description: desc, origin, entities_id}).then(res=>{
+      const files = Array.from(document.getElementById('kc-files')?.files || []);
+      if (btn) { btn.disabled = true; btn.textContent = files.length ? `Criando + enviando ${files.length} anexo(s)...` : 'Criando...'; }
+      const fd = new FormData();
+      fd.append('lists_id', listsId);
+      fd.append('name', title);
+      fd.append('description', desc);
+      fd.append('origin', origin);
+      fd.append('entities_id', entities_id);
+      files.forEach(f=> fd.append('files[]', f, f.name));
+      K.ajax('add_chamado_card', fd, true).then(res=>{
         if (!res || !res.success) {
           alert((res && res.msg) || 'Erro');
           if (btn) { btn.disabled = false; btn.textContent = 'Criar chamado'; }
           return;
         }
         try { K.closePicker && K.closePicker(); } catch(_){}
-        K.showToast && K.showToast('📞 Chamado #' + res.tickets_id + ' criado e distribuído' + (res.zap_ok ? '' : ' (zap pode ter falhado — ver atividade)'));
+        let msg = '📞 Chamado #' + res.tickets_id + ' criado e distribuído' + (res.zap_ok ? '' : ' (zap pode ter falhado — ver atividade)');
+        if (files.length) msg += res.attachments_fail ? ` • 📎 ${res.attachments_ok || 0}/${files.length} anexo(s) (${res.attachments_fail} falhou)` : ` • 📎 ${files.length} anexo(s)`;
+        K.showToast && K.showToast(msg);
         try { K.forceSync && K.forceSync(); } catch(_){}
       });
     },

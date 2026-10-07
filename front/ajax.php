@@ -3765,6 +3765,27 @@ switch ($action) {
         }
         $tickets_id = (int)($tk['id'] ?? 0);
         $card->getFromDB($origId);
+        // anexos do modal de criação: vão p/ o card origem (ainda na Pendência,
+        // sem trava de chamado aqui) — mesma validação do upload normal
+        $attOk = 0; $attFail = 0;
+        try {
+            if (!empty($_FILES['files']) && class_exists('PluginKanproAttachment')) {
+                $F = $_FILES['files'];
+                $norm = [];
+                if (is_array($F['name'] ?? null)) {
+                    foreach ($F['name'] as $i => $nm) {
+                        $norm[] = ['name'=>$nm,'type'=>$F['type'][$i] ?? '','tmp_name'=>$F['tmp_name'][$i] ?? '','error'=>$F['error'][$i] ?? UPLOAD_ERR_NO_FILE,'size'=>$F['size'][$i] ?? 0];
+                    }
+                } else {
+                    $norm[] = $F;
+                }
+                foreach ($norm as $f) {
+                    if (($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
+                    $aid = PluginKanproAttachment::handleUpload($origId, $f);
+                    if ($aid) $attOk++; else $attFail++;
+                }
+            }
+        } catch (Throwable $e) { $attFail++; }
         // clone p/ Abrir chamado (aguarda alguém abrir o chamado)
         $clone = new PluginKanproCard();
         $cloneId = (int)$clone->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>(int)$abrir['id'],
@@ -3796,7 +3817,7 @@ switch ($action) {
         try {
             if (class_exists('PluginKanproMaintenanceZap')) $zapRes = PluginKanproMaintenanceZap::sendChamadoAbrir($cloneId);
         } catch (Throwable $e) { $zapRes = ['ok' => false, 'error' => $e->getMessage()]; }
-        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'zap_ok'=>!empty($zapRes['ok'])]);
+        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'zap_ok'=>!empty($zapRes['ok']),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
 
     case 'chamado_mark_open':
         // Botão "Chamado aberto" (card clone em Abrir chamado): libera p/ ser realizado.
