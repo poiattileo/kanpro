@@ -2891,9 +2891,13 @@
         if(e.key === 'Enter'){ e.preventDefault(); Kanpro.taskCardAddItem(); }
       };
       const fi = row.querySelector('.task-item-files');
+      const fc = row.querySelector('.task-item-fcount');
       fi.onchange = ()=>{
         const n = (fi.files || []).length;
-        row.querySelector('.task-item-fcount').textContent = n ? `📎${n}` : '';
+        fc.textContent = n ? `📎${n} ✕` : '';
+        fc.title = n ? 'Clique para limpar a seleção' : '';
+        fc.style.cursor = n ? 'pointer' : '';
+        fc.onclick = n ? ()=>{ fi.value=''; fc.textContent=''; fc.title=''; fc.style.cursor=''; fc.onclick=null; } : null;
       };
       box.appendChild(row);
       inp.focus();
@@ -2986,7 +2990,7 @@
       return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px 26px">` + atts.map(a=>{
         const url = K.ajax_url.replace('ajax.php', 'attachment.php?id=' + a.id);
         const nm = String(a.name || 'anexo');
-        return `<a href="${url}" target="_blank" title="${this.escape(nm)}" style="font-size:11px;color:#0747a6;background:#e6fcff;border:1px solid #b3f0ff;border-radius:10px;padding:2px 8px;text-decoration:none;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis">📎 ${this.escape(nm)}</a>`;
+        return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#0747a6;background:#e6fcff;border:1px solid #b3f0ff;border-radius:10px;padding:2px 4px 2px 8px;white-space:nowrap;max-width:240px"><a href="${url}" target="_blank" title="${this.escape(nm)}" style="color:#0747a6;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📎 ${this.escape(nm)}</a><button onclick="Kanpro.deleteAttachment(${a.id})" title="Excluir anexo" style="background:none;border:none;cursor:pointer;color:#eb5a46;font-size:11px;padding:0 2px">✕</button></span>`;
       }).join('') + `</div>`;
     },
 
