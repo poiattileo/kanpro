@@ -3098,8 +3098,25 @@
     openItemAttModal(itemId){
       const it = this.findCheckItem(itemId);
       if(!it){ try { this.showToast('Item não encontrado'); } catch(e){} return; }
+      if(!this._itemAttStaged || this._itemAttStaged.itemId !== itemId) this._itemAttStaged = {itemId, files: []};
+      const staged = this._itemAttStaged.files;
       const atts = it.attachments || [];
-      if(!atts.length){ this.closePicker(); return; }
+      const thumbFor = (f)=>{
+        if(f.type && f.type.indexOf('image/') === 0){
+          try { if(!f._previewUrl) f._previewUrl = URL.createObjectURL(f); } catch(e){}
+          if(f._previewUrl) return `<img src="${f._previewUrl}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;flex-shrink:0">`;
+        }
+        return `<div style="width:56px;height:56px;background:#dfe1e6;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:22px">📄</div>`;
+      };
+      const stagedHtml = staged.length ? staged.map((f, i)=>`
+        <div style="display:flex;gap:10px;padding:8px;background:#fffae6;border:1px dashed #ffab00;border-radius:8px;align-items:center">
+          ${thumbFor(f)}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(f.name)}</div>
+            <div style="font-size:11px;color:#975500">a enviar • ${(f.size / 1024).toFixed(0)} KB</div>
+          </div>
+          <button onclick="Kanpro.itemAttUnstage(${i})" title="Remover da fila" style="background:#fff;color:#bf2600;border:1px solid #ffbdad;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;flex-shrink:0">✕</button>
+        </div>`).join('') : '';
       const rows = atts.map(a=>{
         const url = K.ajax_url.replace('ajax.php', 'attachment.php?id=' + a.id);
         const isImage = a.mime && a.mime.indexOf('image/') === 0;
@@ -3123,9 +3140,57 @@
           <button onclick="Kanpro.deleteItemAtt(${it.id}, ${a.id}, this)" title="Excluir este anexo" style="background:#ffebe6;color:#bf2600;border:1px solid #ffbdad;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;flex-shrink:0"><i class="ti ti-trash"></i> Excluir</button>
         </div>`;
       }).join('');
-      this.showPicker({title: `📎 Anexos — ${it.name}`, html: `<div style="display:grid;gap:8px">${rows}</div>`});
+      const emptyHtml = (!atts.length && !staged.length) ? `<div style="text-align:center;color:#5e6c84;font-size:12px;padding:8px">Nenhum anexo neste item.</div>` : '';
+      this.showPicker({title: `📎 Anexos — ${it.name}`, html: `
+        <div style="display:grid;gap:8px">${rows}${stagedHtml}${emptyHtml}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <label style="flex:1;background:#fff;border:1px dashed #97a0af;border-radius:6px;padding:9px;text-align:center;cursor:pointer;font-size:13px;font-weight:700;color:#172b4d">＋ Adicionar<input id="kp-itematt-input" type="file" multiple style="display:none"></label>
+          ${staged.length ? `<button onclick="Kanpro.itemAttSend(${it.id}, this)" style="flex:1;background:#0079bf;color:#fff;border:none;padding:9px;border-radius:6px;cursor:pointer;font-weight:800;font-size:13px">Enviar ${staged.length}</button>` : ''}
+        </div>
+        <button onclick="Kanpro.closePicker()" style="margin-top:8px;width:100%;background:#f4f5f7;color:#172b4d;border:none;padding:9px;border-radius:6px;cursor:pointer;font-weight:700">Fechar</button>`});
       const p = document.getElementById('kanpro-picker');
       if(p){ p.style.minWidth = '320px'; p.style.maxWidth = '480px'; p.style.width = 'min(480px, 94vw)'; }
+      const fi = document.getElementById('kp-itematt-input');
+      if(fi) fi.addEventListener('change', ()=> this.itemAttStage(fi));
+    },
+    itemAttStage(input){
+      const files = Array.from((input && input.files) || []);
+      if(this._itemAttStaged && files.length) this._itemAttStaged.files = this._itemAttStaged.files.concat(files);
+      this.openItemAttModal(this._itemAttStaged ? this._itemAttStaged.itemId : null);
+    },
+    itemAttUnstage(idx){
+      const st = this._itemAttStaged;
+      if(!st) return;
+      const f = (st.files || [])[idx];
+      try { if(f && f._previewUrl) URL.revokeObjectURL(f._previewUrl); } catch(e){}
+      st.files.splice(idx, 1);
+      this.openItemAttModal(st.itemId);
+    },
+    itemAttSend(itemId, btn){
+      const st = this._itemAttStaged;
+      const files = (st && st.itemId === itemId) ? (st.files || []) : [];
+      if(!files.length) return;
+      if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
+      let ok = 0, fail = 0, i = 0;
+      const step = ()=>{
+        if(i >= files.length){
+          this._itemAttStaged = {itemId, files: []};
+          this.showToast(fail ? `📎 ${ok}/${files.length} enviado(s), ${fail} falhou` : `📎 ${ok} anexo(s) no item ✓`);
+          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{
+            if(r.success){ this.renderCardModal(r.data); this.renderBoard(); }
+            this.openItemAttModal(itemId);
+          });
+          return;
+        }
+        const f = files[i++];
+        if(btn) btn.textContent = `Enviando ${i}/${files.length}...`;
+        const fd = new FormData();
+        fd.append('cards_id', this.currentCardId);
+        fd.append('checklist_items_id', itemId);
+        fd.append('file', f, f.name);
+        this.ajax('upload_attachment', fd, true).then(r=>{ if(r && r.success) ok++; else fail++; step(); }).catch(()=>{ fail++; step(); });
+      };
+      step();
     },
     async deleteItemAtt(itemId, attId, btn){
       if(!await this.kpConfirm('Excluir este anexo?')) return;
@@ -3142,26 +3207,6 @@
           if(btn) btn.disabled = false;
         }
       });
-    },
-    checkItemAttAdd(itemId, input){
-      const files = Array.from((input && input.files) || []);
-      if(!files.length) return;
-      input.disabled = true;
-      let ok = 0, fail = 0, i = 0;
-      const step = ()=>{
-        if(i >= files.length){
-          this.showToast(fail ? `📎 ${ok}/${files.length} enviado(s), ${fail} falhou` : `📎 ${ok} anexo(s) no item ✓`);
-          this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success){ this.renderCardModal(r.data); this.renderBoard(); } });
-          return;
-        }
-        const f = files[i++];
-        const fd = new FormData();
-        fd.append('cards_id', this.currentCardId);
-        fd.append('checklist_items_id', itemId);
-        fd.append('file', f, f.name);
-        this.ajax('upload_attachment', fd, true).then(r=>{ if(r && r.success) ok++; else fail++; step(); }).catch(()=>{ fail++; step(); });
-      };
-      step();
     },
 
     // Modal cartão
@@ -3379,7 +3424,7 @@
               <div class="kp-checkitem ${it.is_checked?'checked':''}" data-item-id="${it.id}">
                 <input type="checkbox" ${it.is_checked?'checked':''} ${locked?'disabled':''} onchange="Kanpro.toggleCheckItem(${it.id}, this.checked)">
                 <span style="flex:1;cursor:${locked?'default':'pointer'}" onclick="${locked?'':`Kanpro.editCheckItem(${it.id})`}">${this.escape(it.name)}</span>
-                ${allowItemAtt ? `<label title="Anexar arquivos a este item" style="background:none;border:none;cursor:pointer;opacity:.6;font-size:13px">📎<input type="file" multiple style="display:none" onchange="Kanpro.checkItemAttAdd(${it.id}, this)"></label>` : ''}
+                ${allowItemAtt ? `<button onclick="Kanpro.openItemAttModal(${it.id})" title="Anexos deste item" style="background:none;border:none;cursor:pointer;opacity:.6;font-size:13px">📎</button>` : ''}
                 ${locked ? '' : `<button onclick="Kanpro.deleteCheckItem(${it.id})" style="background:none;border:none;cursor:pointer;opacity:.6"><i class="ti ti-trash"></i></button>`}
               </div>${this.checkItemAttHtml(it)}`).join('')}
           </div>
