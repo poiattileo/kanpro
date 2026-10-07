@@ -110,6 +110,10 @@
           </div>
           <button id="kc-save" onclick="KanproChamado.confirmCreate(${Number(listsId)}, this, '${flow}')" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">Criar chamado</button>
         </div>`);
+      const pkc = document.getElementById('kanpro-picker');
+      if (pkc) { pkc.style.minWidth = '480px'; pkc.style.maxWidth = '600px'; pkc.style.width = 'min(560px, 94vw)'; }
+      const pbc = document.getElementById('picker-body');
+      if (pbc) { pbc.style.maxHeight = '88vh'; pbc.style.overflowY = 'auto'; }
       setTimeout(()=> document.getElementById('kc-title')?.focus(), 60);
     },
     toggleOrigin(){
@@ -221,6 +225,10 @@
         ${this.attSection(d)}
         ${opened ? '' : `<button onclick="KanproChamado.markOpen(${d.id}, this)" style="background:#00875a;color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:800">✔ Chamado aberto</button>`}
       </div>`);
+      const pka = document.getElementById('kanpro-picker');
+      if (pka) { pka.style.minWidth = '480px'; pka.style.maxWidth = '600px'; pka.style.width = 'min(560px, 94vw)'; }
+      const pba = document.getElementById('picker-body');
+      if (pba) { pba.style.maxHeight = '88vh'; pba.style.overflowY = 'auto'; }
     },
     markOpen(cardId){
       // autenticação por palavra-desafio (igual Manutenção) — sem confirm() nativo

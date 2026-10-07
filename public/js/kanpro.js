@@ -2620,7 +2620,28 @@
       const cid = cardId || this.currentCardId;
       if(!cid) return;
       if(!this.canPegar()){ alert('Somente Membro ou Admin do quadro pode pegar.'); return; }
-      const directMode = !this.isBoardAdmin();
+      this._pegarAction = 'pegar_pending_card';
+      this._pegarDestLabel = 'Em Andamento';
+      this.showPegarChallenge(cid, !this.isBoardAdmin());
+    },
+    async pegarEsperaCard(cardId, ev){
+      if(ev && ev.stopPropagation) ev.stopPropagation();
+      const cid = cardId || this.currentCardId;
+      if(!cid) return;
+      if(!this.canPegar()){ alert('Somente Membro ou Admin do quadro pode pegar.'); return; }
+      this._pegarAction = 'pegar_espera_card';
+      this._pegarDestLabel = 'Em Andamento Chamado';
+      this.showPegarChallenge(cid, false);
+    },
+    reopenPegarChallenge(){
+      const cid = this._pegarCardId || this.currentCardId;
+      if(!cid) return;
+      if(this._pegarAction === 'pegar_espera_card') this.pegarEsperaCard(cid);
+      else this.pegarPendingCard(cid);
+    },
+    showPegarChallenge(cid, directMode){
+      const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
+      const cardName = c ? c.name : ('#' + cid);
       // autenticação por palavra — mesmas palavras da conversão p/ manutenção
       let challenge;
       if (Math.random() < 0.10) {
@@ -2632,8 +2653,7 @@
       }
       this._pegarChallenge = challenge;
       this._pegarCardId = cid;
-      const c = (this.cards||[]).find(x=> String(x.id)===String(cid));
-      const cardName = c ? c.name : ('#' + cid);
+      const destLabel = this._pegarDestLabel || 'Em Andamento';
       this.showPicker({
         title: 'Pegar card — confirmação',
         html: `
@@ -2653,7 +2673,7 @@
             <span style="font-size:26px">✋</span>
             <div style="min-width:0"><div style="font-size:15px;font-weight:800">Pegar card</div>
             <div style="font-size:12px;opacity:.92;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px">${this.escape(cardName)}</div>
-            <div style="font-size:11px;opacity:.9;margin-top:2px">Vai para <strong>Em Andamento</strong> e fica atribuído a você${directMode ? '<br>Membro: direto, <strong>sem</strong> Pendência Chamado' : ''}</div></div>
+            <div style="font-size:11px;opacity:.9;margin-top:2px">Vai para <strong>${this.escape(destLabel)}</strong> e fica atribuído a você${directMode ? '<br>Membro: direto, <strong>sem</strong> Pendência Chamado' : ''}</div></div>
           </div>
           <div style="display:flex;gap:10px;align-items:flex-start">
             <span class="pg-num">1</span>
@@ -2669,7 +2689,7 @@
             <button onclick="Kanpro.closePicker()" class="pg-cancel">Cancelar</button>
             <button id="pegar-confirm-btn" onclick="Kanpro.confirmPegarChallenge()" class="pg-confirm">✋ Pegar</button>
           </div>
-          <div style="text-align:center"><a href="#" onclick="Kanpro.pegarPendingCard(${cid});return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
+          <div style="text-align:center"><a href="#" onclick="Kanpro.reopenPegarChallenge();return false" style="font-size:11px;color:#5e6c84">Gerar outra palavra</a></div>
         </div>`
       });
       const pk = document.getElementById('kanpro-picker');
@@ -2700,29 +2720,27 @@
       }
       if(err) err.style.display = 'none';
       if(btn){ btn.disabled = true; btn.textContent = 'Pegando...'; }
-      this.doPegarPendingCard(cid);
+      this.doPegarCard(cid);
     },
     async pegarEsperaCard(cardId, ev){
       if(ev && ev.stopPropagation) ev.stopPropagation();
       const cid = cardId || this.currentCardId;
       if(!cid) return;
       if(!this.canPegar()){ alert('Somente Membro ou Admin do quadro pode pegar.'); return; }
-      const ok = await this.showConfirm('Pegar este chamado? Vai para Em Andamento Chamado e fica atribuído a você.', '✋ Pegar chamado?', 'Pegar');
-      if(!ok) return;
-      this.ajax('pegar_espera_card', {cards_id: cid}).then(res=>{
-        if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
-        this.showToast('Pego ✓ → Em Andamento Chamado');
-        if(this.currentCardId == cid) this.closeCardModal();
-        this.forceSync();
-        setTimeout(()=> this.forceSync(), 1500);
-      });
+      this._pegarAction = 'pegar_espera_card';
+      this._pegarDestLabel = 'Em Andamento Chamado';
+      this.showPegarChallenge(cid, false);
     },
-    doPegarPendingCard(cid){
-      this.ajax('pegar_pending_card', {cards_id: cid}).then(res=>{
+    doPegarCard(cid){
+      const action = this._pegarAction || 'pegar_pending_card';
+      this.ajax(action, {cards_id: cid}).then(res=>{
         if(!res || !res.success){ alert((res&&res.msg)||'Erro ao pegar'); return; }
         this.closePicker();
-        if(res.warning) alert(res.warning);
-        if(res.pendencia_id) this.showToast(`Pego ✓ → Em Andamento + pendência #${res.pendencia_id}`);
+        if(action === 'pegar_espera_card'){
+          this.showToast('Pego ✓ → Em Andamento Chamado');
+        }
+        else if(res.warning) alert(res.warning);
+        else if(res.pendencia_id) this.showToast(`Pego ✓ → Em Andamento + pendência #${res.pendencia_id}`);
         else if(res.is_tablet) this.showToast('📱 Tablet pego ✓ → Em Andamento (sem pendência — 1º Finalizar cria pendência)');
         else if(res.direct) this.showToast('Pego ✓ → Em Andamento (direto, sem pendência)');
         else this.showToast('Pego ✓ → Em Andamento');
