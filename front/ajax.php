@@ -3501,6 +3501,15 @@ switch ($action) {
                 }
             }
         }
+        // Concluído/Chamado finalizado: ver-tudo só criador/gerente; resto só abre vinculado
+        try {
+            $catG = function_exists('kanpro_list_category') ? kanpro_list_category((int)($data['plugin_kanpro_lists_id'] ?? 0)) : '';
+            if (in_array($catG, ['done', 'chamado_finalizado'], true) && function_exists('kanpro_can_see_all') && !kanpro_can_see_all((int)($data['plugin_kanpro_boards_id'] ?? 0))) {
+                if (function_exists('kanpro_is_card_linked') && !kanpro_is_card_linked($cid)) {
+                    jexit(['success'=>false,'msg'=>'Você não está vinculado a este cartão.','need_link'=>true]);
+                }
+            }
+        } catch (Throwable $e) {}
         jexit(['success'=>true,'data'=>$data]);
 
     case 'update_card':

@@ -461,6 +461,27 @@ if (!function_exists('kanpro_can_name_gerente')) {
     }
 }
 
+if (!function_exists('kanpro_is_card_linked')) {
+    // Vinculado ao card: criador ou membro (vale sessão e pessoa).
+    function kanpro_is_card_linked(int $cards_id, ?array $viewerIds = null): bool {
+        global $DB;
+        try {
+            if ($cards_id <= 0) return false;
+            if ($viewerIds === null) {
+                $viewerIds = function_exists('kanpro_viewer_ids') ? kanpro_viewer_ids() : [(int)Session::getLoginUserID()];
+            }
+            $viewerIds = array_values(array_unique(array_map('intval', (array)$viewerIds)));
+            $c = new PluginKanproCard();
+            if (!$c->getFromDB($cards_id)) return false;
+            if (in_array((int)($c->fields['users_id'] ?? 0), $viewerIds, true)) return true;
+            foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_plugin_kanpro_cards_members', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id]]) as $m) {
+                if (in_array((int)($m['users_id'] ?? 0), $viewerIds, true)) return true;
+            }
+        } catch (Throwable $e) {}
+        return false;
+    }
+}
+
 if (!function_exists('kanpro_can_manage_models')) {
     // Modelos de máquinas: criador/admin (via manage_members) + membro do quadro.
     function kanpro_can_manage_models($bid) {
