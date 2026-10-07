@@ -1058,6 +1058,13 @@ function kanpro_need_chamado_released(int $cards_id) {
 // Card do fluxo Chamado (Abrir/Andamento/Finalizado/Pendência): anexos são
 // registro (igual comentário em card travado) — upload/exclusão liberados.
 function kanpro_is_chamado_flow_card(int $cards_id): bool {
+    try {
+        if ($cards_id <= 0 || !function_exists('kanpro_list_category')) return false;
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return false;
+        return in_array(kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)), ['abrir_chamado','andamento_chamado','chamado_finalizado','pend_chamado'], true);
+    } catch (Throwable $e) { return false; }
+}
 // Origem de chamado ainda não liberada: card na Pendente com chamado_status
 // 'pendente' (aguardando "Chamado aberto" em Abrir chamado). Tudo bloqueado.
 function kanpro_is_unliberated_chamado(int $cards_id): bool {
@@ -1073,13 +1080,6 @@ function kanpro_need_liberated_chamado(int $cards_id) {
     if (kanpro_is_unliberated_chamado($cards_id)) {
         jexit(['success'=>false,'msg'=>'Aguarde o "Chamado aberto" em Abrir chamado para liberar este card.']);
     }
-}
-    try {
-        if ($cards_id <= 0 || !function_exists('kanpro_list_category')) return false;
-        $c = new PluginKanproCard();
-        if (!$c->getFromDB($cards_id)) return false;
-        return in_array(kanpro_list_category((int)($c->fields['plugin_kanpro_lists_id'] ?? 0)), ['abrir_chamado','andamento_chamado','chamado_finalizado','pend_chamado'], true);
-    } catch (Throwable $e) { return false; }
 }
 // Card finalizado = já foi para Assinatura (existe transferência KanPro).
 // Depois do Finalizar não pode mais editar/adicionar/remover máquinas — só visualizar.
