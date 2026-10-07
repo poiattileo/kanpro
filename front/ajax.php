@@ -3856,8 +3856,8 @@ switch ($action) {
 
     case 'add_chamados_pendencia_card':
         // Fluxo Chamados Pendencia: título + descrição + origem + anexos, abre o
-        // ticket no GLPI; o card cai na Pendente TODO travado e uma cópia vai p/
-        // Abrir chamado (botão de abrir libera a origem e mostra o Pegar).
+        // ticket no GLPI; o card cai na Chamados Espera e uma cópia vai p/ Abrir
+        // chamado (botão de abrir igual ao atual).
         needEdit();
         $lists_id = (int)($_POST['lists_id'] ?? 0);
         kanpro_require_board_edit(kanpro_board_id_for_list($lists_id));
@@ -3870,8 +3870,8 @@ switch ($action) {
         $plist = new PluginKanproList();
         if (!$plist->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         $bid = (int)$plist->fields['plugin_kanpro_boards_id'];
-        $pendente = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'pending') : null;
-        if (!$pendente) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Pendente" neste quadro.']);
+        $espera = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'chamados_espera') : null;
+        if (!$espera) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Chamados Espera" neste quadro.']);
         $abrir = function_exists('kanpro_find_list_by_type') ? kanpro_find_list_by_type($bid, 'abrir_chamado') : null;
         if (!$abrir) jexit(['success'=>false,'msg'=>'Crie uma lista com categoria "Abrir chamado" neste quadro.']);
         if (!class_exists('Ticket') || !Session::haveRight('ticket', CREATE)) {
@@ -3926,13 +3926,13 @@ switch ($action) {
                 }
             }
         } catch (Throwable $e) { $attFail++; }
-        // origem cai na Pendente TODO travada (fim da fila)
+        // origem cai na Espera (fim da fila)
         try {
-            $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>(int)$pendente['id']],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
+            $last = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>(int)$espera['id']],'ORDER'=>'rank DESC','LIMIT'=>1])->current();
             $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
             if ($rank <= 0) $rank = 1024;
         } catch (Throwable $e) { $rank = 1024; }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$pendente['id'],'rank'=>$rank,'chamado_status'=>'pendente','date_mod'=>$now], ['id'=>$origId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$espera['id'],'rank'=>$rank,'date_mod'=>$now], ['id'=>$origId]);
         if (function_exists('kanpro_touch_card')) kanpro_touch_card($origId);
         // cópia p/ Abrir chamado (botão de abrir libera a origem na Pendente)
         $clone = new PluginKanproCard();
@@ -3948,11 +3948,11 @@ switch ($action) {
         if (function_exists('kanpro_touch_card')) kanpro_touch_card($cloneId);
         // Butler: entrada por fluxo também dispara automações das listas
         if (function_exists('kanpro_run_rules')) {
-            kanpro_run_rules($bid, $origId, (int)$pendente['id']);
+            kanpro_run_rules($bid, $origId, (int)$espera['id']);
             kanpro_run_rules($bid, $cloneId, (int)$abrir['id']);
         }
-        PluginKanproBoard::logActivity($bid, $origId, (int)$pendente['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}): clone #{$cloneId} em Abrir chamado, original travado na Pendente");
-        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'pendente_list_name'=>(string)($pendente['name'] ?? 'Pendente'),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
+        PluginKanproBoard::logActivity($bid, $origId, (int)$espera['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}): clone #{$cloneId} em Abrir chamado, original na '{$espera['name']}'");
+        jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'espera_lists_id'=>(int)$espera['id'],'espera_list_name'=>(string)($espera['name'] ?? 'Chamados Espera'),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
 
     case 'chamado_mark_open':
         // Botão "Chamado aberto" (card clone em Abrir chamado): libera p/ ser realizado.
