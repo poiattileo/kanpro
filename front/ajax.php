@@ -3407,13 +3407,15 @@ switch ($action) {
         $items = array_slice($items, 0, 100);
         $checklists_id = 0;
         $added = 0;
+        $item_ids = [];
         if (!empty($items)) {
             $cl = new PluginKanproChecklist();
             $checklists_id = (int)$cl->add(['plugin_kanpro_cards_id'=>$id,'name'=>'O que fazer']);
             if ($checklists_id) {
                 foreach ($items as $n) {
                     $it = new PluginKanproChecklistItem();
-                    if ($it->add(['plugin_kanpro_checklists_id'=>$checklists_id,'name'=>$n])) $added++;
+                    $iid = (int)$it->add(['plugin_kanpro_checklists_id'=>$checklists_id,'name'=>$n]);
+                    if ($iid) { $added++; $item_ids[] = $iid; }
                 }
             }
         }
@@ -3421,7 +3423,7 @@ switch ($action) {
         kanpro_touch_card($id);
         PluginKanproBoard::logActivity($list->fields['plugin_kanpro_boards_id'], $id, $lists_id, 'card_create', "Cartão '{$name}' criado");
         $card->getFromDB($id);
-        jexit(['success'=>true,'id'=>$id,'card'=>$card->fields,'checklists_id'=>$checklists_id,'items_added'=>$added]);
+        jexit(['success'=>true,'id'=>$id,'card'=>$card->fields,'checklists_id'=>$checklists_id,'items_added'=>$added,'item_ids'=>$item_ids]);
 
     case 'get_card':
         $cid = (int)($_REQUEST['cards_id'] ?? 0);
@@ -4746,7 +4748,17 @@ switch ($action) {
         $cid = (int)($_POST['cards_id'] ?? 0);
         kanpro_need_chamado_released($cid);
         if (!isset($_FILES['file'])) jexit(['success'=>false,'msg'=>'Nenhum arquivo']);
-        $id = PluginKanproAttachment::handleUpload($cid, $_FILES['file']);
+        // anexo de item do checklist: valida que o item é de checklist deste card
+        $itemId = (int)($_POST['checklist_items_id'] ?? 0);
+        if ($itemId > 0) {
+            $okItem = false;
+            try {
+                $ir = $DB->request(['SELECT'=>['cl.plugin_kanpro_cards_id AS cid'],'FROM'=>'glpi_plugin_kanpro_checklist_items AS ci','INNER JOIN'=>['glpi_plugin_kanpro_checklists AS cl'=>['ON'=>['cl'=>'id','ci'=>'plugin_kanpro_checklists_id']]],'WHERE'=>['ci.id'=>$itemId],'LIMIT'=>1])->current();
+                $okItem = ($ir && (int)($ir['cid'] ?? 0) === $cid);
+            } catch (Throwable $e) {}
+            if (!$okItem) jexit(['success'=>false,'msg'=>'Item do checklist inválido']);
+        }
+        $id = PluginKanproAttachment::handleUpload($cid, $_FILES['file'], $itemId);
         kanpro_touch_member($cid);
         kanpro_touch_card($cid);
         jexit(['success'=> (bool)$id,'id'=>$id]);

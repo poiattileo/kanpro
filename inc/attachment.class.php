@@ -7,7 +7,8 @@ class PluginKanproAttachment extends CommonDBTM {
     static $rightname = 'plugin_kanpro';
     static function getTypeName($nb = 0) { return _n('Anexo', 'Anexos', $nb); }
 
-    static function handleUpload($cards_id, array $file): ?int {
+    static function handleUpload($cards_id, array $file, int $checklistItemId = 0): ?int {
+        global $DB;
         $cards_id = (int)$cards_id;
         if ($cards_id <= 0) return null;
         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
@@ -60,7 +61,7 @@ class PluginKanproAttachment extends CommonDBTM {
         if (!move_uploaded_file($file['tmp_name'], $dest)) return null;
         $rel = 'cards/' . $cards_id . '/' . $filename;
         $att = new self();
-        $id = $att->add([
+        $addFields = [
             'plugin_kanpro_cards_id' => $cards_id,
             'name'       => mb_substr($origName, 0, 255),
             'filename'   => $filename,
@@ -69,7 +70,14 @@ class PluginKanproAttachment extends CommonDBTM {
             'mime'       => $realMime ?: 'application/octet-stream',
             'users_id'   => function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID(),
             'date_creation' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        // coluna nova pode não existir em installs sem update: só usa se existir
+        try {
+            if ($checklistItemId > 0 && isset($DB) && $DB->fieldExists('glpi_plugin_kanpro_attachments', 'plugin_kanpro_checklist_items_id')) {
+                $addFields['plugin_kanpro_checklist_items_id'] = $checklistItemId;
+            }
+        } catch (Throwable $e) {}
+        $id = $att->add($addFields);
         if ($id) {
             $card = new PluginKanproCard();
             if ($card->getFromDB($cards_id)) {

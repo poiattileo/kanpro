@@ -271,13 +271,27 @@ class PluginKanproCard extends CommonDBTM {
             $data['members'][] = $r;
         }
 
-        // checklists com items
+        // checklists com items (+ anexos por item, quando a coluna existir)
         $data['checklists'] = [];
+        $hasItemAtt = false;
+        try { $hasItemAtt = $DB->fieldExists('glpi_plugin_kanpro_attachments', 'plugin_kanpro_checklist_items_id'); } catch (Throwable $e) {}
+        $itemAtts = [];
+        if ($hasItemAtt) {
+            try {
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id], 'ORDER' => 'date_creation DESC']) as $ar) {
+                    $iid = (int)($ar['plugin_kanpro_checklist_items_id'] ?? 0);
+                    if ($iid > 0) $itemAtts[$iid][] = $ar;
+                }
+            } catch (Throwable $e) {}
+        }
         $cls = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklists', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id], 'ORDER' => 'rank ASC']);
         foreach ($cls as $cl) {
             $items = [];
             $its = $DB->request(['FROM' => 'glpi_plugin_kanpro_checklist_items', 'WHERE' => ['plugin_kanpro_checklists_id' => $cl['id']], 'ORDER' => 'rank ASC']);
-            foreach ($its as $it) $items[] = $it;
+            foreach ($its as $it) {
+                $it['attachments'] = $itemAtts[(int)$it['id']] ?? [];
+                $items[] = $it;
+            }
             $cl['items'] = $items;
             $data['checklists'][] = $cl;
         }
@@ -296,9 +310,11 @@ class PluginKanproCard extends CommonDBTM {
             $data['comments'][] = $c;
         }
 
-        // attachments
+        // attachments do cartão (exclui os de itens do checklist, que vão nos itens)
         $data['attachments'] = [];
-        $atts = $DB->request(['FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => ['plugin_kanpro_cards_id' => $cards_id], 'ORDER' => 'date_creation DESC']);
+        $attWhere = ['plugin_kanpro_cards_id' => $cards_id];
+        if ($hasItemAtt) $attWhere['plugin_kanpro_checklist_items_id'] = 0;
+        $atts = $DB->request(['FROM' => 'glpi_plugin_kanpro_attachments', 'WHERE' => $attWhere, 'ORDER' => 'date_creation DESC']);
         foreach ($atts as $a) $data['attachments'][] = $a;
 
         // activities do cartão

@@ -368,6 +368,7 @@ function plugin_kanpro_install(): bool {
             CREATE TABLE `glpi_plugin_kanpro_attachments` (
                 `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
                 `plugin_kanpro_cards_id`      INT {$sign} NOT NULL DEFAULT '0',
+                `plugin_kanpro_checklist_items_id` INT {$sign} NOT NULL DEFAULT '0' COMMENT '0=anexo do cartão; >0=anexo de item do checklist',
                 `name`                        VARCHAR(255) NOT NULL DEFAULT '',
                 `filename`                    VARCHAR(255) NOT NULL DEFAULT '',
                 `filepath`                    VARCHAR(512) DEFAULT NULL,
@@ -376,9 +377,18 @@ function plugin_kanpro_install(): bool {
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
                 PRIMARY KEY (`id`),
-                KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`)
+                KEY `plugin_kanpro_cards_id` (`plugin_kanpro_cards_id`),
+                KEY `plugin_kanpro_checklist_items_id` (`plugin_kanpro_checklist_items_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
         ") or die($DB->error());
+    } else {
+        // anexo por item do checklist (criação guiada A Fazer)
+        if (!$DB->fieldExists('glpi_plugin_kanpro_attachments', 'plugin_kanpro_checklist_items_id')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_attachments` ADD `plugin_kanpro_checklist_items_id` INT NOT NULL DEFAULT '0' COMMENT '0=anexo do cartão; >0=anexo de item do checklist' AFTER `plugin_kanpro_cards_id`");
+        }
+        try {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_attachments` ADD KEY `plugin_kanpro_checklist_items_id` (`plugin_kanpro_checklist_items_id`)");
+        } catch (Throwable $e) {}
     }
 
     // --- ACTIVITIES ---
