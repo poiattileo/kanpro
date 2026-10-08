@@ -527,7 +527,7 @@
       if(!box){
         box = document.createElement('div');
         box.id = 'kp-toast-box';
-        box.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:30000;display:flex;flex-direction:column;gap:8px;align-items:center';
+        box.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:40000;display:flex;flex-direction:column;gap:8px;align-items:center';
         document.body.appendChild(box);
       }
       const toast = document.createElement('div');
@@ -2338,9 +2338,9 @@
       // Tablet liberado aguardando confirmação do técnico: botão "Confirmar" (só quem finalizou)
       const isTabletLiberadoModal = String(data.chamado_status || '') === 'liberado' && Number(data.tablet_liberado_pending || 0) === 1;
       if(isTabletLiberadoModal){
-        const currentUserId = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (window.KanproCurrentUserId || 0);
+        const myIds = this.myUserIds ? this.myUserIds() : [];
         const tabletFinalizedBy = Number(data.tablet_finalized_by || 0);
-        const canConfirmTablet = tabletFinalizedBy > 0 && currentUserId > 0 && tabletFinalizedBy === currentUserId;
+        const canConfirmTablet = tabletFinalizedBy > 0 && myIds.includes(tabletFinalizedBy);
         if(act && canConfirmTablet){
           act.innerHTML += `<button onclick="Kanpro.confirmTabletLiberado()" title="Confirmar e mover para Retirada (só quem finalizou)" style="background:#f2d600;color:#172b4d;border:1px solid #f2d600;padding:6px 14px;border-radius:20px;cursor:pointer;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px"><i class="ti ti-check-circle"></i> ✨ Confirmar</button>`;
           if(box && act.innerHTML.trim()) box.style.display = 'flex';
@@ -5737,8 +5737,9 @@
           return;
         }
         if(res.tablet_first){
+          try { this.closePicker(); } catch(e){}
           this.showToast(`📱 Tablet: Pendência Chamado #${res.pendencia_id} criada! Aguarde o liberado e finalize de novo.`);
-          alert(res.msg||`1º Finalizar do Tablet criou a Pendência #${res.pendencia_id}. Aguarde o Chamado criado no CRM (zap para o técnico) e finalize novamente para ir à Assinatura/Retirada.`);
+          this.showAlert(res.msg||`1º Finalizar do Tablet criou a Pendência #${res.pendencia_id}. Aguarde o Chamado criado no CRM (zap para o técnico) e finalize novamente para ir à Assinatura/Retirada.`, 'Tablet — Pendência criada');
           this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
           try { this.forceSync(); } catch(e){}
           return;
