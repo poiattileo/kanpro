@@ -1029,6 +1029,8 @@ function kanpro_card_is_locked(int $cards_id): bool {
 }
 // $allowBoardAdmin = true libera a ação travada para o criador/admin do quadro (ex.: excluir).
 function kanpro_need_card_editable(int $cards_id, bool $allowBoardAdmin = false) {
+    // tablet dourado: ninguém edita nada até o Confirmar (vale p/ admin também)
+    kanpro_need_not_tablet_pending($cards_id);
     // trava do fluxo Chamado vale em todos os pontos que já checam editabilidade
     kanpro_need_chamado_released($cards_id);
     if (!kanpro_card_is_locked($cards_id)) return;
@@ -1122,10 +1124,27 @@ function kanpro_card_chamado_locked_info(int $cards_id): array {
     return $out;
 }
 function kanpro_need_not_chamado_locked(int $cards_id) {
+    kanpro_need_not_tablet_pending($cards_id);
     $info = kanpro_card_chamado_locked_info($cards_id);
     if ($info['locked'] > 0 || $info['pendencia_id'] > 0) {
         $pend = $info['pendencia_id'] > 0 ? (' (pendência #' . $info['pendencia_id'] . ')') : '';
         jexit(['success'=>false,'msg'=>'Máquina travada — aguardando Chamado criado' . $pend . '. Nada pode ser editado/adicionado até liberar.','locked'=>true,'pendencia_id'=>$info['pendencia_id']]);
+    }
+}
+// Tablet liberado aguardando confirmação do técnico (card dourado): NINGUÉM edita
+// nada (status, feito, relatório, máquinas, anexos) — só o Confirmar libera.
+function kanpro_is_tablet_pending(int $cards_id): bool {
+    if ($cards_id <= 0) return false;
+    try {
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return false;
+        return (($c->fields['chamado_status'] ?? '') === 'liberado')
+            && !empty($c->fields['tablet_liberado_pending']);
+    } catch (Throwable $e) { return false; }
+}
+function kanpro_need_not_tablet_pending(int $cards_id) {
+    if (kanpro_is_tablet_pending($cards_id)) {
+        jexit(['success'=>false,'msg'=>'✨ Tablet liberado — aguardando confirmação do técnico que finalizou. Nada pode ser editado até confirmar.','tablet_pending'=>true]);
     }
 }
 
