@@ -1009,16 +1009,16 @@ function kanpro_list_category(int $lists_id): string {
     return '';
 }
 // Listas protegidas contra arrasto manual: Aguardando Chegada, Pendente,
-// Pendência Chamados, Em Andamento, Retirada. Só Gerente (ou criador) move.
+// Pendência Chamados, Em Andamento, Retirada, Concluído. Só Gerente (ou criador) move.
 function kanpro_drag_protected_category(string $cat): bool {
-    return in_array($cat, ['awaiting','pending','pend_chamado','andamento','retirada'], true);
+    return in_array($cat, ['awaiting','pending','pend_chamado','andamento','retirada','done'], true);
 }
 // Retorna true se pode arrastar (Gerente/criador); senão jexit quando origem ou
 // destino é protegida.
 function kanpro_need_drag_allowed(int $boards_id, string $fromCat, string $toCat): bool {
     $can = ($boards_id > 0 && function_exists('kanpro_can_see_all') && kanpro_can_see_all($boards_id));
     if (!$can && (kanpro_drag_protected_category($fromCat) || kanpro_drag_protected_category($toCat))) {
-        jexit(['success'=>false,'msg'=>'🔒 Estas listas só podem ser movimentadas por quem tem o cargo Gerente (Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada).']);
+        jexit(['success'=>false,'msg'=>'🔒 Estas listas só podem ser movimentadas por quem tem o cargo Gerente (Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada, Concluído).']);
     }
     return $can;
 }
