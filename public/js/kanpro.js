@@ -1665,11 +1665,24 @@
     moveCardTo(cardId, targetListId, position){
       const card = this.cards.find(c=> c.id==cardId);
       if(!card) return;
-      // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (admin).
+      // Gerente (ou criador) pode arrastar em qualquer lista; resto cai nas travas abaixo.
+      const canDragProt = this.canSeeAll();
+      // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (membro ou admin).
       try {
-        if(this.isCardLocked(card)){
+        if(this.isCardLocked(card) && !canDragProt){
           this.renderBoard();
           alert('Card da lista Pendente é travado — ninguém pode arrastar.\n\nUse o botão Pegar (membro ou admin do quadro) para mover para Em Andamento.');
+          this.forceSync();
+          return;
+        }
+      } catch(e){}
+      // Listas protegidas: arrastar de/para elas só com cargo Gerente (ou criador).
+      try {
+        const PROT = ['awaiting','pending','pend_chamado','andamento','retirada'];
+        const codeOf = (lid)=>{ const l = (this.lists||[]).find(x=> x.id==lid); const t = l && this.listTypeOf(l); return t ? t.code : ''; };
+        if(!canDragProt && (PROT.includes(codeOf(card.plugin_kanpro_lists_id)) || PROT.includes(codeOf(targetListId)))){
+          this.renderBoard();
+          alert('🔒 Estas listas só podem ser movimentadas por quem tem o cargo Gerente.\n\n(Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada)');
           this.forceSync();
           return;
         }

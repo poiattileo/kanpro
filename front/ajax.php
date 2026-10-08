@@ -996,6 +996,7 @@ function kanpro_list_category(int $lists_id): string {
     $nm = function_exists('mb_strtolower') ? mb_strtolower(trim((string)($l->fields['name'] ?? '')), 'UTF-8') : strtolower(trim((string)($l->fields['name'] ?? '')));
     $nm = trim(strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']));
     if ($nm === 'pendente') return 'pending';
+    if ($nm === 'aguardando chegada') return 'awaiting';
     if ($nm === 'em andamento') return 'andamento';
     if ($nm === 'retirada') return 'retirada';
     if ($nm === 'concluido' || $nm === 'concluida') return 'done';
@@ -1006,6 +1007,20 @@ function kanpro_list_category(int $lists_id): string {
     if ($nm === 'em andamento chamado') return 'andamento_chamado';
     if ($nm === 'chamado finalizado' || $nm === 'chamados finalizados') return 'chamado_finalizado';
     return '';
+}
+// Listas protegidas contra arrasto manual: Aguardando Chegada, Pendente,
+// Pendência Chamados, Em Andamento, Retirada. Só Gerente (ou criador) move.
+function kanpro_drag_protected_category(string $cat): bool {
+    return in_array($cat, ['awaiting','pending','pend_chamado','andamento','retirada'], true);
+}
+// Retorna true se pode arrastar (Gerente/criador); senão jexit quando origem ou
+// destino é protegida.
+function kanpro_need_drag_allowed(int $boards_id, string $fromCat, string $toCat): bool {
+    $can = ($boards_id > 0 && function_exists('kanpro_can_see_all') && kanpro_can_see_all($boards_id));
+    if (!$can && (kanpro_drag_protected_category($fromCat) || kanpro_drag_protected_category($toCat))) {
+        jexit(['success'=>false,'msg'=>'🔒 Estas listas só podem ser movimentadas por quem tem o cargo Gerente (Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada).']);
+    }
+    return $can;
 }
 
 // Trava de criação na lista. Devolve a categoria. 'Pendente' NÃO entra na lista de
@@ -3649,8 +3664,11 @@ switch ($action) {
             $fl0 = new PluginKanproList();
             if ($fl0->getFromDB($from_list)) $from_name = $fl0->fields['name'];
         }
+        // Listas protegidas: arrastar de/para elas só com cargo Gerente (ou criador).
+        $canDragProt = kanpro_need_drag_allowed($bid0, ($from_list ? kanpro_list_category($from_list) : ''), ($target_list ? kanpro_list_category($target_list) : ''));
         // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (membro ou admin).
-        if ($from_list && kanpro_list_category($from_list) === 'pending') {
+        // (Gerente/criador passa direto pela regra acima.)
+        if ($from_list && kanpro_list_category($from_list) === 'pending' && !$canDragProt) {
             jexit(['success'=>false,'msg'=>'Card da lista Pendente é travado — ninguém pode arrastar. Use o botão Pegar (membro ou admin do quadro) para mover para Em Andamento.']);
         }
         // Fluxo Chamado é travado: Abrir / Em andamento / Finalizado só mudam pelos botões
@@ -3726,6 +3744,8 @@ switch ($action) {
         $fl = new PluginKanproList(); $tl = new PluginKanproList();
         if (!$fl->getFromDB($from) || !$tl->getFromDB($to)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         if ((int)$fl->fields['plugin_kanpro_boards_id'] !== (int)$tl->fields['plugin_kanpro_boards_id']) jexit(['success'=>false,'msg'=>'Listas de quadros diferentes']);
+        // Listas protegidas: mover tudo de/para elas só com cargo Gerente (ou criador).
+        kanpro_need_drag_allowed((int)$fl->fields['plugin_kanpro_boards_id'], kanpro_list_category($from), kanpro_list_category($to));
         // Pendente só recebe cartão de Manutenção (lá tudo é travado)
         if (kanpro_list_category($to) === 'pending') {
             foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$from,'is_archived'=>0]]) as $chk) {
