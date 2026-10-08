@@ -286,7 +286,7 @@ function kanpro_maint_challenge_ok(string $confirm): bool {
 // Usado tanto na conversão de um card existente quanto na criação direta na lista Pendente.
 function kanpro_maint_name_from_entity(int $entities_id, string $typed = ''): ?string {
     global $DB;
-    if ($entities_id > 0) {
+    if ($entities_id >= 0) {
         $entRow = $DB->request(['FROM'=>'glpi_entities','WHERE'=>['id'=>$entities_id]])->current();
         if (!$entRow) return null;
         $raw = trim($entRow['completename'] ?? $entRow['name'] ?? '');

@@ -4311,7 +4311,7 @@
       try {
         this.showPicker({title:P.title, html: '<div style="padding:24px;text-align:center;color:#5e6c84"><i class="ti ti-loader" style="font-size:20px;animation:spin 1s linear infinite;display:inline-block"></i><br>'+P.loading+'</div>'});
       } catch(e){ console.error('[KanPro] showMaintenanceStep1 picker', e); alert('Não foi possível abrir a criação de Manutenção'); return; }
-      this.ajax("list_entities", {}).then(res=>{
+      this.ajax("list_entities", {include_root: 1}).then(res=>{
         let entities = (res && res.success && Array.isArray(res.entities)) ? res.entities : [];
         // fallback se listagem vazia
         if(!entities.length){
@@ -4327,10 +4327,10 @@
           challenge = others[Math.floor(Math.random()*others.length)];
         }
         this._maintChallenge = challenge;
-        // filtra raiz e prepara lista já sem prefixo
+        // filtra "Entidade Raiz" genérica; a raiz real (ID 0 — Unidade Regional) fica disponível
         this._maintEntities = entities.filter(e=>{
           const raw=(e.completename||e.name||'').trim();
-          return raw !== 'Unidade Regional de Ensino de Jales' && raw.toLowerCase() !== 'unidade regional de ensino de jales' && raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
+          return raw !== 'Entidade Raiz' && raw.toLowerCase() !== 'entidade raiz';
         });
         const html = `
         <style>
@@ -4464,8 +4464,9 @@
       const sel = document.getElementById("maint-entity-select");
       const search = document.getElementById("maint-entity-search");
       const entErr = document.getElementById("maint-entity-error");
-      const entities_id = sel ? parseInt(sel.value||"0") : 0;
-      if(sel && !entities_id){
+      const selVal = sel ? sel.value : "";
+      const entities_id = selVal === "" ? -1 : parseInt(selVal||"0");
+      if(selVal === ""){
         if(entErr){ entErr.textContent="Selecione a entidade. O nome do card virará o nome dela."; entErr.style.display="block"; }
         if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showEntityDropdown(); }
         else if(sel){ sel.style.borderColor="#eb5a46"; sel.focus(); }
@@ -4511,8 +4512,9 @@
       const sel = document.getElementById("maint-entity-select");
       const search = document.getElementById("maint-entity-search");
       const entErr = document.getElementById("maint-entity-error");
-      const entities_id = sel ? parseInt(sel.value||"0") : 0;
-      if(!entities_id){
+      const selVal = sel ? sel.value : "";
+      const entities_id = selVal === "" ? -1 : parseInt(selVal||"0");
+      if(selVal === ""){
         if(entErr){ entErr.textContent="Selecione a entidade. O nome do cartão virá o nome dela."; entErr.style.display="block"; }
         if(search){ search.style.borderColor="#eb5a46"; search.focus(); this.showEntityDropdown(); }
         return;
