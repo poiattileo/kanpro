@@ -21,6 +21,7 @@
     document.addEventListener('touchstart', (e)=>{
       const card = e.target && e.target.closest ? e.target.closest('.kp-card') : null;
       if (!card || K.dragCard || K.dragList) return;
+      if (card.draggable === false) return;
       const id = card.dataset.cardId;
       const t = e.touches[0];
       startX = t.clientX; startY = t.clientY;

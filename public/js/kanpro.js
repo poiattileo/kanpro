@@ -1221,19 +1221,29 @@
       const div = document.createElement('div');
       div.className = 'kp-card';
       div.dataset.cardId = card.id;
-      // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (admin).
+      // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar.
+      // Listas protegidas (Aguardando, Pendente, Pendência, Andamento, Retirada):
+      // nem começa o arraste p/ quem não é Gerente/criador.
       // Calcula antes do draggable (listTypeOf + fallback de nome p/ lista legada).
       let _isPendingDrag = false;
+      let _lockTitle = '';
       try {
         const _lst = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
         const _t = this.listTypeOf(_lst);
-        if(_t && _t.code === 'pending') _isPendingDrag = true;
-        else if(this.isCardLocked(card)) _isPendingDrag = true;
+        if(_t && _t.code === 'pending') { _isPendingDrag = true; _lockTitle = 'Card da lista Pendente é travado — use o botão Pegar (membro ou admin do quadro)'; }
+        else if(this.isCardLocked(card)) { _isPendingDrag = true; _lockTitle = 'Card da lista Pendente é travado — use o botão Pegar (membro ou admin do quadro)'; }
+        if(!_isPendingDrag && !this.canSeeAll()){
+          const _code = _t ? _t.code : '';
+          if(['awaiting','pending','pend_chamado','andamento','retirada'].includes(_code)){
+            _isPendingDrag = true;
+            _lockTitle = '🔒 Lista protegida — só quem tem o cargo Gerente pode arrastar';
+          }
+        }
       } catch(e){}
       div.draggable = !_isPendingDrag;
       if(_isPendingDrag){
         div.style.cursor = 'not-allowed';
-        div.title = 'Card da lista Pendente é travado — use o botão Pegar (membro ou admin do quadro)';
+        div.title = _lockTitle || div.title;
       }
 
       // aplica filtro
