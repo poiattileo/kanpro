@@ -132,6 +132,104 @@ function kanpro_norm_text($s) {
     return $s;
 }
 
+// ---------- Mapa Escola -> Cidade (busca por cidade acha a entidade) ----------
+// Card de manutenção tem o nome da entidade; digitando a cidade (com ou sem
+// acento) a busca também retorna esses cards. Vale p/ busca global e filtro.
+function kanpro_school_city_rows(): array {
+    static $rows = null;
+    if ($rows === null) {
+        $rows = [
+            ['EE Coripheu de Azevedo Marques', "Aparecida D'Oeste"],
+            ['EE José dos Santos', 'Aspásia'],
+            ['EE Profª Maria Pereira de B. Benetoli', 'Auriflama'],
+            ['EE João Rodrigues Fernandes', 'Auriflama'],
+            ['EE de Osvaldo Ramos', 'Dirce Reis'],
+            ['EE Baptista Dolci', 'Dolcinópolis'],
+            ['EE Profª Vanir Ferrero Moraes', 'Guzolândia'],
+            ['EE Dom Artur Horsthuis', 'Jales'],
+            ['Cel de Jales – EE Dom Artur Horsthuis', 'Jales'],
+            ['EE Dr. Euphly Jalles', 'Jales'],
+            ['EE Prof. Carlos de Arnaldo Silva', 'Jales'],
+            ['EE Profª Sueli da Silveira Marin Batista', 'Jales'],
+            ['EE Juvenal Giraldelli', 'Jales'],
+            ['EE Profª Onélia Faggioni Moreira', 'Jales'],
+            ['EE Antonio Marin Cruz', 'Marinópolis'],
+            ['EE Adelino Bertani', 'Mesópolis'],
+            ['EE Profª Maria Pilar Ortega Garcia', 'Nova Canaã Paulista'],
+            ['EE Orestes Ferreira de Toledo', "Palmeira d'Oeste"],
+            ['EE Prefeito José Ribeiro', 'Paranapuã'],
+            ['EE Profª Zélia de Lourdes Zaccarelli Lopes', 'Pontalinda'],
+            ['EE Rubens de Oliveira Camargo', 'Rubinéia'],
+            ['EE Carlos Celso Lenarduzzi', 'Santa Albertina'],
+            ['EE Prefeito Antonio Bezerra de Araújo', "Santa Clara d'Oeste"],
+            ['EE Professor Itael de Mattos', 'Santa Fé do Sul'],
+            ['CEL de Santa Fé do Sul', 'Santa Fé do Sul'],
+            ['EE Profª Maria das Dores Ferreira Rocha', "Santa Rita d'Oeste"],
+            ['EE Francisco Molina Molina', 'Santa Salete'],
+            ['EE Domingos Donato Rivelli', 'Santana da Ponte Pensa'],
+            ['EE Oscar Antônio da Costa', 'São Francisco'],
+            ['EE Coronel Ernesto Schmidt', 'Suzanápolis'],
+            ['EE Prof. José Joaquim dos Santos', 'Três Fronteiras'],
+            ['EE Professor Akio Satoru', 'Urânia'],
+            ['EE Profª Elide Apparecida Carlos', 'Urânia'],
+            ['EE José Teixeira do Amaral', 'Urânia'],
+            ['EE José Nogueira de Souza', 'Vitória Brasil'],
+        ];
+    }
+    return $rows;
+}
+// chave alfanumérica p/ comparar (sem acento, sem pontuação/espaço)
+function kanpro_alnum_key($s): string {
+    $s = kanpro_norm_text($s);
+    return (string)preg_replace('/[^a-z0-9]/', '', $s);
+}
+// variantes da escola (completa + sem prefixo institucional EE/CEL)
+function kanpro_school_keys(string $school): array {
+    $full = kanpro_alnum_key($school);
+    $out = [$full];
+    $short = (string)preg_replace('/^(ee|cel|emef|emei|ete|fatec)/', '', $full);
+    if ($short !== '' && $short !== $full) $out[] = $short;
+    return $out;
+}
+// escolas (chaves) cujas cidades batem com o termo buscado (parcial, sem acento)
+function kanpro_schools_for_city_query(string $nq): array {
+    $out = [];
+    $qn = kanpro_alnum_key($nq);
+    if ($qn === '') return $out;
+    foreach (kanpro_school_city_rows() as [$school, $city]) {
+        $ck = kanpro_alnum_key($city);
+        if ($ck === '') continue;
+        if (mb_strpos($ck, $qn) !== false || mb_strpos($qn, $ck) !== false) {
+            foreach (kanpro_school_keys($school) as $sk) {
+                if ($sk !== '') $out[] = $sk;
+            }
+        }
+    }
+    return array_values(array_unique($out));
+}
+// cidade da escola a partir do nome do card (p/ exibir na busca)
+function kanpro_city_for_school(string $cardName): string {
+    $ck = kanpro_alnum_key($cardName);
+    if ($ck === '') return '';
+    foreach (kanpro_school_city_rows() as [$school, $city]) {
+        foreach (kanpro_school_keys($school) as $sk) {
+            if ($sk !== '' && (mb_strpos($ck, $sk) !== false || mb_strpos($sk, $ck) !== false)) return $city;
+        }
+    }
+    return '';
+}
+// nome do card bate com alguma escola da lista (parcial, nos dois sentidos)
+function kanpro_card_matches_schools(string $cardName, array $schoolKeys): bool {
+    if (empty($schoolKeys)) return false;
+    $ck = kanpro_alnum_key($cardName);
+    if ($ck === '') return false;
+    foreach ($schoolKeys as $sk) {
+        if ($sk === '') continue;
+        if (mb_strpos($ck, $sk) !== false || mb_strpos($sk, $ck) !== false) return true;
+    }
+    return false;
+}
+
 // ---------- Helpers Membros do Quadro ----------
 // kanpro_my_board_role(), kanpro_is_board_creator() e kanpro_can_manage_members()
 // moram em inc/acting.php (lib compartilhada com form/kanban/gear).
@@ -3310,6 +3408,7 @@ switch ($action) {
                 'board_id'   => (int) $board['id'],
                 'board_name' => $board['name'],
                 'list_name'  => $list['name'] ?? '',
+                'city'       => !empty($c['is_maintenance']) ? kanpro_city_for_school((string)($c['name'] ?? '')) : '',
             ];
             return true;
         };
@@ -3336,8 +3435,9 @@ switch ($action) {
             $push_card($c);
         }
         // 2) fallback sem acento em PHP (garante "cafe" achar "café" e vice-versa,
-        // independente do collation do banco)
+        // independente do collation do banco) + cidade->entidade p/ cards manutenção
         if (count($results) < 40 && $nq !== '') {
+            $citySchools = kanpro_schools_for_city_query($q);
             $all_iter = $DB->request([
                 'FROM'  => 'glpi_plugin_kanpro_cards',
                 'WHERE' => [
@@ -3353,6 +3453,7 @@ switch ($action) {
                 if (isset($seen_ids[$cid])) continue;
                 $hay = kanpro_norm_text(($c['name'] ?? '') . ' ' . ($c['description'] ?? '') . ' #' . $cid);
                 if (mb_strpos($hay, $nq) !== false) $push_card($c);
+                elseif (!empty($citySchools) && !empty($c['is_maintenance']) && kanpro_card_matches_schools((string)($c['name'] ?? ''), $citySchools)) $push_card($c);
             }
         }
         jexit(['success' => true, 'results' => $results]);

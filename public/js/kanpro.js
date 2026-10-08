@@ -7372,7 +7372,7 @@
           if(!res.results.length){ resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Nenhum cartão encontrado.</div>'; return; }
           resultsBox.innerHTML = res.results.map(r=> `
             <div onclick="Kanpro.goToCard(${r.board_id}, ${r.card_id})" style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;cursor:pointer">
-              <div style="font-size:13px;font-weight:600;color:#172b4d"><span style="color:#5e6c84">#${r.card_id}</span> ${this.escape(r.card_name)}</div>
+              <div style="font-size:13px;font-weight:600;color:#172b4d"><span style="color:#5e6c84">#${r.card_id}</span> ${this.escape(r.card_name)}${r.city ? ` <span style="background:#e6fcff;color:#0052cc;border:1px solid #91d5ff;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700">📍 ${this.escape(r.city)}</span>` : ''}</div>
               <div style="font-size:11px;color:#5e6c84;margin-top:2px"><i class="ti ti-layout-kanban"></i> ${this.escape(r.board_name)} ${r.list_name ? '· '+this.escape(r.list_name) : ''}</div>
             </div>`).join('');
         });
@@ -7583,6 +7583,73 @@
       if(s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       return s.toLowerCase();
     },
+    // Mapa Escola -> Cidade: digitando a cidade (com ou sem acento) a busca
+    // também acha os cards de manutenção (nome da entidade). Vale busca global e filtro.
+    SCHOOL_CITIES: [
+      ['EE Coripheu de Azevedo Marques', "Aparecida D'Oeste"],
+      ['EE José dos Santos', 'Aspásia'],
+      ['EE Profª Maria Pereira de B. Benetoli', 'Auriflama'],
+      ['EE João Rodrigues Fernandes', 'Auriflama'],
+      ['EE de Osvaldo Ramos', 'Dirce Reis'],
+      ['EE Baptista Dolci', 'Dolcinópolis'],
+      ['EE Profª Vanir Ferrero Moraes', 'Guzolândia'],
+      ['EE Dom Artur Horsthuis', 'Jales'],
+      ['Cel de Jales – EE Dom Artur Horsthuis', 'Jales'],
+      ['EE Dr. Euphly Jalles', 'Jales'],
+      ['EE Prof. Carlos de Arnaldo Silva', 'Jales'],
+      ['EE Profª Sueli da Silveira Marin Batista', 'Jales'],
+      ['EE Juvenal Giraldelli', 'Jales'],
+      ['EE Profª Onélia Faggioni Moreira', 'Jales'],
+      ['EE Antonio Marin Cruz', 'Marinópolis'],
+      ['EE Adelino Bertani', 'Mesópolis'],
+      ['EE Profª Maria Pilar Ortega Garcia', 'Nova Canaã Paulista'],
+      ['EE Orestes Ferreira de Toledo', "Palmeira d'Oeste"],
+      ['EE Prefeito José Ribeiro', 'Paranapuã'],
+      ['EE Profª Zélia de Lourdes Zaccarelli Lopes', 'Pontalinda'],
+      ['EE Rubens de Oliveira Camargo', 'Rubinéia'],
+      ['EE Carlos Celso Lenarduzzi', 'Santa Albertina'],
+      ['EE Prefeito Antonio Bezerra de Araújo', "Santa Clara d'Oeste"],
+      ['EE Professor Itael de Mattos', 'Santa Fé do Sul'],
+      ['CEL de Santa Fé do Sul', 'Santa Fé do Sul'],
+      ['EE Profª Maria das Dores Ferreira Rocha', "Santa Rita d'Oeste"],
+      ['EE Francisco Molina Molina', 'Santa Salete'],
+      ['EE Domingos Donato Rivelli', 'Santana da Ponte Pensa'],
+      ['EE Oscar Antônio da Costa', 'São Francisco'],
+      ['EE Coronel Ernesto Schmidt', 'Suzanápolis'],
+      ['EE Prof. José Joaquim dos Santos', 'Três Fronteiras'],
+      ['EE Professor Akio Satoru', 'Urânia'],
+      ['EE Profª Elide Apparecida Carlos', 'Urânia'],
+      ['EE José Teixeira do Amaral', 'Urânia'],
+      ['EE José Nogueira de Souza', 'Vitória Brasil'],
+    ],
+    alnumKey(s){
+      return this.normText(s).replace(/[^a-z0-9]/g, '');
+    },
+    schoolKeys(school){
+      const full = this.alnumKey(school);
+      const out = [full];
+      const short = full.replace(/^(ee|cel|emef|emei|ete|fatec)/, '');
+      if(short && short !== full) out.push(short);
+      return out;
+    },
+    cityMatchMaintenance(cardName, filterText){
+      try {
+        const qn = this.alnumKey(filterText);
+        if(!qn) return false;
+        const cardKey = this.alnumKey(cardName);
+        if(!cardKey) return false;
+        for(const [school, city] of (this.SCHOOL_CITIES || [])){
+          const ck = this.alnumKey(city);
+          if(!ck) continue;
+          if(ck.includes(qn) || qn.includes(ck)){
+            for(const sk of this.schoolKeys(school)){
+              if(sk && (cardKey.includes(sk) || sk.includes(cardKey))) return true;
+            }
+          }
+        }
+      } catch(e){}
+      return false;
+    },
     /* ---------- categorias de lista (listas de ajuste) ---------- */
     LIST_TYPES: {
       backlog:   {label: 'Pautas futuras',     color: '#6554c0', fg: '#fff',    dot: '🟣'},
@@ -7655,7 +7722,8 @@
         if(!card){ el.style.display=''; return; }
         const fDigits = this.filterText.replace(/^#/, '');
         const fIsNum = /^\d+$/.test(fDigits);
-        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText) || (fIsNum && String(card.id).includes(fDigits));
+        const fIsMaintCity = card.is_maintenance == 1 && this.cityMatchMaintenance(card.name, this.filterText);
+        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText) || (fIsNum && String(card.id).includes(fDigits)) || fIsMaintCity;
         // label filter
         let matchLabel = true;
         if(this.labelFilter.size>0){
@@ -7678,6 +7746,7 @@
       if(this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText)) return false;
       const fDigits = this.filterText.replace(/^#/, '');
       if(/^\d+$/.test(fDigits) && String(card.id).includes(fDigits)) return false;
+      if(card.is_maintenance == 1 && this.cityMatchMaintenance(card.name, this.filterText)) return false;
       return true;
     },
     openFilterMenu(){
