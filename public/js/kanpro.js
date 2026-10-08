@@ -4043,7 +4043,7 @@
           <div style="font-size:11px;font-weight:800;color:#975500;letter-spacing:.06em;margin-bottom:8px">✨ TABLET LIBERADO — AGUARDANDO CONFIRMAÇÃO</div>
           ${canConfirmTabletFoot
             ? `<button onclick="event.stopPropagation();Kanpro.confirmTabletLiberado()" title="Confirmar e mover para Retirada" style="background:linear-gradient(135deg,#f2d600 0%,#ffab00 100%);color:#172b4d;border:none;padding:13px 40px;border-radius:8px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 3px 10px rgba(242,214,0,.45)"><i class="ti ti-check"></i> ✨ CONFIRMAR</button>`
-            : `<span style="display:inline-block;background:#fffae6;border:1px dashed #ffab00;color:#975500;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px">⏳ Aguardando confirmação do técnico que finalizou</span>`}
+            : `<span title="Somente o técnico que finalizou pode confirmar" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> 🔒 Bloqueado — aguardando confirmação do técnico</span>`}
         </div>`;
       } else if (cardPending) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
