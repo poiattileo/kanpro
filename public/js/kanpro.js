@@ -7331,16 +7331,16 @@
     },
     openGlobalSearch(){
       const html = `
-        <input id="global-search-input" type="text" placeholder="Buscar cartões em todos os quadros..." style="width:100%;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:14px;margin-bottom:12px" autocomplete="off">
-        <div id="global-search-results" style="display:grid;gap:6px;max-height:50vh;overflow-y:auto"><div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Digite pelo menos 2 letras...</div></div>
+        <input id="global-search-input" type="text" placeholder="Buscar por nome ou nº do cartão..." style="width:100%;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box;font-size:14px;margin-bottom:12px" autocomplete="off">
+        <div id="global-search-results" style="display:grid;gap:6px;max-height:50vh;overflow-y:auto"><div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Digite 2+ letras ou o nº do cartão...</div></div>
       `;
       this.showPicker({title:'Busca global', html});
       const input = document.getElementById('global-search-input');
       const resultsBox = document.getElementById('global-search-results');
       let debounceTimer = null;
       const doSearch = (q)=>{
-        if(q.trim().length < 2){
-          resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Digite pelo menos 2 letras...</div>';
+        if(q.trim().length < 2 && !/^\d+$/.test(q.trim().replace(/^#/, ''))){
+          resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Digite 2+ letras ou o nº do cartão...</div>';
           return;
         }
         resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Buscando...</div>';
@@ -7349,7 +7349,7 @@
           if(!res.results.length){ resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Nenhum cartão encontrado.</div>'; return; }
           resultsBox.innerHTML = res.results.map(r=> `
             <div onclick="Kanpro.goToCard(${r.board_id}, ${r.card_id})" style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;cursor:pointer">
-              <div style="font-size:13px;font-weight:600;color:#172b4d">${this.escape(r.card_name)}</div>
+              <div style="font-size:13px;font-weight:600;color:#172b4d"><span style="color:#5e6c84">#${r.card_id}</span> ${this.escape(r.card_name)}</div>
               <div style="font-size:11px;color:#5e6c84;margin-top:2px"><i class="ti ti-layout-kanban"></i> ${this.escape(r.board_name)} ${r.list_name ? '· '+this.escape(r.list_name) : ''}</div>
             </div>`).join('');
         });
@@ -7630,7 +7630,9 @@
         const cardId = parseInt(el.dataset.cardId);
         const card = this.cards.find(c=> c.id==cardId);
         if(!card){ el.style.display=''; return; }
-        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText);
+        const fDigits = this.filterText.replace(/^#/, '');
+        const fIsNum = /^\d+$/.test(fDigits);
+        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText) || (fIsNum && String(card.id).includes(fDigits));
         // label filter
         let matchLabel = true;
         if(this.labelFilter.size>0){
@@ -7649,8 +7651,11 @@
       this.updateStats();
     },
     isCardFilteredOut(card){
-      if(this.filterText && !this.normText(card.name).includes(this.filterText) && !this.normText(card.description||'').includes(this.filterText)) return true;
-      return false;
+      if(!this.filterText) return false;
+      if(this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText)) return false;
+      const fDigits = this.filterText.replace(/^#/, '');
+      if(/^\d+$/.test(fDigits) && String(card.id).includes(fDigits)) return false;
+      return true;
     },
     openFilterMenu(){
       // labels e members checkbox

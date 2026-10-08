@@ -3262,7 +3262,10 @@ switch ($action) {
 
     case 'global_search_cards':
         $q = trim($_POST['q'] ?? '');
-        if (mb_strlen($q) < 2) jexit(['success' => true, 'results' => []]);
+        // busca por número do cartão: "244" ou "#244" (vale com 1+ dígitos)
+        $qNum = ltrim($q, '#');
+        $isNum = ($qNum !== '' && ctype_digit($qNum));
+        if (!$isNum && mb_strlen($q) < 2) jexit(['success' => true, 'results' => []]);
         $nq = kanpro_norm_text($q);
         $entities = $_SESSION['glpiactiveentities'] ?? [0];
         $boards_iter = $DB->request([
@@ -3297,16 +3300,18 @@ switch ($action) {
         };
         $results = [];
         $seen_ids = [];
-        // 1) via SQL LIKE (rápido; depende do collation p/ acentos)
+        // 1) via SQL LIKE (rápido; depende do collation p/ acentos) + ID exato se numérico
+        $orWhere = [
+            'name'        => ['LIKE', "%{$q}%"],
+            'description' => ['LIKE', "%{$q}%"],
+        ];
+        if ($isNum) $orWhere['id'] = (int)$qNum;
         $cards_iter = $DB->request([
             'FROM'  => 'glpi_plugin_kanpro_cards',
             'WHERE' => [
                 'plugin_kanpro_boards_id' => array_keys($boards_by_id),
                 'is_archived' => 0,
-                'OR' => [
-                    'name'        => ['LIKE', "%{$q}%"],
-                    'description' => ['LIKE', "%{$q}%"],
-                ],
+                'OR' => $orWhere,
             ],
             'ORDER' => 'date_mod DESC',
             'LIMIT' => 100,
@@ -3331,7 +3336,7 @@ switch ($action) {
                 if (count($results) >= 40) break;
                 $cid = (int)$c['id'];
                 if (isset($seen_ids[$cid])) continue;
-                $hay = kanpro_norm_text(($c['name'] ?? '') . ' ' . ($c['description'] ?? ''));
+                $hay = kanpro_norm_text(($c['name'] ?? '') . ' ' . ($c['description'] ?? '') . ' #' . $cid);
                 if (mb_strpos($hay, $nq) !== false) $push_card($c);
             }
         }
