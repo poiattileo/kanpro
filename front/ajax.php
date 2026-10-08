@@ -321,7 +321,7 @@ function kanpro_finish_maintenance(int $cards_id, string $newName, int $entities
         $lid = (int)($c->fields['plugin_kanpro_lists_id'] ?? 0);
     }
     $msg = $created
-        ? "Cartão de Manutenção criado na lista Pendente por " . Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})"
+        ? "Cartão de Manutenção criado por " . Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})"
         : "Cartão convertido para manutenção por " . Session::getLoginUserID() . " — Entidade: {$newName} (#{$entities_id})";
     PluginKanproBoard::logActivity($bid, $cards_id, $lid, 'card_maintenance_convert', $msg);
     kanpro_touch_member($cards_id);
@@ -726,6 +726,12 @@ function kanpro_migrate_schema_once() {
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `chamado_by`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tablet_finalized_by')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tablet_finalized_by` INT NOT NULL DEFAULT '0' COMMENT 'users_id de quem fez o 1o Finalizar no tablet' AFTER `chamado_by`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tablet_liberado_pending')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tablet_liberado_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=tablet liberado aguardando Confirmar do tecnico' AFTER `tablet_finalized_by`"); } catch (Throwable $e) {}
             }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
@@ -3366,8 +3372,8 @@ switch ($action) {
         if ($cat === 'pend_chamado') {
             jexit(['success'=>false,'msg'=>'Na Pendência Chamado use "Novo chamado" (título + descrição).','need_chamado'=>true]);
         }
-        if ($cat === 'pending') {
-            jexit(['success'=>false,'msg'=>'Na lista Pendente o cartão é criado direto como Manutenção.','need_maintenance'=>true]);
+        if ($cat === 'pending' || $cat === 'awaiting') {
+            jexit(['success'=>false,'msg'=>'Nesta lista o cartão é criado direto como Manutenção.','need_maintenance'=>true]);
         }
         $card = new PluginKanproCard();
         $newFields = ['plugin_kanpro_boards_id'=>$list->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$lists_id,'name'=>$name];
@@ -3383,15 +3389,16 @@ switch ($action) {
         jexit(['success'=>true,'id'=>$id, 'card'=>$card->fields]);
 
     case 'add_pending_maintenance':
-        // Criação na lista "Pendente": o cartão JÁ nasce como Manutenção (checklist por
-        // máquina), com o nome vindo da entidade. Mesmo desafio de confirmação da conversão.
+        // Criação nas listas "Pendente" e "Aguardando chegada": o cartão JÁ nasce
+        // como Manutenção (checklist por máquina), com o nome vindo da entidade.
+        // Mesmo desafio de confirmação da conversão.
         needEdit();
         kanpro_ensure_maintenance_tables();
         $lists_id = (int)($_POST['lists_id'] ?? 0);
         $list = new PluginKanproList();
         if (!$lists_id || !$list->getFromDB($lists_id)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
-        if (kanpro_need_list_allows_card($lists_id) !== 'pending') {
-            jexit(['success'=>false,'msg'=>'Só a lista com categoria "Pendente" cria cartão de Manutenção.']);
+        if (!in_array(kanpro_need_list_allows_card($lists_id), ['pending','awaiting'], true)) {
+            jexit(['success'=>false,'msg'=>'Só as listas com categoria "Pendente" ou "Aguardando chegada" criam cartão de Manutenção.']);
         }
         $confirm = $_POST['confirm_text'] ?? $_POST['confirm'] ?? '';
         if (!kanpro_maint_challenge_ok((string)$confirm)) {

@@ -1160,7 +1160,7 @@
       const lt0 = this.listTypeOf(list);
       const code0 = lt0 ? lt0.code : '';
       const blocked0 = !!this.LIST_CREATE_BLOCKED[code0] || code0 === 'pend_chamado';
-      const isMaint0 = (code0 === 'pending');
+      const isMaint0 = (code0 === 'pending' || code0 === 'awaiting');
       const addCardHtml = blocked0
         ? `<button class="kp-add-card" disabled style="opacity:.5;cursor:not-allowed" title="A lista &quot;${this.escape(lt0.label)}&quot; não aceita cartão novo — ele entra pelo fluxo"><i class="ti ti-lock" style="font-size:13px"></i> Não é possível criar cartão aqui</button>`
         : (isMaint0
@@ -2862,11 +2862,11 @@
         this.showToast('🚫 A lista "' + lt.label + '" não aceita cartão novo');
         return;
       }
-      // Pendente: o cartão nasce direto como Manutenção (nome vem da entidade).
+      // Pendente e Aguardando chegada: o cartão nasce direto como Manutenção (nome vem da entidade).
       // Vale categoria OU nome (lista legada sem categoria também cai no fluxo).
-      let isPendingList = !!(lt && lt.code === 'pending');
+      let isPendingList = !!(lt && (lt.code === 'pending' || lt.code === 'awaiting'));
       if(!isPendingList && list){
-        try { isPendingList = this.normText(list.name||'').trim() === 'pendente'; } catch(e2){}
+        try { const nm = this.normText(list.name||'').trim(); isPendingList = (nm === 'pendente' || nm === 'aguardando chegada'); } catch(e2){}
       }
       if(isPendingList){ this.showMaintenanceStep1(listId); return; }
       if(lt && (lt.code === 'todo' || lt.code === 'backlog')){ this.openTaskCardModal(listId); return; }
