@@ -1977,7 +1977,7 @@
         title: `Categoria da lista: ${list ? list.name : ''}`,
         html: `<div style="display:grid;gap:4px">` + opts.map(o=>
           `<button class="kp-picker-item" onclick="Kanpro.setListType(${listId}, '${o.code}')">`
-          + `<span style="background:${o.color};color:${o.fg};min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${o.code===''?'–':o.dot}</span>`
+          + `<span style="background:${o.color};color:${o.fg};min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${o.code===''?'–':''}</span>`
           + `<span style="flex:1;text-align:left">${this.escape(o.label)}</span>`
           + `${cur===o.code?'<i class="ti ti-check" style="color:#61bd4f"></i>':''}</button>`
         ).join('') + `</div>`
@@ -2929,7 +2929,7 @@
       const t = this.listTypeOf(list);
       const accent = t ? t.color : '#0079bf';
       const accentFg = t ? t.fg : '#fff';
-      const chip = t ? `<span style="background:rgba(255,255,255,.25);padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${t.dot} ${this.escape(t.label)}</span>` : '';
+      const chip = t ? `<span style="background:rgba(255,255,255,.25);padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${this.escape(t.label)}</span>` : '';
       this.showPicker({
         title: 'Novo cartão',
         html: `
@@ -2953,7 +2953,7 @@
         </style>
         <div class="task-grid">
           <div class="task-banner">
-            <span style="font-size:26px">${t ? t.dot : '➕'}</span>
+            ${t ? '' : '<span style="font-size:26px">➕</span>'}
             <div style="min-width:0"><div style="font-size:15px;font-weight:800">Novo cartão</div>
             <div style="font-size:12px;opacity:.92;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">${this.escape(list ? list.name : '')}</span>${chip}</div></div>
           </div>
@@ -6505,7 +6505,12 @@
     },
     async editCheckItem(itemId){
       if(this.cardLockedGuard()) return;
-      const novo = await this.kpPrompt('Editar item:');
+      let atual = '';
+      try {
+        const cls = (this._lastModalData && this._lastModalData.checklists) || [];
+        for(const cl of cls){ for(const it of (cl.items||[])){ if(String(it.id)===String(itemId)){ atual = it.name||''; break; } } if(atual) break; }
+      } catch(e){}
+      const novo = await this.kpPrompt('Editar item:', atual);
       if(novo===null) return;
       this.ajax('rename_checkitem', {id: itemId, name: novo}).then(res=>{
         if(res.success) this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
@@ -7612,7 +7617,7 @@
       // estas categorias só notificam no Seus Quadros: no kanban não mostram nada
       if(this.LIST_TYPE_QUIET[t.code]) return '';
       const click = clickable ? ` onclick="event.stopPropagation();Kanpro.openListTypePicker(${list.id})" title="Categoria: ${this.escape(t.label)} — clique para trocar" style="${base}${pad}background:${t.color};color:${t.fg};cursor:pointer"` : ` title="Categoria: ${this.escape(t.label)}" style="${base}${pad}background:${t.color};color:${t.fg}"`;
-      return `<span${click}><span style="flex:0 0 auto;line-height:1">${t.dot}</span><span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(t.label)}</span></span>`;
+      return `<span${click}><span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escape(t.label)}</span></span>`;
     },
     filterCards(text){
       this.filterText = this.normText(text||'');
