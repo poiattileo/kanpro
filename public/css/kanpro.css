@@ -407,6 +407,10 @@
 .kp-card.kp-exclusao, .kp-card[data-exclusao="1"] { border-color: #091e42 !important; border-width: 3px !important; box-shadow: 0 0 0 3px rgba(9,30,66,.3), 0 2px 6px rgba(0,0,0,.2) !important; background: #e9edf2 !important; }
 .kp-card.kp-exclusao:hover, .kp-card[data-exclusao="1"]:hover { box-shadow: 0 0 0 4px rgba(9,30,66,.4), 0 4px 12px rgba(0,0,0,.22) !important; }
 
+/* Pendência de edição aguardando liberação — marrom */
+.kp-card.kp-edicao, .kp-card[data-edicao="1"] { border-color: #8d6e63 !important; border-width: 3px !important; box-shadow: 0 0 0 3px rgba(141,110,99,.3), 0 2px 6px rgba(0,0,0,.15) !important; background: #efebe9 !important; }
+.kp-card.kp-edicao:hover, .kp-card[data-edicao="1"]:hover { box-shadow: 0 0 0 4px rgba(141,110,99,.4), 0 4px 12px rgba(0,0,0,.18) !important; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .kp-list { width: 260px; min-width: 260px; }

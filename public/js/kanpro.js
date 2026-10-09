@@ -1361,6 +1361,21 @@
         div.style.background = '#e9edf2';
         div.title = '🗑️ Pendência de exclusão — admin pode liberar';
       }
+      // Pendência de edição: marrom com borda marrom no topo
+      const isEdicaoCard = (String(card.chamado_status || '') === 'edicao' || String(card.chamado_status || '') === 'edicao_ok') && Number(card.chamado_source_id || 0) > 0;
+      if (isEdicaoCard) {
+        div.classList.add('kp-edicao');
+        div.dataset.edicao = "1";
+        div.style.borderColor = '#8d6e63';
+        div.style.borderWidth = '3px';
+        div.style.boxShadow = '0 0 0 3px rgba(141,110,99,.3), 0 2px 6px rgba(0,0,0,.15)';
+        div.style.background = '#efebe9';
+        div.title = '✏️ Pendência de edição — admin pode liberar';
+      }
+      // Origem com edição aberta: selo âmbar
+      if (Number(card.edicao_by || 0) > 0 && !Number(card.edicao_pending || 0)) {
+        badges.push(`<span class="kp-badge" style="background:#ffab00;color:#172b4d;font-weight:700;border:1px solid #ffab00"><i class="ti ti-pencil"></i> Em edição</span>`);
+      }
       // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
       const tStat = this.transferStatus && this.transferStatus[card.id];
       if (tStat) {
@@ -1464,6 +1479,8 @@
         else if (chSt === 'conclusao_ok') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">✅ Conclusão liberada</span>`);
         else if (chSt === 'exclusao') badges.push(`<span class="kp-badge" style="background:#091e42;color:#fff;font-weight:800;border:1px solid #091e42">🗑️ Aguard. exclusão</span>`);
         else if (chSt === 'exclusao_ok') badges.push(`<span class="kp-badge" style="background:#e9edf2;color:#091e42;font-weight:800;border:1px solid #091e42">🗑️ Exclusão liberada</span>`);
+        else if (chSt === 'edicao') badges.push(`<span class="kp-badge" style="background:#8d6e63;color:#fff;font-weight:800;border:1px solid #8d6e63">✏️ Aguard. edição</span>`);
+        else if (chSt === 'edicao_ok') badges.push(`<span class="kp-badge" style="background:#efebe9;color:#5d4037;font-weight:800;border:1px solid #8d6e63">✏️ Edição liberada</span>`);
         else if (chSt === 'liberado') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">📞 Chamado criado ✓</span>`);
         else badges.push(`<span class="kp-badge" style="background:#e1316f;color:#fff;font-weight:800;border:1px solid #e1316f">📞 Pendência Chamado</span>`);
       }
@@ -1529,17 +1546,24 @@
           const isConcDoneMini = (chStMini === 'conclusao_ok');
           const isExcMini = (chStMini === 'exclusao' || chStMini === 'exclusao_ok');
           const isExcDoneMini = (chStMini === 'exclusao_ok');
+          const isEdMini = (chStMini === 'edicao' || chStMini === 'edicao_ok');
+          const isEdDoneMini = (chStMini === 'edicao_ok');
           const amAdminMini = this.isBoardAdmin();
           const srcMini = card.chamado_source_id ? ('#' + card.chamado_source_id) : '';
           const machMini = (prog && prog.total > 0) ? `${prog.done||0}/${prog.total} máquina(s)` : ((card.description||'').match(/(\d+)\s*máquina/i)?.[0] || '');
-          const miniC = isExcMini ? {bd:'#091e42', bg:'#e9edf2', sh:'0 1px 4px rgba(9,30,66,.3)', id:'#091e42'}
+          const miniC = isEdMini ? {bd:'#8d6e63', bg:'#efebe9', sh:'0 1px 4px rgba(141,110,99,.35)', id:'#5d4037'}
+            : (isExcMini ? {bd:'#091e42', bg:'#e9edf2', sh:'0 1px 4px rgba(9,30,66,.3)', id:'#091e42'}
             : (isConcMini ? {bd:'#61bd4f', bg:'#f2fbf3', sh:'0 1px 4px rgba(97,189,79,.3)', id:'#2e7d32'}
-            : {bd:'#e1316f', bg:'#fff0f4', sh:'0 1px 4px rgba(225,49,111,.25)', id:'#e1316f'});
+            : {bd:'#e1316f', bg:'#fff0f4', sh:'0 1px 4px rgba(225,49,111,.25)', id:'#e1316f'}));
           div.style.border = '2px solid ' + miniC.bd;
           div.style.borderLeft = '6px solid ' + miniC.bd;
           div.style.background = miniC.bg;
           div.style.boxShadow = miniC.sh;
-          const statusPill = isExcMini
+          const statusPill = isEdMini
+            ? (isEdDoneMini
+              ? `<span style="background:#5d4037;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">✏️ Edição liberada ✓</span>`
+              : `<span style="background:#8d6e63;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">✏️ Pendência Edição</span>`)
+            : (isExcMini
             ? (isExcDoneMini
               ? `<span style="background:#091e42;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🗑️ Exclusão liberada ✓</span>`
               : `<span style="background:#091e42;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🗑️ Pendência Exclusão</span>`)
@@ -1549,14 +1573,14 @@
                 : `<span style="background:#61bd4f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🏁 Pendência Conclusão</span>`)
               : (isLibMini
                 ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Chamado criado ✓</span>`
-                : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`));
+                : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`)));
           const infoLine = [
             srcMini ? `Origem <strong>${this.escape(srcMini)}</strong>` : '',
             machMini ? `🔧 ${this.escape(machMini)}` : '',
           ].filter(Boolean).join(' • ');
-          const openTitle = isExcMini ? 'Abrir para liberar a exclusão' : (isConcMini ? 'Abrir para liberar a conclusão' : 'Abrir para confirmar o chamado criado');
-          const waitTitle = isExcMini ? '“Liberar exclusão”' : (isConcMini ? '“Liberar conclusão”' : '“Chamado criado”');
-          const btnMini = (isLibMini || isConcDoneMini || isExcDoneMini)
+          const openTitle = isEdMini ? 'Abrir para liberar a edição' : (isExcMini ? 'Abrir para liberar a exclusão' : (isConcMini ? 'Abrir para liberar a conclusão' : 'Abrir para confirmar o chamado criado'));
+          const waitTitle = isEdMini ? '“Liberar edição”' : (isExcMini ? '“Liberar exclusão”' : (isConcMini ? '“Liberar conclusão”' : '“Chamado criado”'));
+          const btnMini = (isLibMini || isConcDoneMini || isExcDoneMini || isEdDoneMini)
             ? `<div style="margin-top:8px;background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:8px;padding:8px;text-align:center;font-size:12px;font-weight:800">✓ Liberado — excluindo em 30s ⏳</div>`
             : (amAdminMini
               ? `<div onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="${openTitle}" style="margin-top:8px;background:#fff;border:1px dashed ${miniC.bd};color:${miniC.id};border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700;cursor:pointer">👆 Abra o card para liberar<br>${waitTitle}</div>`
@@ -2235,7 +2259,12 @@
       } catch(e){ return false; }
     },
     finalizedGuard(cardId){
-      if(!this.isCardFinalized(cardId == null ? this.currentCardId : cardId)) return false;
+      const cid = cardId == null ? this.currentCardId : cardId;
+      try {
+        const d = (this._lastModalData && String(this._lastModalData.id)===String(cid)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(cid));
+        if(d && this.isEdicaoOpen(d)) return false;
+      } catch(e){}
+      if(!this.isCardFinalized(cid)) return false;
       try { this.showAlert('Manutenção finalizada — já foi enviada para Assinatura.\n\nNão é mais possível editar, adicionar ou remover máquinas. Somente visualização.', 'Somente visualização'); }
       catch(e){ alert('Manutenção finalizada — somente visualização.'); }
       return true;
@@ -2323,12 +2352,28 @@
         else sideBtns.appendChild(btnConcluir);
       }
       if(btnConcluir) btnConcluir.style.display = 'none';
+      // sidebar: botão Editar (cria 1x, acima do Excluir) — manutenção finalizada em Retirada
+      let btnEditar = document.getElementById('kp-editar-btn');
+      if(sideBtns && !btnEditar){
+        btnEditar = document.createElement('button');
+        btnEditar.id = 'kp-editar-btn';
+        btnEditar.className = 'kp-sidebar-btn';
+        btnEditar.style.cssText = 'background:#8d6e63;color:#fff;border:1px solid #8d6e63;font-weight:800';
+        btnEditar.innerHTML = '<i class="ti ti-pencil"></i> Editar';
+        btnEditar.onclick = ()=> Kanpro.startEdicao();
+        const delBtn = document.getElementById('kp-delete-btn');
+        if(delBtn && delBtn.parentElement === sideBtns) sideBtns.insertBefore(btnEditar, delBtn);
+        else sideBtns.appendChild(btnEditar);
+      }
+      if(btnEditar) btnEditar.style.display = 'none';
       const isMaint = !!(data.is_maintenance && data.is_maintenance == 1);
       const isPendChamado = this.isPendenciaCard(data);
       const isPending = this.isCardInListType(data, 'pending');
       const amAdmin = this.isBoardAdmin();
       // Manutenção: sidebar só Excluir (admin) + Pegar (quando Pendente). Resto some.
       // Card manutenção já tem checklist próprio — Membros/Etiquetas/Checklist/Anexo/Datas/Capa/Escola/Chamado/Manutenção/Mover/Copiar/Arquivar/Fixar só poluem e geram erro.
+      // Sessão de edição aberta: revela título + Membros/Etiquetas/Datas/Capa (o resto segue escondido).
+      const edicaoOpenModal = this.isEdicaoOpen(data);
       try {
         const ticBtn = document.querySelector('#kanpro-card-modal button[onclick*="ticketButton"]');
         const escBtn = document.querySelector('#kanpro-card-modal button[onclick*="editMaintenanceCardTitle"]');
@@ -2336,7 +2381,8 @@
         const hideSide = isMaint || (isPending && String(data.chamado_status || '') === 'pendente');
         if (hideSide) {
           if(ticBtn) ticBtn.style.display = 'none';
-          if(escBtn) escBtn.style.display = 'none';
+          if(escBtn && !edicaoOpenModal) escBtn.style.display = 'none';
+          if(escBtn && edicaoOpenModal){ escBtn.style.display = ''; delete escBtn.dataset.maintHide; }
           allSide.forEach(b=>{
             if(b.id === 'kp-delete-btn'){
               if(amAdmin){ b.style.display = ''; delete b.dataset.adminHide; }
@@ -2344,8 +2390,12 @@
               return;
             }
             if(b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn') return; // Pegar controlado abaixo
-            if(b.id === 'kp-concluir-btn') return; // Concluir controlado abaixo
+            if(b.id === 'kp-concluir-btn' || b.id === 'kp-editar-btn') return; // Concluir/Editar controlados abaixo
             const onclick = b.getAttribute('onclick') || '';
+            if(edicaoOpenModal && /openMembersPicker|openLabelsPicker|openDatesPicker|openCoverPicker/.test(onclick)){
+              b.style.display = ''; delete b.dataset.maintHide;
+              return;
+            }
             if(/openMembersPicker|openLabelsPicker|openChecklistPicker|openDatesPicker|openCoverPicker|openMaintenanceFlow|moveCardPicker|copyCard|archiveCard|togglePin|card-attach-input/.test(onclick) || b.id === 'kp-maintenance-btn' || b.id === 'kp-pin-btn'){
               if(b.style.display !== 'none') b.dataset.maintHide = '1';
               b.style.display = 'none';
@@ -2355,7 +2405,7 @@
           if(ticBtn && !ticBtn.dataset.pendHide) ticBtn.style.display = '';
           if(escBtn && !escBtn.dataset.pendHide) escBtn.style.display = '';
           allSide.forEach(b=>{
-            if(b.id === 'kp-delete-btn' || b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn' || b.id === 'kp-concluir-btn') return;
+            if(b.id === 'kp-delete-btn' || b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn' || b.id === 'kp-concluir-btn' || b.id === 'kp-editar-btn') return;
             if(b.dataset.maintHide){ b.style.display = ''; delete b.dataset.maintHide; }
           });
         }
@@ -2378,8 +2428,14 @@
       // Concluir: Manutenção em Em Andamento/Retirada, membro/admin, sem pendências abertas
       try {
         const inAndRet = this.isCardInListType(data, 'andamento') || this.isCardInListType(data, 'retirada');
-        const showConcluir = isMaint && inAndRet && !this.isConclusaoPending(data) && !this.isExclusaoPending(data) && !this.isTabletLiberado(data) && !this.isCardFinalized(data) && this.canPegar();
+        const showConcluir = isMaint && inAndRet && !this.isConclusaoPending(data) && !this.isExclusaoPending(data) && !this.isEdicaoOpen(data) && !this.isEdicaoPending(data) && !this.isTabletLiberado(data) && !this.isCardFinalized(data) && this.canPegar();
         if(btnConcluir) btnConcluir.style.display = showConcluir ? '' : 'none';
+      } catch(e){}
+      // Editar: manutenção finalizada em Retirada, membro/admin, sem sessão/pendência aberta
+      try {
+        const inRet = this.isCardInListType(data, 'retirada');
+        const showEditar = isMaint && inRet && this.isCardFinalized(data) && !this.isEdicaoOpen(data) && !this.isEdicaoPending(data) && !this.isTabletLiberado(data) && !this.isConclusaoPending(data) && !this.isExclusaoPending(data) && this.canPegar();
+        if(btnEditar) btnEditar.style.display = showEditar ? '' : 'none';
       } catch(e){}
       // Pendência Chamado: botão Chamado criado (só admin libera)
       if(isPendChamado){
@@ -2387,6 +2443,36 @@
         const srcName = data.chamado_source_name || ('#' + (data.chamado_source_id||''));
         const isConcPend = (st === 'conclusao' || st === 'conclusao_ok');
         const isExcPend = (st === 'exclusao' || st === 'exclusao_ok');
+        const isEdPend = (st === 'edicao' || st === 'edicao_ok');
+        if(isEdPend){
+          const isEdDone = (st === 'edicao_ok');
+          if(act){
+            if(isEdDone){
+              act.innerHTML += `<span title="Origem liberada — auto-exclui em 30s" style="background:#efebe9;color:#5d4037;border:1px solid #8d6e63;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">✏️ Edição liberada ✓ <span style="background:#5d4037;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">⏳ <span id="kp-autodel-count-${data.id}">30s</span></span></span>`;
+            } else {
+              act.innerHTML += `<button onclick="Kanpro.liberarEdicao()" title="Destravar a origem (só admin)" style="background:${amAdmin ? '#8d6e63' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#8d6e63' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-pencil"></i> ✏️ Liberar edição${amAdmin ? '' : ' (só admin)'}</button>`;
+            }
+            if(box && act.innerHTML.trim()) box.style.display = 'flex';
+          }
+          const descElD = document.getElementById('card-modal-desc');
+          if(descElD && data.chamado_source_id && !document.getElementById('kp-chamado-origem')){
+            const div = document.createElement('div');
+            div.id = 'kp-chamado-origem';
+            div.style.cssText = 'margin-top:8px;background:#efebe9;border:1px solid #8d6e63;border-radius:8px;padding:8px 12px;font-size:12px;color:#5e6c84';
+            div.innerHTML = `✏️ Edição do card <strong style="color:#172b4d">#${data.chamado_source_id} ${this.escape(srcName)}</strong> ${isEdDone ? '— <strong style="color:#5d4037">liberada ✓</strong>' : '— aguardando <strong>Liberar edição</strong>'}`;
+            descElD.after(div);
+          }
+          if(isEdDone){
+            try {
+              let elapsed = 0;
+              if(data.date_mod){
+                const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
+                if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+              }
+              this.schedulePendenciaAutoDelete(data.id, Math.max(2, 30 - elapsed));
+            } catch(e){ this.schedulePendenciaAutoDelete(data.id, 30); }
+          }
+        } else
         if(isExcPend){
           const isExcDone = (st === 'exclusao_ok');
           if(act){
@@ -2792,6 +2878,50 @@
       if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao liberar', 'Erro'); return; }
       this.showToast('🗑️ Exclusão liberada — origem excluída');
       this.closeCardModal();
+      this.forceSync();
+      this.schedulePendenciaAutoDelete(pid, 30);
+    },
+    async startEdicao(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      const res = await this.ajax('start_edicao', {cards_id: cid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao abrir edição', 'Erro'); return; }
+      this.showToast('✏️ Edição aberta — altere o que precisar e confirme no rodapé');
+      this.refreshCardModal();
+      this.forceSync();
+    },
+    async cancelEdicao(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      const ok = await this.kpConfirm('Abandonar a sessão de edição?\n\nO que já foi alterado fica como está, sem pendência de aprovação.', 'Cancelar edição');
+      if(!ok) return;
+      const res = await this.ajax('cancel_edicao', {cards_id: cid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao cancelar', 'Erro'); return; }
+      this.showToast('Edição abandonada');
+      this.refreshCardModal();
+      this.forceSync();
+    },
+    async confirmEdicao(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      const ok = await this.kpConfirm('Confirmar a edição?\n\nO card trava e abre pendência marrom na Pendência Chamados. Um admin clica em "Liberar edição".', 'Confirmar edição');
+      if(!ok) return;
+      const res = await this.ajax('confirm_edicao', {cards_id: cid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao confirmar', 'Erro'); return; }
+      this.showToast('✏️ Edição confirmada — pendência #' + res.pendencia_id);
+      this.refreshCardModal();
+      this.forceSync();
+    },
+    async liberarEdicao(){
+      const pid = this.currentCardId;
+      if(!pid) return;
+      if(!this.isBoardAdmin()){ this.showAlert('Somente admin do quadro pode liberar a edição.', 'Sem permissão'); return; }
+      const ok = await this.kpConfirm('Liberar a edição?\n\nA origem é destravada e continua em Retirada.', 'Liberar edição');
+      if(!ok) return;
+      const res = await this.ajax('liberar_edicao', {pendencia_cards_id: pid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao liberar', 'Erro'); return; }
+      this.showToast('✏️ Edição liberada — origem destravada em Retirada');
+      this.refreshCardModal();
       this.forceSync();
       this.schedulePendenciaAutoDelete(pid, 30);
     },
@@ -3882,6 +4012,8 @@
       const isConcDone = (st === 'conclusao_ok');
       const isExc = (st === 'exclusao' || st === 'exclusao_ok');
       const isExcDone = (st === 'exclusao_ok');
+      const isEd = (st === 'edicao' || st === 'edicao_ok');
+      const isEdDone = (st === 'edicao_ok');
       const srcId = data.chamado_source_id || '';
       const srcName = data.chamado_source_name || (srcId ? ('#' + srcId) : '—');
       const escola = data.name || srcName || ('Pendência #' + data.id);
@@ -3898,7 +4030,11 @@
           <span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${this.escape(nm)}">${this.escape(nm)}</span>
         </div>`;
       }).join('') : '<div style="color:#5e6c84;font-size:13px">Sem máquinas vinculadas.</div>';
-      const statusPill = isExc
+      const statusPill = isEd
+        ? (isEdDone
+          ? '<span style="background:#5d4037;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberada</span>'
+          : '<span style="background:#fff;color:#5d4037;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. edição</span>')
+        : (isExc
         ? (isExcDone
           ? '<span style="background:#091e42;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberada</span>'
           : '<span style="background:#fff;color:#091e42;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. exclusão</span>')
@@ -3908,8 +4044,14 @@
           : '<span style="background:#fff;color:#2e7d32;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. liberação</span>')
         : (isLib
           ? '<span style="background:#006644;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberado</span>'
-          : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>'));
-      const actionHtml = isExc
+          : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>')));
+      const actionHtml = isEd
+        ? (isEdDone
+          ? `<div style="background:#efebe9;border:1px solid #8d6e63;color:#5d4037;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem destravada — edição liberada<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#8d6e63"></div></div></div>`
+          : (amAdmin
+            ? `<button onclick="Kanpro.liberarEdicao()" style="width:100%;background:linear-gradient(135deg,#5d4037,#8d6e63);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(93,64,55,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-pencil" style="font-size:20px"></i> Liberar edição</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Destrava a origem em Retirada • auto-exclui em 30s</div>`
+            : `<div style="background:#fff;border:1px dashed #8d6e63;color:#5d4037;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin clicar<br>“Liberar edição”</div>`))
+        : (isExc
         ? (isExcDone
           ? `<div style="background:#e9edf2;border:1px solid #091e42;color:#091e42;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem excluída<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#091e42"></div></div></div>`
           : (amAdmin
@@ -3925,13 +4067,13 @@
           ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem desbloqueada — chamado criado<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
           : (amAdmin
             ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#22b573,#0d8a4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(34,181,115,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:20px"></i> Chamado criado</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Libera a origem • zap em 5s • auto-exclui em 30s</div>`
-            : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`)));
+            : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`))));
       pc.innerHTML = `
-        <div style="background:${isExc ? 'linear-gradient(135deg,#091e42,#3a4a63)' : (isConc ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : 'linear-gradient(135deg,#d81b60,#ff5fa2)')} ;padding:20px 20px 16px;color:#fff">
+        <div style="background:${isEd ? 'linear-gradient(135deg,#4e342e,#8d6e63)' : (isExc ? 'linear-gradient(135deg,#091e42,#3a4a63)' : (isConc ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : 'linear-gradient(135deg,#d81b60,#ff5fa2)'))} ;padding:20px 20px 16px;color:#fff">
           <div style="display:flex;align-items:center;gap:12px">
-            <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isExc ? '🗑️' : (isConc ? '🏁' : '📞')}</span>
+            <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isEd ? '✏️' : (isExc ? '🗑️' : (isConc ? '🏁' : '📞'))}</span>
             <div style="min-width:0;flex:1">
-              <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isExc ? 'Pendência Exclusão' : (isConc ? 'Pendência Conclusão' : 'Pendência Chamado')}</div>
+              <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isEd ? 'Pendência Edição' : (isExc ? 'Pendência Exclusão' : (isConc ? 'Pendência Conclusão' : 'Pendência Chamado'))}</div>
               <div style="font-size:12px;opacity:.92;margin-top:2px">#${data.id} • ${this.escape(boardName || data.list_name || '')}</div>
             </div>
             ${statusPill}
@@ -3948,6 +4090,14 @@
               <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">SOLICITADO</div><div style="font-size:13px;font-weight:600;color:#172b4d;margin-top:2px">${this.escape(byName || '—')}${created ? `<div style="font-size:11px;color:#5e6c84;font-weight:400">${this.escape(created)}</div>` : ''}</div></div>
             </div>
           </div>
+          ${isEd ? `
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;background:#efebe9;border:1px solid #a1887f;border-radius:12px;padding:12px 14px">
+              <span style="font-size:18px">✏️</span>
+              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#5d4037;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
+              <div style="font-size:12px;color:#5e6c84">Travado até “Liberar edição” — depois continua em Retirada.</div></div>
+            </div>
+          </div>` : ''}
           ${isExc ? `
           <div>
             <div style="display:flex;align-items:center;gap:10px;background:#e9edf2;border:1px solid #091e42;border-radius:12px;padding:12px 14px">
@@ -3955,14 +4105,16 @@
               <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#091e42;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
               <div style="font-size:12px;color:#5e6c84">Travado até “Liberar exclusão” — depois é excluído de verdade.</div></div>
             </div>
-          </div>` : (isConc ? `
+          </div>` : ''}
+          ${isConc ? `
           <div>
             <div style="display:flex;align-items:center;gap:10px;background:#f2fbf3;border:1px solid #a9dfb8;border-radius:12px;padding:12px 14px">
               <span style="font-size:18px">🏁</span>
               <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#2e7d32;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
               <div style="font-size:12px;color:#5e6c84">Travado até “Liberar conclusão” — depois vai para Concluído.</div></div>
             </div>
-          </div>` : `
+          </div>` : ''}
+          ${(!isEd && !isExc && !isConc) ? `
           <div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
               <strong style="font-size:13px;color:#172b4d">🔧 Máquinas (${machTotal})</strong>
@@ -3972,7 +4124,7 @@
               </span>
             </div>
             <div style="display:grid;gap:8px;max-height:260px;overflow-y:auto">${machHtml}</div>
-          </div>`)}
+          </div>` : ''}
           ${actionHtml}
           <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:2px">
             <button onclick="Kanpro.closeCardModal()" style="background:#f4f5f7;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d">Fechar</button>
@@ -3985,7 +4137,7 @@
         if(idx>=0){ this.cards[idx].name=data.name; this.cards[idx].description=data.description; this.cards[idx].chamado_status=data.chamado_status; }
         this.cardLabels[data.id] = data.labels||[];
       } catch(e){}
-      if(isLib || isConcDone || isExcDone){
+      if(isLib || isConcDone || isExcDone || isEdDone){
         try {
           let elapsed = 0;
           if(data.date_mod){
@@ -4225,6 +4377,8 @@
       const goldenLocked = this.isTabletLiberado(data);
       const conclusaoLocked = this.isConclusaoPending(data);
       const exclusaoLocked = this.isExclusaoPending(data);
+      const edicaoOpen = this.isEdicaoOpen(data);
+      const edicaoPending = this.isEdicaoPending(data);
       const progress = data.maintenance_progress || {total:machines.length, done: machines.filter(m=>m.is_done==1).length, percent: 0};
       if(progress.total && !progress.percent){
         progress.percent = progress.total? Math.round(progress.done/progress.total*100):0;
@@ -4242,7 +4396,7 @@
       const allNeed = total>0 && needsCount===total;
       // seleção em massa
       const isFinalized = this.isCardFinalized(data);
-      const selectMode = !!this._maintSelectMode && !cardPending && !isFinalized && !goldenLocked && !conclusaoLocked && !exclusaoLocked;
+      const selectMode = !!this._maintSelectMode && !cardPending && (!isFinalized || edicaoOpen) && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !edicaoPending;
       if(!this._maintSelected) this._maintSelected = new Set();
       const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status (some se o card ainda não foi pego)
@@ -4250,7 +4404,7 @@
       // não trava — permite retry do Finalizar quando a assinatura não foi criada.
       const termCid = data.id || this.currentCardId || 0;
       const termStat = this.transferStatus && this.transferStatus[termCid];
-      const lockedFinal = !!isFinalized;
+      const lockedFinal = !!isFinalized && !edicaoOpen;
       const chamadoLocked = (machines||[]).some(m=> m && Number(m.is_locked)==1);
       const chamadoPendId = ((machines||[]).find(m=> m && Number(m.is_locked)==1) || {}).locked_chamado_card_id || '';
       // Barra de conclusão separada (footer destacado) — não mistura com as ações de edição
@@ -4258,7 +4412,15 @@
       const isTabletLiberadoFoot = String(data.chamado_status || '') === 'liberado' && Number(data.tablet_liberado_pending || 0) === 1;
       const myIdsFoot = this.myUserIds ? this.myUserIds() : [];
       const canConfirmTabletFoot = isTabletLiberadoFoot && Number(data.tablet_finalized_by || 0) > 0 && myIdsFoot.includes(Number(data.tablet_finalized_by));
-      if (lockedFinal) {
+      if (edicaoOpen) {
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#fff8f0;border:2px solid #a1887f;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#5d4037;letter-spacing:.06em;margin-bottom:8px">✏️ EM EDIÇÃO — CONFIRME OU CANCELE</div>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button onclick="event.stopPropagation();Kanpro.confirmEdicao()" title="Trava e envia para aprovação (pendência marrom)" style="background:linear-gradient(135deg,#8d6e63 0%,#5d4037 100%);color:#fff;border:none;padding:13px 36px;border-radius:8px;cursor:pointer;font-weight:800;font-size:15px;box-shadow:0 3px 10px rgba(93,64,55,.4)"><i class="ti ti-check"></i> Confirmar edição</button>
+          <button onclick="event.stopPropagation();Kanpro.cancelEdicao()" title="Abandona a sessão (mantém o que já foi alterado)" style="background:#fff;border:1px solid #dfe1e6;color:#5e6c84;padding:13px 24px;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px">Cancelar</button>
+          </div>
+        </div>`;
+      } else if (lockedFinal) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#e6f4ff;border:2px solid #0052cc;border-radius:10px;padding:14px;text-align:center">
           <div style="font-size:11px;font-weight:800;color:#0052cc;letter-spacing:.06em;margin-bottom:8px">ATENDIMENTO CONCLUÍDO</div>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
@@ -4282,6 +4444,11 @@
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
           <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
           <span title="Exclusão solicitada — aguardando liberação" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> 🔒 Bloqueado — aguardando "Liberar exclusão"</span>
+        </div>`;
+      } else if (edicaoPending) {
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
+          <span title="Edição aguardando liberação" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> 🔒 Bloqueado — aguardando "Liberar edição"</span>
         </div>`;
       } else if (cardPending) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
@@ -4324,6 +4491,10 @@
           ${lockedFinal? `
           <div style="padding:10px 16px;background:#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <i class="ti ti-lock"></i> 🔒 Finalizado — enviado para Assinatura. Somente visualização: não é mais possível editar, adicionar ou remover máquinas.
+          </div>` : ""}
+          ${edicaoOpen? `
+          <div style="padding:10px 16px;background:#fff8f0;border-bottom:1px solid #d7ccc8;color:#5d4037;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <i class="ti ti-pencil"></i> ✏️ Em edição — altere o que precisar e clique em <strong>Confirmar edição</strong> no rodapé (ou Cancele para abandonar a sessão).
           </div>` : ""}
           ${cardPending? `
           <div style="padding:10px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -4384,8 +4555,8 @@
       html += `<div style="display:grid;gap:10px">`;
       machines.forEach(m=>{
         const isLocked = !!(m.is_locked && Number(m.is_locked) == 1);
-        // trava do card (lista Pendente) + trava do chamado + finalizado (Assinatura) + dourado (Confirmar) + conclusão/exclusão: mesma regra visual
-        const workLocked = isLocked || cardPending || lockedFinal || goldenLocked || conclusaoLocked || exclusaoLocked;
+        // trava do card (lista Pendente) + trava do chamado + finalizado (Assinatura) + dourado (Confirmar) + conclusão/exclusão/edição: mesma regra visual
+        const workLocked = isLocked || cardPending || lockedFinal || goldenLocked || conclusaoLocked || exclusaoLocked || edicaoPending;
         const dis = workLocked ? 'disabled' : '';
         const isDone = m.is_done==1;
         const rawStatus = (m.status||"").toString().trim().toLowerCase();
@@ -4419,11 +4590,13 @@
               ? '🏁 Conclusão solicitada — aguardando "Liberar conclusão" na Pendência Chamados. Nada pode ser editado até liberar.'
               : (exclusaoLocked
                 ? '🗑️ Exclusão solicitada — aguardando "Liberar exclusão" na Pendência Chamados. Nada pode ser editado até liberar.'
-                : (cardPending
+                : (edicaoPending
+                  ? '✏️ Edição aguardando "Liberar edição" na Pendência Chamados. Nada pode ser editado até liberar.'
+                  : (cardPending
                 ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (membro ou admin do quadro) para liberar o atendimento.'
-                : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`))));
+                : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`)))));
         const lockBanner = workLocked ? `<div style="background:${lockedFinal ? '#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc' : '#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600'};font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> ${lockTxt}</div>` : '';
-        const lockHint = lockedFinal ? 'Finalizado' : (goldenLocked ? 'Aguardando confirmação' : (conclusaoLocked ? 'Aguard. liberação' : (exclusaoLocked ? 'Aguard. exclusão' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado'))));
+        const lockHint = lockedFinal ? 'Finalizado' : (goldenLocked ? 'Aguardando confirmação' : (conclusaoLocked ? 'Aguard. liberação' : (exclusaoLocked ? 'Aguard. exclusão' : (edicaoPending ? 'Aguard. edição' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado')))));
         html += `
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${workLocked ? '#fafafa' : (isUrgent?"#fff1f0":"#fff")};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${workLocked ? '#eb5a46' : borderColor};overflow:hidden;${workLocked ? 'opacity:.95' : ''}">
             ${lockBanner}
@@ -4432,7 +4605,7 @@
                 ${selectMode && !workLocked ? `<input type="checkbox" data-mid="${m.id}" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
                 <span style="background:${workLocked ? '#5e6c84' : (isUrgent?"#eb5a46":"#091e42")};color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
                 <div style="flex:1;min-width:0">
-                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}${workLocked?` <span title="${goldenLocked?'Tablet liberado — aguardando confirmação do técnico':(conclusaoLocked?'Conclusão solicitada — aguardando liberação':(exclusaoLocked?'Exclusão solicitada — aguardando liberação':(cardPending?'Card ainda na lista Pendente':'Travada pela Pendência Chamado')))}" style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">🔒 ${lockHint}</span>`:""}</div>
+                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}${workLocked?` <span title="${goldenLocked?'Tablet liberado — aguardando confirmação do técnico':(conclusaoLocked?'Conclusão solicitada — aguardando liberação':(exclusaoLocked?'Exclusão solicitada — aguardando liberação':(edicaoPending?'Edição aguardando liberação':(cardPending?'Card ainda na lista Pendente':'Travada pela Pendência Chamado'))))}" style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">🔒 ${lockHint}</span>`:""}</div>
                   <div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label)}</div>
                 </div>
               </div>
@@ -4473,9 +4646,9 @@
       });
       html += `</div>`;
       html += finalizeFootHtml;
-      html += (lockedFinal || chamadoLocked || cardPending || goldenLocked || conclusaoLocked || exclusaoLocked ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      html += (lockedFinal || chamadoLocked || cardPending || goldenLocked || conclusaoLocked || exclusaoLocked || edicaoPending ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
-        ${cardPending ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
+        ${(cardPending || edicaoOpen || edicaoPending) ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
       </div>`);
       wrap.innerHTML = html;
       // inicializa cache de autosave para evitar save desnecessário logo ao abrir
@@ -5607,6 +5780,26 @@
         return (st === 'exclusao' || st === 'exclusao_ok') && Number(c.chamado_source_id || 0) > 0;
       } catch(e){ return false; }
     },
+    isEdicaoOpen(d){
+      try {
+        const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
+        return !!c && Number(c.edicao_by || 0) > 0 && !Number(c.edicao_pending || 0);
+      } catch(e){ return false; }
+    },
+    isEdicaoPending(d){
+      try {
+        const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
+        return !!c && Number(c.edicao_pending || 0) === 1;
+      } catch(e){ return false; }
+    },
+    isEdicaoPendencia(d){
+      try {
+        const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
+        if(!c) return false;
+        const st = String(c.chamado_status || '');
+        return (st === 'edicao' || st === 'edicao_ok') && Number(c.chamado_source_id || 0) > 0;
+      } catch(e){ return false; }
+    },
     isConclusaoPendencia(d){
       try {
         const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
@@ -5619,7 +5812,7 @@
       if(this.isCardLocked(this.currentCardId)) return true;
       try {
         const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));
-        if(d && (this.isTabletLiberado(d) || this.isConclusaoPending(d) || this.isExclusaoPending(d))) return true;
+        if(d && (this.isTabletLiberado(d) || this.isConclusaoPending(d) || this.isExclusaoPending(d) || this.isEdicaoPending(d))) return true;
       } catch(e){}
       return false;
     },
@@ -5638,6 +5831,7 @@
         if(d && this.isTabletLiberado(d)){ try { this.showAlert('✨ Tablet liberado — aguardando confirmação do técnico que finalizou.\n\nNada pode ser editado até confirmar.', 'Bloqueado'); } catch(e){ alert('Tablet liberado — aguardando confirmação do técnico.'); } return; }
         if(d && this.isConclusaoPending(d)){ try { this.showAlert('🏁 Conclusão solicitada — aguardando "Liberar conclusão" na Pendência Chamados.\n\nNada pode ser editado até liberar.', 'Bloqueado'); } catch(e){ alert('Conclusão solicitada — aguardando liberação.'); } return; }
         if(d && this.isExclusaoPending(d)){ try { this.showAlert('🗑️ Exclusão solicitada — aguardando "Liberar exclusão" na Pendência Chamados.\n\nNada pode ser editado até liberar.', 'Bloqueado'); } catch(e){ alert('Exclusão solicitada — aguardando liberação.'); } return; }
+        if(d && this.isEdicaoPending(d)){ try { this.showAlert('✏️ Edição aguardando "Liberar edição" na Pendência Chamados.\n\nNada pode ser editado até liberar.', 'Bloqueado'); } catch(e){ alert('Edição aguardando liberação.'); } return; }
       } catch(e){}
       if(this.isCardWorkLocked()){ try { this.showAlert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.', 'Informação'); } catch(e){ alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.'); } }
       else { try { this.showAlert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.', 'Informação'); } catch(e){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); } }
