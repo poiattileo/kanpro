@@ -557,7 +557,7 @@ function kanpro_tablet_pendencia_status(int $src_cards_id): string {
 
 // Split automático: se o card tem mistura tablet + não-tablet, move TODOS os
 // tablets para um novo card (mesmo quadro/lista/nome/entidade, manutenção).
-// Original fica só com não-tablets (re-sequenciado 1..N). Novo fica só tablets.
+// Numeração ORIGINAL preservada nos dois cards (não re-sequencia). Novo fica só tablets.
 // Nome mantém igual (decisão do usuário). Retorna ['new_id'=>int,'moved'=>int,'kept'=>int].
 function kanpro_split_tablet_machines(int $cards_id): array {
     global $DB;
@@ -601,19 +601,12 @@ function kanpro_split_tablet_machines(int $cards_id): array {
                 }
             }
         } catch (Throwable $e) {}
-        // move tablets p/ novo card (re-seq 1..N) + re-seq origem
-        $seq = 1;
+        // move tablets p/ novo card MANTENDO o número original de cada uma (não re-sequencia)
         foreach ($tabs as $tm) {
-            $newLabel = "Máquina {$seq} - {$tm['model']}";
-            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$seq,'label'=>$newLabel,'date_mod'=>$now], ['id'=>(int)$tm['id']]);
-            $seq++;
+            $keepSeq = (int)$tm['seq'];
+            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newId,'seq'=>$keepSeq,'label'=>"Máquina {$keepSeq} - {$tm['model']}",'date_mod'=>$now], ['id'=>(int)$tm['id']]);
         }
-        $seq = 1;
-        foreach ($nontabs as $nm2) {
-            $newLabel = "Máquina {$seq} - {$nm2['model']}";
-            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel,'date_mod'=>$now], ['id'=>(int)$nm2['id']]);
-            $seq++;
-        }
+        // Origem mantém a numeração original dos não-tablets (não re-sequencia)
         // ticket próprio p/ o card tablet (não quebra se falhar)
         try {
             if (class_exists('Ticket') && Session::haveRight('ticket', CREATE)) {
@@ -6041,16 +6034,7 @@ switch ($action) {
         if ($DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
             $DB->delete('glpi_plugin_kanpro_maintenance_notes', ['machine_id'=>$mid]);
         }
-        // Re-sequenciar restantes para manter 1..N contínuo
-        $remaining=[];
-        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
-        foreach($iter as $r) $remaining[]=$r;
-        $seq=1;
-        foreach($remaining as $r) {
-            $newLabel = "Máquina {$seq} - {$r['model']}";
-            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$r['id']]);
-            $seq++;
-        }
+        // Origem mantém a numeração original (não re-sequencia) — a máquina removida deixa um buraco na sequência
         $all=[];
         $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
         foreach($iter as $r) $all[]=$r;
@@ -6203,24 +6187,15 @@ switch ($action) {
         ]);
         if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de retirada']);
         $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newId]);
-        // move máquina para novo card, re-sequencia como 1 e mantém infos
-        $newLabel = "Máquina 1 - {$row['model']}";
+        // move máquina para novo card MANTENDO o número original e o relatório/diário (não re-sequencia)
+        $keepSeq = (int)$row['seq'];
         $DB->update('glpi_plugin_kanpro_maintenance_machines', [
             'plugin_kanpro_cards_id'=>$newId,
-            'seq'=>1,
-            'label'=>$newLabel,
+            'seq'=>$keepSeq,
+            'label'=>"Máquina {$keepSeq} - {$row['model']}",
             'date_mod'=>date('Y-m-d H:i:s')
         ], ['id'=>$mid]);
-        // re-sequencia card original
-        $remaining=[];
-        $iter=$DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
-        foreach($iter as $r) $remaining[]=$r;
-        $seq=1;
-        foreach($remaining as $r){
-            $newLabel2 = "Máquina {$seq} - {$r['model']}";
-            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel2,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$r['id']]);
-            $seq++;
-        }
+        // Origem mantém a numeração original (não re-sequencia) — a máquina retirada deixa um buraco
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_retirada', "Máquina #{$row['seq']} ({$row['model']}) retirada para card #{$newId}");
         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_retirada_new', "Card de retirada criado a partir de #{$cid} máquina #{$row['seq']}");
         // cria transferência para assinatura (se plugin disponível)
@@ -6426,10 +6401,10 @@ switch ($action) {
                     $newIdT = $newCardT->add(['plugin_kanpro_boards_id'=>$card->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$card->fields['plugin_kanpro_lists_id'],'name'=>$newNameT,'description'=>($card->fields['description'] ?? '')]);
                     if (!$newIdT) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
                     $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newIdT]);
-                    $seq=1;
+                    // MANTÉM o número original de cada máquina (não re-sequencia) — a numeração não se perde
                     foreach ($pendingMachines as $pm) {
-                        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newIdT,'seq'=>$seq,'label'=>"Máquina {$seq} - {$pm['model']}",'is_done'=>0,'is_ok'=>0,'status'=>'','diary'=>'','is_inventoried'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
-                        $seq++;
+                        $keepSeq = (int)$pm['seq'];
+                        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newIdT,'seq'=>$keepSeq,'label'=>"Máquina {$keepSeq} - {$pm['model']}",'is_done'=>0,'is_ok'=>0,'status'=>'','diary'=>($pm['diary'] ?? ''),'is_inventoried'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
                     }
                     PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newIdT, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card Tablet de pendentes criado a partir de #{$cid} com {$pendingCount} máquinas");
                     jexit(['success'=>true,'pending_only'=>true,'tablet'=>true,'pending_card_id'=>$newIdT,'pending_count'=>$pendingCount,'msg'=>"Card Tablet: todas como Pendente. Novo card #{$newIdT} criado. Faça a manutenção e finalize novamente.",'progress'=>['total'=>$total,'pending'=>$pendingCount]]);
@@ -6445,20 +6420,14 @@ switch ($action) {
                     $newIdT2 = $newCardT2->add(['plugin_kanpro_boards_id'=>$card->fields['plugin_kanpro_boards_id'],'plugin_kanpro_lists_id'=>$card->fields['plugin_kanpro_lists_id'],'name'=>mb_substr($origNameT2,0,255),'description'=>($card->fields['description'] ?? '')]);
                     if ($newIdT2) {
                         $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newIdT2]);
-                        $seq=1;
+                        // MANTÉM o número original de cada máquina (não re-sequencia)
                         foreach ($pendingMachines as $pm) {
-                            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newIdT2,'seq'=>$seq,'label'=>"Máquina {$seq} - {$pm['model']}",'is_done'=>0,'is_ok'=>0,'status'=>'','diary'=>'','is_inventoried'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
-                            $seq++;
+                            $keepSeq = (int)$pm['seq'];
+                            $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$newIdT2,'seq'=>$keepSeq,'label'=>"Máquina {$keepSeq} - {$pm['model']}",'is_done'=>0,'is_ok'=>0,'status'=>'','diary'=>($pm['diary'] ?? ''),'is_inventoried'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pm['id']]);
                         }
                         $tabletPendingCardId = $newIdT2;
                         PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newIdT2, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card Tablet de pendentes #{$newIdT2} criado com {$pendingCount} máquinas de #{$cid} (1º Finalizar Tablet)");
-                        // re-sequencia origem (só não-pendentes)
-                        $remT = [];
-                        $iterT = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
-                        foreach ($iterT as $r) $remT[] = $r;
-                        usort($remT, fn($a,$b)=> $a['seq']<=>$b['seq']);
-                        $s=1;
-                        foreach ($remT as $rm) { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$s,'label'=>"Máquina {$s} - {$rm['model']}"], ['id'=>$rm['id']]); $s++; }
+                        // Origem mantém a numeração original (não re-sequencia) — o novo card herda os mesmos números
                     }
                 }
                 // cria Pendência Chamado com as máquinas restantes (trava + zap pendência)
@@ -6505,22 +6474,22 @@ switch ($action) {
             if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao criar card de pendentes']);
             // garante que novo card também é manutenção
             $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id(),'entities_id'=>(int)($card->fields['entities_id'] ?? 0)], ['id'=>$newId]);
-            // move pendentes para novo card com seq 1..N e zera Feito/Status/Relatório/Inventário
-            $seq=1;
+            // move pendentes para novo card MANTENDO o número original (não re-sequencia) e o relatório/diário
+            // (zera só Feito/Status/Inventário — a máquina será reavaliada no novo card)
             foreach ($pendingMachines as $pm) {
-                $newLabel = "Máquina {$seq} - {$pm['model']}";
+                $keepSeq = (int)$pm['seq'];
+                $newLabel = "Máquina {$keepSeq} - {$pm['model']}";
                 $DB->update('glpi_plugin_kanpro_maintenance_machines', [
                     'plugin_kanpro_cards_id'=>$newId,
-                    'seq'=>$seq,
+                    'seq'=>$keepSeq,
                     'label'=>$newLabel,
                     'is_done'=>0,
                     'is_ok'=>0,
                     'status'=>'',
-                    'diary'=>'',
+                    'diary'=>($pm['diary'] ?? ''),
                     'is_inventoried'=>0,
                     'date_mod'=>date('Y-m-d H:i:s')
                 ], ['id'=>$pm['id']]);
-                $seq++;
             }
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes criado a partir de #{$cid} com {$pendingCount} máquinas");
             PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Máquinas pendentes movidas para #{$newId} ({$pendingCount}) — card original ficou vazio");
@@ -6590,21 +6559,21 @@ switch ($action) {
             ]);
             if ($newId) {
                 $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>date('Y-m-d H:i:s'),'maintenance_by'=>kanpro_acting_user_id()], ['id'=>$newId]);
-                $seq=1;
+                // MANTÉM o número original e o relatório/diário de cada máquina (não re-sequencia)
                 foreach ($pendingMachines as $pm) {
-                    $newLabel = "Máquina {$seq} - {$pm['model']}";
+                    $keepSeq = (int)$pm['seq'];
+                    $newLabel = "Máquina {$keepSeq} - {$pm['model']}";
                     $DB->update('glpi_plugin_kanpro_maintenance_machines', [
                         'plugin_kanpro_cards_id'=>$newId,
-                        'seq'=>$seq,
+                        'seq'=>$keepSeq,
                         'label'=>$newLabel,
                         'is_done'=>0,
                         'is_ok'=>0,
                         'status'=>'',
-                        'diary'=>'',
+                        'diary'=>($pm['diary'] ?? ''),
                         'is_inventoried'=>0,
                         'date_mod'=>date('Y-m-d H:i:s')
                     ], ['id'=>$pm['id']]);
-                    $seq++;
                 }
                 $pendingCardId = $newId;
                 PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $newId, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Card de pendentes #{$newId} criado com {$pendingCount} máquinas de #{$cid}");
@@ -6613,16 +6582,8 @@ switch ($action) {
                     $pendenciaSplit = kanpro_create_pendencia_chamado((int)$card->fields['plugin_kanpro_boards_id'], (int)$newId, array_column($pendingMachines, 'id'), kanpro_acting_user_id(), 'Finalizar');
                 }
             }
-            // re-sequencia card original (não pendentes) 1..N
-            $remaining = $nonPending;
-            usort($remaining, fn($a,$b)=> $a['seq']<=>$b['seq']);
-            $seq=1;
-            foreach ($remaining as $rm) {
-                $newLabel = "Máquina {$seq} - {$rm['model']}";
-                $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$seq,'label'=>$newLabel,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$rm['id']]);
-                $seq++;
-            }
-            // atualiza array máquinas para termo (apenas não pendentes, já re-sequenciadas em memória)
+            // Origem mantém a numeração original (não re-sequencia) — o novo card herda os números das pendentes
+            // atualiza array máquinas para termo (apenas não pendentes, mantendo o número original)
             $machines = [];
             $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
             foreach ($iter as $r) $machines[] = $r;
@@ -6655,17 +6616,16 @@ switch ($action) {
                     'entities_id'      => (int)($card->fields['entities_id'] ?? 0),
                     'date_mod'         => date('Y-m-d H:i:s')
                 ], ['id' => $pendingCardId]);
-                // copia máquinas pendentes para novo card re-sequenciando 1..N
-                $seq = 0;
+                // copia máquinas pendentes para novo card MANTENDO o número original
                 $now2 = date('Y-m-d H:i:s');
                 $uid2 = kanpro_acting_user_id();
                 foreach ($pendingMachines as $pm) {
-                    $seq++;
+                    $keepSeq = (int)$pm['seq'];
                     $DB->insert('glpi_plugin_kanpro_maintenance_machines', [
                         'plugin_kanpro_cards_id' => $pendingCardId,
-                        'seq'                    => $seq,
+                        'seq'                    => $keepSeq,
                         'model'                  => $pm['model'],
-                        'label'                  => "Máquina {$seq} - {$pm['model']}",
+                        'label'                  => "Máquina {$keepSeq} - {$pm['model']}",
                         'diary'                  => $pm['diary'] ?? '',
                         'is_done'                => $pm['is_done'] ?? 0,
                         'is_ok'                  => $pm['is_ok'] ?? 0,
@@ -6678,18 +6638,10 @@ switch ($action) {
                 PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $pendingCardId, $card->fields['plugin_kanpro_lists_id'], 'card_create', "Card pendente criado a partir de #{$cid} com {$pendingCount} máquina(s) pendente(s)");
                 PluginKanproBoard::logActivity($card->fields['plugin_kanpro_boards_id'], $cid, $card->fields['plugin_kanpro_lists_id'], 'maintenance_pending_split', "Manutenção: {$pendingCount} pendente(s) movido(s) para card #{$pendingCardId}");
                 // remove pendentes do card original (movido, não duplicado)
+                // Origem mantém a numeração original (não re-sequencia)
                 $pendingIds = array_column($pendingMachines, 'id');
                 if (!empty($pendingIds)) {
                     $DB->delete('glpi_plugin_kanpro_maintenance_machines', ['id' => $pendingIds]);
-                    // re-sequencia restantes do card original
-                    $remaining = [];
-                    $iter2 = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
-                    foreach ($iter2 as $r) $remaining[]=$r;
-                    $s=1;
-                    foreach ($remaining as $r) {
-                        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['seq'=>$s,'label'=>"Máquina {$s} - {$r['model']}"], ['id'=>$r['id']]);
-                        $s++;
-                    }
                 }
                 // Admin do quadro: novo card de pendentes já entra no fluxo Pendência Chamado (trava + zap)
                 if (function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) {
