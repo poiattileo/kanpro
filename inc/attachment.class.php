@@ -4,7 +4,7 @@ if (!defined('GLPI_ROOT')) {
 }
 
 class PluginKanproAttachment extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
     static function getTypeName($nb = 0) { return _n('Anexo', 'Anexos', $nb); }
 
     static function handleUpload($cards_id, array $file, int $checklistItemId = 0): ?int {

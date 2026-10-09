@@ -27,7 +27,7 @@ if (!defined('GLPI_ROOT')) {
  *                        PluginKanproMaintenanceMail::render('entrada', $data)];
  */
 class PluginKanproMaintenanceMail extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
 
     static function getTypeName($nb = 0) {
         return 'E-mails de manutenção';

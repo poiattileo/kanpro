@@ -5,7 +5,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginKanproCard extends CommonDBTM {
 
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
 
     static function getTypeName($nb = 0) {
         return _n('Cartão', 'Cartões', $nb, 'kanpro');

@@ -6,7 +6,7 @@ if (!defined('GLPI_ROOT')) {
 require_once __DIR__ . '/compat.php';
 
 class PluginKanproProfile extends CommonDBTM {
-    public static $rightname = 'profile';
+    public static string $rightname = 'profile';
     public const RIGHT_KANPRO = 'plugin_kanpro';
 
     public static function getAllRights(): array {

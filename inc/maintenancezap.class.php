@@ -31,7 +31,7 @@ require_once __DIR__ . '/acting.php';
  * Falha de envio NUNCA quebra o fluxo principal (tudo em try/catch + log).
  */
 class PluginKanproMaintenanceZap extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
 
     static function getTypeName($nb = 0) {
         return 'WhatsApp da manutenção';

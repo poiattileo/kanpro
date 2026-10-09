@@ -7,7 +7,7 @@ require_once __DIR__ . '/compat.php';
 
 class PluginKanproBoard extends CommonDBTM {
 
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
 
     static function getTypeName($nb = 0) {
         return _n('Quadro', 'Quadros', $nb, 'kanpro');
