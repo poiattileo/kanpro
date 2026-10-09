@@ -831,6 +831,9 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'tablet_liberado_pending')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `tablet_liberado_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=tablet liberado aguardando Confirmar do tecnico' AFTER `tablet_finalized_by`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'conclusao_pending')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `conclusao_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=aguardando Liberar conclusao na Pendencia Chamados' AFTER `tablet_liberado_pending`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
             if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
@@ -1259,6 +1262,21 @@ function kanpro_need_not_tablet_pending(int $cards_id) {
     if (kanpro_is_tablet_pending($cards_id)) {
         jexit(['success'=>false,'msg'=>'✨ Tablet liberado — aguardando confirmação do técnico que finalizou. Nada pode ser editado até confirmar.','tablet_pending'=>true]);
     }
+    kanpro_need_not_conclusao_pending($cards_id);
+}
+// Conclusão de manutenção aguardando "Liberar conclusão" (card travado p/ todos).
+function kanpro_is_conclusao_pending(int $cards_id): bool {
+    if ($cards_id <= 0) return false;
+    try {
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cards_id)) return false;
+        return !empty($c->fields['conclusao_pending']);
+    } catch (Throwable $e) { return false; }
+}
+function kanpro_need_not_conclusao_pending(int $cards_id) {
+    if (kanpro_is_conclusao_pending($cards_id)) {
+        jexit(['success'=>false,'msg'=>'🏁 Conclusão solicitada — aguardando "Liberar conclusão" na Pendência Chamados. Nada pode ser editado até liberar.','conclusao_pending'=>true]);
+    }
 }
 
 // Toca date_mod do cartão (e do quadro) p/ o selo do polling perceber a mudança.
@@ -1302,8 +1320,8 @@ function kanpro_move_card_to_retirada(int $cards_id): array {
     } catch (Throwable $e) { return $noop; }
 }
 
-// Move o card para a lista de categoria "Concluído" (pós-assinatura).
-// Só sai da Retirada; sem lista Concluído ou já estando nela: não faz nada.
+// Move o card para a lista de categoria "Concluído" (pós-assinatura ou pós-Liberar conclusão).
+// Só sai da Retirada ou do Em Andamento; sem lista Concluído ou já estando nela: não faz nada.
 // Nunca joga exceção. Retorna ['moved'=>bool,'lists_id'=>int,'list_name'=>string].
 function kanpro_move_card_to_done(int $cards_id): array {
     global $DB;
@@ -1315,7 +1333,7 @@ function kanpro_move_card_to_done(int $cards_id): array {
         $bid = (int)($c->fields['plugin_kanpro_boards_id'] ?? 0);
         $curLid = (int)($c->fields['plugin_kanpro_lists_id'] ?? 0);
         if ($bid <= 0) return $noop;
-        if (function_exists('kanpro_list_category') && kanpro_list_category($curLid) !== 'retirada') return $noop;
+        if (function_exists('kanpro_list_category') && !in_array(kanpro_list_category($curLid), ['retirada','andamento'], true)) return $noop;
         $dest = kanpro_find_list_by_type($bid, 'done');
         if (!$dest) {
             // legado: lista chamada "Concluído/Concluída" sem list_type
@@ -4546,7 +4564,8 @@ switch ($action) {
         jexit(['success'=>true]);
 
     case 'delete_liberado_pendencia':
-        // Auto-exclusão 30s após Chamado criado: só pendência liberada + só admin do quadro (vale sem DELETE global).
+        // Auto-exclusão 30s após Chamado criado / Conclusão liberada: só pendência
+        // liberada + só admin do quadro (vale sem DELETE global).
         needEdit();
         kanpro_ensure_board_extras();
         $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
@@ -4554,7 +4573,8 @@ switch ($action) {
         $pc = new PluginKanproCard();
         if (!$pc->getFromDB($pid)) jexit(['success'=>true,'already_deleted'=>true]);
         if ((int)($pc->fields['chamado_source_id'] ?? 0) <= 0) jexit(['success'=>false,'msg'=>'Só Pendência Chamado se auto-exclui']);
-        if (($pc->fields['chamado_status'] ?? '') !== 'liberado') jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado criado)']);
+        $stDel = (string)($pc->fields['chamado_status'] ?? '');
+        if (!in_array($stDel, ['liberado','conclusao_ok'], true)) jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado criado)']);
         $bidD = (int)$pc->fields['plugin_kanpro_boards_id'];
         // admin do quadro (criador/admin; UPDATE só em legado aberto) — mesma regra central
         if (!kanpro_can_manage_members($bidD)) jexit(['success'=>false,'msg'=>'Somente admin do quadro']);
@@ -4570,7 +4590,7 @@ switch ($action) {
                 'users_id'=>kanpro_acting_user_id(), 'date_creation'=>date('Y-m-d H:i:s'),
             ]);
         } catch (Throwable $e) {}
-        PluginKanproBoard::logActivity($bidD, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', "Pendência #{$pid} auto-excluída 30s após Chamado criado");
+        PluginKanproBoard::logActivity($bidD, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', $stDel === 'conclusao_ok' ? "Pendência de conclusão #{$pid} auto-excluída 30s após liberação" : "Pendência #{$pid} auto-excluída 30s após Chamado criado");
         $pc->delete(['id'=>$pid], true);
         jexit(['success'=>true,'deleted'=>true]);
 
@@ -6831,6 +6851,7 @@ switch ($action) {
         if (!$pc->getFromDB($pid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
         if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma Pendência Chamado']);
+        if (in_array(($pc->fields['chamado_status'] ?? ''), ['conclusao','conclusao_ok'], true)) jexit(['success'=>false,'msg'=>'Use "Liberar conclusão" para este tipo de pendência']);
         if (($pc->fields['chamado_status'] ?? '') === 'liberado') jexit(['success'=>true,'already'=>true]);
         // só admin do quadro libera (criador/admin; UPDATE só em legado aberto)
         $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
@@ -6922,6 +6943,79 @@ switch ($action) {
         kanpro_touch_card($cid);
         PluginKanproBoard::logActivity($bid, $cid, $retMove['lists_id'], 'tablet_confirmed', "Tablet confirmado pelo técnico #{$actorId} — movido para '{$retMove['list_name']}'");
         jexit(['success'=>true,'moved'=>true,'list_name'=>$retMove['list_name'],'lists_id'=>$retMove['lists_id']]);
+
+    case 'request_conclusao':
+        // Botão "Concluir" (card Manutenção em Em Andamento/Retirada): trava a origem e
+        // abre pendência verde no topo da Pendência Chamados p/ um admin "Liberar conclusão".
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($c->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Só card de manutenção pode ser concluído']);
+        $bid = (int)$c->fields['plugin_kanpro_boards_id'];
+        $cat = kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']);
+        if (!in_array($cat, ['andamento','retirada'], true)) jexit(['success'=>false,'msg'=>'Concluir só vale nas listas Em Andamento ou Retirada']);
+        $isAdminConc = kanpro_can_manage_members($bid);
+        $roleConc = kanpro_my_board_role($bid);
+        if (!$isAdminConc && !in_array($roleConc, ['member','admin','gerente'], true)) jexit(['success'=>false,'msg'=>'Somente Membro ou Admin do quadro pode concluir']);
+        if (kanpro_is_tablet_pending($cid)) jexit(['success'=>false,'msg'=>'Tablet aguardando Confirmar — conclua por lá']);
+        if (kanpro_is_conclusao_pending($cid)) jexit(['success'=>true,'already'=>true,'msg'=>'Conclusão já solicitada — aguardando liberação']);
+        if (kanpro_card_is_finalized($cid)) jexit(['success'=>false,'msg'=>'Manutenção finalizada — já foi enviada para Assinatura.','finalized'=>true]);
+        $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
+        if (!$pendList) jexit(['success'=>false,'msg'=>'Crie a lista "Pendência chamados" (categoria) neste quadro','need_pend_list'=>true]);
+        $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        $nowConc = date('Y-m-d H:i:s');
+        // trava a origem
+        try { $DB->update('glpi_plugin_kanpro_cards', ['conclusao_pending'=>1,'date_mod'=>$nowConc], ['id'=>$cid]); } catch (Throwable $e) { jexit(['success'=>false,'msg'=>'Não foi possível travar o card (tente de novo)']); }
+        // pendência verde no TOPO da Pendência Chamados
+        $pendLid = (int)$pendList['id'];
+        $first = null;
+        try { $first = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$pendLid,'is_archived'=>0],'ORDER'=>'rank ASC','LIMIT'=>1])->current(); } catch (Throwable $e) {}
+        $topRank = ($first && isset($first['rank'])) ? ((float)$first['rank'] - 1024) : 1;
+        $nc = new PluginKanproCard();
+        $nm = mb_substr(trim($c->fields['name'] ?? ('Card #' . $cid)), 0, 255);
+        $pendId = (int)$nc->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$pendLid,'name'=>$nm,'description'=>"Concluir: aguardando 'Liberar conclusão' para o card #{$cid}."]);
+        if (!$pendId) {
+            try { $DB->update('glpi_plugin_kanpro_cards', ['conclusao_pending'=>0,'date_mod'=>$nowConc], ['id'=>$cid]); } catch (Throwable $e) {}
+            jexit(['success'=>false,'msg'=>'Falha ao criar pendência de conclusão']);
+        }
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'conclusao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowConc], ['id'=>$pendId]);
+        kanpro_touch_card($cid);
+        kanpro_touch_card($pendId);
+        PluginKanproBoard::logActivity($bid, $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'conclusao_requested', "Conclusão solicitada por #{$who} — card travado até 'Liberar conclusão' (pendência #{$pendId})");
+        PluginKanproBoard::logActivity($bid, $pendId, $pendLid, 'conclusao_created', "Pendência de conclusão criada para #{$cid} (topo da lista)");
+        jexit(['success'=>true,'pendencia_id'=>$pendId]);
+
+    case 'confirm_conclusao':
+        // Botão "Liberar conclusão" (só admin): destrava a origem e move p/ Concluído.
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+        if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma pendência de conclusão']);
+        $stC = (string)($pc->fields['chamado_status'] ?? '');
+        if ($stC === 'conclusao_ok') jexit(['success'=>true,'already'=>true]);
+        if ($stC !== 'conclusao') jexit(['success'=>false,'msg'=>'Use "Chamado criado" para este tipo de pendência']);
+        $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
+        if (!kanpro_can_manage_members($bidC)) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode liberar a conclusão']);
+        $srcCard = new PluginKanproCard();
+        if (!$srcCard->getFromDB($srcId)) jexit(['success'=>false,'msg'=>'Card origem não encontrado']);
+        $nowConc2 = date('Y-m-d H:i:s');
+        // move primeiro: sem lista Concluído, mantém travado p/ tentar de novo
+        $doneMove = kanpro_move_card_to_done($srcId);
+        if (empty($doneMove['moved'])) jexit(['success'=>false,'msg'=>'Crie a lista "Concluído" (categoria) neste quadro','need_done_list'=>true]);
+        try { $DB->update('glpi_plugin_kanpro_cards', ['conclusao_pending'=>0,'date_mod'=>$nowConc2], ['id'=>$srcId]); } catch (Throwable $e) {}
+        try { $DB->update('glpi_plugin_kanpro_cards', ['chamado_status'=>'conclusao_ok','date_mod'=>$nowConc2], ['id'=>$pid]); } catch (Throwable $e) {}
+        kanpro_touch_card($srcId);
+        kanpro_touch_card($pid);
+        PluginKanproBoard::logActivity($bidC, $srcId, (int)$doneMove['lists_id'], 'conclusao_released', "Conclusão liberada — movido para '{$doneMove['list_name']}' (pendência #{$pid})");
+        PluginKanproBoard::logActivity($bidC, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'conclusao_released', "Conclusão de #{$srcId} liberada — origem em '{$doneMove['list_name']}'");
+        jexit(['success'=>true,'source_cards_id'=>$srcId,'lists_id'=>(int)$doneMove['lists_id'],'list_name'=>(string)$doneMove['list_name']]);
 
     case 'pegar_pending_card':
         needEdit();
