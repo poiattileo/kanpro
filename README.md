@@ -24,7 +24,7 @@ O **KanPro** leva a experiência completa de quadros, listas e cartões para den
 
 ## Tecnologias
 
-GLPI 11 · PHP 8.1+ · MySQL 8 / MariaDB 10.6+ · CSS/JS puro
+GLPI 11 (best-effort) / GLPI 12 (suportado) · PHP 8.2+ (GLPI 12 exige 8.3) · MySQL 8 / MariaDB 10.6+ · CSS/JS puro
 
 ## Licença
 
