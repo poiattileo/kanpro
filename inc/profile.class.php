@@ -3,6 +3,8 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
+require_once __DIR__ . '/compat.php';
+
 class PluginKanproProfile extends CommonDBTM {
     public static $rightname = 'profile';
     public const RIGHT_KANPRO = 'plugin_kanpro';
@@ -136,7 +138,7 @@ class PluginKanproProfile extends CommonDBTM {
         if ($canedit) {
             echo "<tr class='tab_bg_2'><td colspan='2' class='center' style='padding:12px'>";
             echo Html::hidden('profiles_id', ['value' => $profiles_id]);
-            echo Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]);
+            echo Html::hidden('_glpi_csrf_token', ['value' => kanpro_csrf_token()]);
             echo "<button type='submit' name='update' value='1' class='btn btn-primary'><i class='ti ti-device-floppy'></i> Salvar permissões</button>";
             echo "</td></tr>";
         }

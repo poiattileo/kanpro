@@ -1,11 +1,16 @@
 <?php
-define('PLUGIN_KANPRO_VERSION', '1.5.3');
+require_once __DIR__ . '/inc/compat.php';
+
+define('PLUGIN_KANPRO_VERSION', '1.6.0');
 define('PLUGIN_KANPRO_MIN_GLPI', '11.0.0');
+define('PLUGIN_KANPRO_MAX_GLPI', '12.0.99');
 
 function plugin_init_kanpro() {
     global $PLUGIN_HOOKS, $CFG_GLPI;
 
-    $PLUGIN_HOOKS['csrf_compliant']['kanpro'] = true;
+    if (!kanpro_is_glpi12_plus()) {
+        $PLUGIN_HOOKS['csrf_compliant']['kanpro'] = true;
+    }
 
     Plugin::registerClass('PluginKanproProfile', ['addtabon' => 'Profile']);
     Plugin::registerClass('PluginKanproBoard', ['addtabon' => []]);
@@ -44,7 +49,7 @@ function plugin_version_kanpro() {
         'author'       => 'URE',
         'license'      => 'GPLv3+',
         'homepage'     => '',
-        'requirements' => ['glpi' => ['min' => PLUGIN_KANPRO_MIN_GLPI]],
+        'requirements' => ['glpi' => ['min' => PLUGIN_KANPRO_MIN_GLPI, 'max' => PLUGIN_KANPRO_MAX_GLPI], 'php' => ['min' => '8.2.0']],
     ];
 }
 

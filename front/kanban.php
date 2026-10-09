@@ -5,6 +5,7 @@ if (function_exists('opcache_invalidate')) {
 }
 include('../../../inc/includes.php');
 include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
+require_once GLPI_ROOT . '/plugins/kanpro/inc/compat.php';
 
 global $DB, $CFG_GLPI;
 
@@ -138,9 +139,9 @@ $hidden_lists_json = json_encode($hiddenLists, JSON_HEX_TAG|JSON_HEX_APOS|JSON_H
 $labels_json = json_encode($labels, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 $members_json = json_encode($members_list, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_UNESCAPED_UNICODE);
 // Endpoint AJAX do plugin
-$ajax_url = Plugin::getWebDir('kanpro') . '/front/ajax.php';
+$ajax_url = kanpro_web_dir('kanpro') . '/front/ajax.php';
 $board_color = htmlspecialchars($board->fields['color'] ?? '#0079bf');
-$csrf_token = Session::getNewCSRFToken();
+$csrf_token = kanpro_csrf_token();
 // Schema canônico em hook.php (+ fallback 1x/request em ajax.php kanpro_migrate_schema_once()).
 // Sem DDL no caminho quente — fazer ALTER aqui trava o board a cada pageview.
 if (method_exists('PluginKanproBoard', 'getBoardThemes')) {

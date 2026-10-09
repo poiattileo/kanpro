@@ -3,6 +3,8 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
+require_once __DIR__ . '/compat.php';
+
 class PluginKanproBoard extends CommonDBTM {
 
     static $rightname = 'plugin_kanpro';
@@ -320,7 +322,7 @@ class PluginKanproBoard extends CommonDBTM {
         if (empty($background)) return '';
         // background armazena caminho relativo tipo boards/12/bg_xxx.jpg
         // servido via front/background.php com cache-bust via hash
-        return Plugin::getWebDir('kanpro') . '/front/background.php?boards_id=' . $boards_id . '&v=' . substr(md5($background), 0, 6);
+        return kanpro_web_dir('kanpro') . '/front/background.php?boards_id=' . $boards_id . '&v=' . substr(md5($background), 0, 6);
     }
 
     static function getBackgroundStyle(array $board): string {
@@ -653,7 +655,7 @@ class PluginKanproBoard extends CommonDBTM {
 
         if (!$is_new) {
             echo "<tr class='tab_bg_1'><td colspan='4' style='text-align:center;padding:12px'>";
-            $kanban_url = Plugin::getWebDir('kanpro') . "/front/kanban.php?boards_id={$ID}";
+            $kanban_url = kanpro_web_dir('kanpro') . "/front/kanban.php?boards_id={$ID}";
             echo "<a href='{$kanban_url}' class='btn btn-primary' style='padding:10px 24px;font-size:14px'><i class='ti ti-layout-kanban'></i> Abrir Quadro Kanban</a> ";
             echo "<small style='margin-left:12px;color:#6b778c'>ID #{$ID} • Criado em " . Html::convDateTime($this->fields['date_creation'] ?? '') . "</small>";
             echo "</td></tr>";

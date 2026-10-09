@@ -3,6 +3,8 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
+require_once __DIR__ . '/compat.php';
+
 // Identidade para atribuição no chamado (automático).
 // Quando a equipe compartilha um login (ex: todos usam "glpi"), o mapa abaixo
 // resolve automaticamente a pessoa real. FONTE ÚNICA: config 'acting_map'

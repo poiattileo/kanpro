@@ -3,6 +3,7 @@
 // Cadastro simples: adicionar, ativar/desativar, excluir. Só quem edita o plugin.
 include('../../../inc/includes.php');
 include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
+require_once GLPI_ROOT . '/plugins/kanpro/inc/compat.php';
 Session::checkRight('plugin_kanpro', UPDATE);
 
 global $DB, $CFG_GLPI;
@@ -113,7 +114,7 @@ try {
     }
 } catch (Throwable $e) {}
 
-$csrf = Session::getNewCSRFToken();
+$csrf = kanpro_csrf_token();
 $form_action = $CFG_GLPI['root_doc'] . '/plugins/kanpro/front/entitycontacts.php';
 // entidade mantida após cadastrar (volta na URL) — resto do form reseta
 $selEntity = (int)($_GET['entities_id'] ?? 0);

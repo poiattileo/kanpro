@@ -1,6 +1,7 @@
 <?php
 include('../../../inc/includes.php');
 include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
+require_once GLPI_ROOT . '/plugins/kanpro/inc/compat.php';
 Session::checkRight('plugin_kanpro', READ);
 
 Html::header('KanPro - Quadros', $_SERVER['PHP_SELF'], 'tools', 'PluginKanproBoard');
@@ -299,8 +300,8 @@ if (count($iterator) === 0) {
 
 echo "</div>";
 
-$__kpb_ajax = Plugin::getWebDir('kanpro') . '/front/ajax.php';
-$__kpb_csrf = Session::getNewCSRFToken();
+$__kpb_ajax = kanpro_web_dir('kanpro') . '/front/ajax.php';
+$__kpb_csrf = kanpro_csrf_token();
 echo "<script>window.KANPRO_HISTORY_URL = " . json_encode($__kpb_ajax) . "; window.KANPRO_HISTORY_CSRF = " . json_encode($__kpb_csrf) . ";</script>";
 ?>
 <!-- Modal: gerenciar acesso ao quadro (engrenagem) -->
