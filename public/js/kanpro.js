@@ -2881,6 +2881,18 @@
       this.forceSync();
       this.schedulePendenciaAutoDelete(pid, 30);
     },
+    async cancelExclusao(){
+      const pid = this.currentCardId;
+      if(!pid) return;
+      if(!this.isBoardAdmin()){ this.showAlert('Somente admin do quadro pode cancelar a exclusão.', 'Sem permissão'); return; }
+      const ok = await this.kpConfirm('Cancelar a exclusão?\n\nA origem volta ao normal e esta pendência é excluída.', 'Cancelar exclusão');
+      if(!ok) return;
+      const res = await this.ajax('cancel_exclusao', {pendencia_cards_id: pid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao cancelar', 'Erro'); return; }
+      this.showToast('Exclusão cancelada — origem voltou ao normal');
+      this.closeCardModal();
+      this.forceSync();
+    },
     async startEdicao(){
       const cid = this.currentCardId;
       if(!cid) return;
@@ -4055,7 +4067,7 @@
         ? (isExcDone
           ? `<div style="background:#e9edf2;border:1px solid #091e42;color:#091e42;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem excluída<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#091e42"></div></div></div>`
           : (amAdmin
-            ? `<button onclick="Kanpro.confirmExclusao()" style="width:100%;background:linear-gradient(135deg,#091e42,#3a4a63);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(9,30,66,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-trash" style="font-size:20px"></i> Liberar exclusão</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Exclui a origem de verdade • auto-exclui em 30s</div>`
+            ? `<button onclick="Kanpro.confirmExclusao()" style="width:100%;background:linear-gradient(135deg,#091e42,#3a4a63);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(9,30,66,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-trash" style="font-size:20px"></i> Liberar exclusão</button><div style="display:flex;gap:8px;margin-top:8px;align-items:center"><div style="flex:1;text-align:left;font-size:11px;color:#5e6c84">Exclui a origem de verdade • auto-exclui em 30s</div><button onclick="Kanpro.cancelExclusao()" style="background:#fff;border:1px solid #dfe1e6;color:#5e6c84;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap">Cancelar exclusão</button></div>`
             : `<div style="background:#fff;border:1px dashed #091e42;color:#091e42;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin clicar<br>“Liberar exclusão”</div>`))
         : (isConc
           ? (isConcDone

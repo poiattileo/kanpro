@@ -7156,6 +7156,38 @@ switch ($action) {
         PluginKanproBoard::logActivity($bidC, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'exclusao_released', "Exclusão de #{$srcId} liberada");
         jexit(['success'=>true,'source_cards_id'=>$srcId,'deleted'=>true]);
 
+    case 'cancel_exclusao':
+        // Botão "Cancelar exclusão" (só admin): origem volta ao normal, pendência é excluída.
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>true,'already_deleted'=>true]);
+        $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+        if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma pendência de exclusão']);
+        $stX = (string)($pc->fields['chamado_status'] ?? '');
+        if ($stX === 'exclusao_ok') jexit(['success'=>false,'msg'=>'Exclusão já liberada']);
+        if ($stX !== 'exclusao') jexit(['success'=>false,'msg'=>'Use o botão próprio para este tipo de pendência']);
+        $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
+        if (!kanpro_can_manage_members($bidC)) jexit(['success'=>false,'msg'=>'Somente admin do quadro pode cancelar a exclusão']);
+        $nowX = date('Y-m-d H:i:s');
+        try { $DB->update('glpi_plugin_kanpro_cards', ['exclusao_pending'=>0,'date_mod'=>$nowX], ['id'=>$srcId]); } catch (Throwable $e) {}
+        kanpro_touch_card($srcId);
+        $full = PluginKanproCard::getFullData($pid);
+        try {
+            $DB->insert('glpi_plugin_kanpro_trash', [
+                'plugin_kanpro_boards_id'=>$bidC,
+                'plugin_kanpro_lists_id'=>(int)$pc->fields['plugin_kanpro_lists_id'],
+                'list_name'=>'', 'card_name'=>$pc->fields['name'],
+                'snapshot'=>json_encode($full, JSON_UNESCAPED_UNICODE),
+                'users_id'=>kanpro_acting_user_id(), 'date_creation'=>$nowX,
+            ]);
+        } catch (Throwable $e) {}
+        PluginKanproBoard::logActivity($bidC, $srcId, 0, 'exclusao_cancelled', "Exclusão cancelada — card #{$srcId} voltou ao normal (pendência #{$pid} excluída)");
+        $pc->delete(['id'=>$pid], true);
+        jexit(['success'=>true,'source_cards_id'=>$srcId,'cancelled'=>true]);
+
     case 'start_edicao':
         // Botão "Editar" (manutenção finalizada em Retirada): abre sessão de edição.
         needEdit();
