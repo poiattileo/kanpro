@@ -19,6 +19,9 @@ id_rsa*
 files/
 glpi/files/_plugins/kanpro/
 
+# Ferramentas locais (agentes/planejamento) — não commitar
+.omo/
+
 # IDE
 .idea/
 .vscode/
