@@ -1350,6 +1350,17 @@
         div.style.background = '#f2fbf3';
         div.title = '🏁 Pendência de conclusão — admin pode liberar';
       }
+      // Pendência de exclusão: preta com borda preta e fundo acinzentado, no topo
+      const isExclusaoCard = (String(card.chamado_status || '') === 'exclusao' || String(card.chamado_status || '') === 'exclusao_ok') && Number(card.chamado_source_id || 0) > 0;
+      if (isExclusaoCard) {
+        div.classList.add('kp-exclusao');
+        div.dataset.exclusao = "1";
+        div.style.borderColor = '#091e42';
+        div.style.borderWidth = '3px';
+        div.style.boxShadow = '0 0 0 3px rgba(9,30,66,.3), 0 2px 6px rgba(0,0,0,.2)';
+        div.style.background = '#e9edf2';
+        div.title = '🗑️ Pendência de exclusão — admin pode liberar';
+      }
       // Transfer status badge Retirada (amarelo) / Concluído (verde) — após Finalizar
       const tStat = this.transferStatus && this.transferStatus[card.id];
       if (tStat) {
@@ -1451,6 +1462,8 @@
         const chSt = String(card.chamado_status || '');
         if (chSt === 'conclusao') badges.push(`<span class="kp-badge" style="background:#61bd4f;color:#fff;font-weight:800;border:1px solid #61bd4f">🏁 Aguard. liberação</span>`);
         else if (chSt === 'conclusao_ok') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">✅ Conclusão liberada</span>`);
+        else if (chSt === 'exclusao') badges.push(`<span class="kp-badge" style="background:#091e42;color:#fff;font-weight:800;border:1px solid #091e42">🗑️ Aguard. exclusão</span>`);
+        else if (chSt === 'exclusao_ok') badges.push(`<span class="kp-badge" style="background:#e9edf2;color:#091e42;font-weight:800;border:1px solid #091e42">🗑️ Exclusão liberada</span>`);
         else if (chSt === 'liberado') badges.push(`<span class="kp-badge" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">📞 Chamado criado ✓</span>`);
         else badges.push(`<span class="kp-badge" style="background:#e1316f;color:#fff;font-weight:800;border:1px solid #e1316f">📞 Pendência Chamado</span>`);
       }
@@ -1512,28 +1525,45 @@
         if(isPendMini){
           const chStMini = String(card.chamado_status || '');
           const isLibMini = (chStMini === 'liberado');
+          const isConcMini = (chStMini === 'conclusao' || chStMini === 'conclusao_ok');
+          const isConcDoneMini = (chStMini === 'conclusao_ok');
+          const isExcMini = (chStMini === 'exclusao' || chStMini === 'exclusao_ok');
+          const isExcDoneMini = (chStMini === 'exclusao_ok');
           const amAdminMini = this.isBoardAdmin();
           const srcMini = card.chamado_source_id ? ('#' + card.chamado_source_id) : '';
           const machMini = (prog && prog.total > 0) ? `${prog.done||0}/${prog.total} máquina(s)` : ((card.description||'').match(/(\d+)\s*máquina/i)?.[0] || '');
-          div.style.border = '2px solid #e1316f';
-          div.style.borderLeft = '6px solid #e1316f';
-          div.style.background = '#fff0f4';
-          div.style.boxShadow = '0 1px 4px rgba(225,49,111,.25)';
-          const statusPill = isLibMini
-            ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Chamado criado ✓</span>`
-            : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`;
+          const miniC = isExcMini ? {bd:'#091e42', bg:'#e9edf2', sh:'0 1px 4px rgba(9,30,66,.3)', id:'#091e42'}
+            : (isConcMini ? {bd:'#61bd4f', bg:'#f2fbf3', sh:'0 1px 4px rgba(97,189,79,.3)', id:'#2e7d32'}
+            : {bd:'#e1316f', bg:'#fff0f4', sh:'0 1px 4px rgba(225,49,111,.25)', id:'#e1316f'});
+          div.style.border = '2px solid ' + miniC.bd;
+          div.style.borderLeft = '6px solid ' + miniC.bd;
+          div.style.background = miniC.bg;
+          div.style.boxShadow = miniC.sh;
+          const statusPill = isExcMini
+            ? (isExcDoneMini
+              ? `<span style="background:#091e42;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🗑️ Exclusão liberada ✓</span>`
+              : `<span style="background:#091e42;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🗑️ Pendência Exclusão</span>`)
+            : (isConcMini
+              ? (isConcDoneMini
+                ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">✅ Conclusão liberada ✓</span>`
+                : `<span style="background:#61bd4f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🏁 Pendência Conclusão</span>`)
+              : (isLibMini
+                ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Chamado criado ✓</span>`
+                : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`));
           const infoLine = [
             srcMini ? `Origem <strong>${this.escape(srcMini)}</strong>` : '',
             machMini ? `🔧 ${this.escape(machMini)}` : '',
           ].filter(Boolean).join(' • ');
-          const btnMini = isLibMini
+          const openTitle = isExcMini ? 'Abrir para liberar a exclusão' : (isConcMini ? 'Abrir para liberar a conclusão' : 'Abrir para confirmar o chamado criado');
+          const waitTitle = isExcMini ? '“Liberar exclusão”' : (isConcMini ? '“Liberar conclusão”' : '“Chamado criado”');
+          const btnMini = (isLibMini || isConcDoneMini || isExcDoneMini)
             ? `<div style="margin-top:8px;background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:8px;padding:8px;text-align:center;font-size:12px;font-weight:800">✓ Liberado — excluindo em 30s ⏳</div>`
             : (amAdminMini
-              ? `<div onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="Abrir para confirmar o chamado criado" style="margin-top:8px;background:#fff;border:1px dashed #e1316f;color:#ad1457;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700;cursor:pointer">👆 Abra o card para confirmar<br>“Chamado criado”</div>`
-              : `<div style="margin-top:8px;background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700">⏳ Aguardando admin confirmar<br>“Chamado criado”</div>`);
+              ? `<div onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="${openTitle}" style="margin-top:8px;background:#fff;border:1px dashed ${miniC.bd};color:${miniC.id};border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700;cursor:pointer">👆 Abra o card para liberar<br>${waitTitle}</div>`
+              : `<div style="margin-top:8px;background:#fff;border:1px dashed ${miniC.bd};color:${miniC.bd};border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700">⏳ Aguardando admin liberar<br>${waitTitle}</div>`);
           div.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px">${statusPill}${createdHtml||''}</div>
-            <div class="kp-card-title" style="font-size:13px"><span style="color:#e1316f;font-weight:800;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
+            <div class="kp-card-title" style="font-size:13px"><span style="color:${miniC.id};font-weight:800;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
             ${infoLine ? `<div style="margin-top:6px;font-size:11px;color:#5e6c84;line-height:1.5">${infoLine}</div>` : ''}
             ${checkBarHtml}
             ${membersHtml}
@@ -2348,7 +2378,7 @@
       // Concluir: Manutenção em Em Andamento/Retirada, membro/admin, sem pendências abertas
       try {
         const inAndRet = this.isCardInListType(data, 'andamento') || this.isCardInListType(data, 'retirada');
-        const showConcluir = isMaint && inAndRet && !this.isConclusaoPending(data) && !this.isTabletLiberado(data) && !this.isCardFinalized(data) && this.canPegar();
+        const showConcluir = isMaint && inAndRet && !this.isConclusaoPending(data) && !this.isExclusaoPending(data) && !this.isTabletLiberado(data) && !this.isCardFinalized(data) && this.canPegar();
         if(btnConcluir) btnConcluir.style.display = showConcluir ? '' : 'none';
       } catch(e){}
       // Pendência Chamado: botão Chamado criado (só admin libera)
@@ -2356,6 +2386,36 @@
         const st = String(data.chamado_status || '');
         const srcName = data.chamado_source_name || ('#' + (data.chamado_source_id||''));
         const isConcPend = (st === 'conclusao' || st === 'conclusao_ok');
+        const isExcPend = (st === 'exclusao' || st === 'exclusao_ok');
+        if(isExcPend){
+          const isExcDone = (st === 'exclusao_ok');
+          if(act){
+            if(isExcDone){
+              act.innerHTML += `<span title="Origem excluída — auto-exclui em 30s" style="background:#e9edf2;color:#091e42;border:1px solid #091e42;padding:6px 14px;border-radius:20px;font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px">🗑️ Exclusão liberada ✓ <span style="background:#091e42;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">⏳ <span id="kp-autodel-count-${data.id}">30s</span></span></span>`;
+            } else {
+              act.innerHTML += `<button onclick="Kanpro.confirmExclusao()" title="Excluir a origem de verdade (só admin)" style="background:${amAdmin ? '#091e42' : '#dfe1e6'};color:${amAdmin ? '#fff' : '#5e6c84'};border:1px solid ${amAdmin ? '#091e42' : '#dfe1e6'};padding:6px 14px;border-radius:20px;cursor:${amAdmin ? 'pointer' : 'not-allowed'};font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px" ${amAdmin ? '' : 'disabled'}><i class="ti ti-trash"></i> 🗑️ Liberar exclusão${amAdmin ? '' : ' (só admin)'}</button>`;
+            }
+            if(box && act.innerHTML.trim()) box.style.display = 'flex';
+          }
+          const descElE = document.getElementById('card-modal-desc');
+          if(descElE && data.chamado_source_id && !document.getElementById('kp-chamado-origem')){
+            const div = document.createElement('div');
+            div.id = 'kp-chamado-origem';
+            div.style.cssText = 'margin-top:8px;background:#e9edf2;border:1px solid #091e42;border-radius:8px;padding:8px 12px;font-size:12px;color:#5e6c84';
+            div.innerHTML = `🗑️ Exclusão do card <strong style="color:#172b4d">#${data.chamado_source_id} ${this.escape(srcName)}</strong> ${isExcDone ? '— <strong style="color:#091e42">liberada ✓</strong>' : '— aguardando <strong>Liberar exclusão</strong>'}`;
+            descElE.after(div);
+          }
+          if(isExcDone){
+            try {
+              let elapsed = 0;
+              if(data.date_mod){
+                const ts = new Date(String(data.date_mod).replace(' ', 'T')).getTime();
+                if(!isNaN(ts)) elapsed = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+              }
+              this.schedulePendenciaAutoDelete(data.id, Math.max(2, 30 - elapsed));
+            } catch(e){ this.schedulePendenciaAutoDelete(data.id, 30); }
+          }
+        } else
         if(isConcPend){
           const isConcDone = (st === 'conclusao_ok');
           if(act){
@@ -2719,6 +2779,19 @@
       if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao liberar', 'Erro'); return; }
       this.showToast('✅ Conclusão liberada — origem em ' + (res.list_name || 'Concluído'));
       this.refreshCardModal();
+      this.forceSync();
+      this.schedulePendenciaAutoDelete(pid, 30);
+    },
+    async confirmExclusao(){
+      const pid = this.currentCardId;
+      if(!pid) return;
+      if(!this.isBoardAdmin()){ this.showAlert('Somente admin do quadro pode liberar a exclusão.', 'Sem permissão'); return; }
+      const ok = await this.kpConfirm('Liberar a exclusão?\n\nA origem é excluída de verdade (vai para a lixeira).', 'Liberar exclusão', 'Excluir');
+      if(!ok) return;
+      const res = await this.ajax('confirm_exclusao', {pendencia_cards_id: pid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao liberar', 'Erro'); return; }
+      this.showToast('🗑️ Exclusão liberada — origem excluída');
+      this.closeCardModal();
       this.forceSync();
       this.schedulePendenciaAutoDelete(pid, 30);
     },
@@ -3807,6 +3880,8 @@
       const isLib = (st === 'liberado');
       const isConc = (st === 'conclusao' || st === 'conclusao_ok');
       const isConcDone = (st === 'conclusao_ok');
+      const isExc = (st === 'exclusao' || st === 'exclusao_ok');
+      const isExcDone = (st === 'exclusao_ok');
       const srcId = data.chamado_source_id || '';
       const srcName = data.chamado_source_name || (srcId ? ('#' + srcId) : '—');
       const escola = data.name || srcName || ('Pendência #' + data.id);
@@ -3823,15 +3898,25 @@
           <span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${this.escape(nm)}">${this.escape(nm)}</span>
         </div>`;
       }).join('') : '<div style="color:#5e6c84;font-size:13px">Sem máquinas vinculadas.</div>';
-      const statusPill = isConc
+      const statusPill = isExc
+        ? (isExcDone
+          ? '<span style="background:#091e42;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberada</span>'
+          : '<span style="background:#fff;color:#091e42;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. exclusão</span>')
+        : (isConc
         ? (isConcDone
           ? '<span style="background:#006644;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberada</span>'
           : '<span style="background:#fff;color:#2e7d32;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. liberação</span>')
         : (isLib
           ? '<span style="background:#006644;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberado</span>'
-          : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>');
-      const actionHtml = isConc
-        ? (isConcDone
+          : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>'));
+      const actionHtml = isExc
+        ? (isExcDone
+          ? `<div style="background:#e9edf2;border:1px solid #091e42;color:#091e42;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem excluída<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#091e42"></div></div></div>`
+          : (amAdmin
+            ? `<button onclick="Kanpro.confirmExclusao()" style="width:100%;background:linear-gradient(135deg,#091e42,#3a4a63);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(9,30,66,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-trash" style="font-size:20px"></i> Liberar exclusão</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Exclui a origem de verdade • auto-exclui em 30s</div>`
+            : `<div style="background:#fff;border:1px dashed #091e42;color:#091e42;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin clicar<br>“Liberar exclusão”</div>`))
+        : (isConc
+          ? (isConcDone
           ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem concluída — movida para Concluído<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
           : (amAdmin
             ? `<button onclick="Kanpro.confirmConclusao()" style="width:100%;background:linear-gradient(135deg,#2e9e4f,#61bd4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(46,158,79,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-check" style="font-size:20px"></i> Liberar conclusão</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Destrava a origem e move para Concluído • auto-exclui em 30s</div>`
@@ -3840,13 +3925,13 @@
           ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem desbloqueada — chamado criado<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
           : (amAdmin
             ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#22b573,#0d8a4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(34,181,115,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:20px"></i> Chamado criado</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Libera a origem • zap em 5s • auto-exclui em 30s</div>`
-            : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`));
+            : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`)));
       pc.innerHTML = `
-        <div style="background:${isConc ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : 'linear-gradient(135deg,#d81b60,#ff5fa2)'};padding:20px 20px 16px;color:#fff">
+        <div style="background:${isExc ? 'linear-gradient(135deg,#091e42,#3a4a63)' : (isConc ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : 'linear-gradient(135deg,#d81b60,#ff5fa2)')} ;padding:20px 20px 16px;color:#fff">
           <div style="display:flex;align-items:center;gap:12px">
-            <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isConc ? '🏁' : '📞'}</span>
+            <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isExc ? '🗑️' : (isConc ? '🏁' : '📞')}</span>
             <div style="min-width:0;flex:1">
-              <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isConc ? 'Pendência Conclusão' : 'Pendência Chamado'}</div>
+              <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isExc ? 'Pendência Exclusão' : (isConc ? 'Pendência Conclusão' : 'Pendência Chamado')}</div>
               <div style="font-size:12px;opacity:.92;margin-top:2px">#${data.id} • ${this.escape(boardName || data.list_name || '')}</div>
             </div>
             ${statusPill}
@@ -3863,7 +3948,14 @@
               <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">SOLICITADO</div><div style="font-size:13px;font-weight:600;color:#172b4d;margin-top:2px">${this.escape(byName || '—')}${created ? `<div style="font-size:11px;color:#5e6c84;font-weight:400">${this.escape(created)}</div>` : ''}</div></div>
             </div>
           </div>
-          ${isConc ? `
+          ${isExc ? `
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;background:#e9edf2;border:1px solid #091e42;border-radius:12px;padding:12px 14px">
+              <span style="font-size:18px">🗑️</span>
+              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#091e42;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
+              <div style="font-size:12px;color:#5e6c84">Travado até “Liberar exclusão” — depois é excluído de verdade.</div></div>
+            </div>
+          </div>` : (isConc ? `
           <div>
             <div style="display:flex;align-items:center;gap:10px;background:#f2fbf3;border:1px solid #a9dfb8;border-radius:12px;padding:12px 14px">
               <span style="font-size:18px">🏁</span>
@@ -3880,7 +3972,7 @@
               </span>
             </div>
             <div style="display:grid;gap:8px;max-height:260px;overflow-y:auto">${machHtml}</div>
-          </div>`}
+          </div>`)}
           ${actionHtml}
           <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:2px">
             <button onclick="Kanpro.closeCardModal()" style="background:#f4f5f7;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d">Fechar</button>
@@ -3893,7 +3985,7 @@
         if(idx>=0){ this.cards[idx].name=data.name; this.cards[idx].description=data.description; this.cards[idx].chamado_status=data.chamado_status; }
         this.cardLabels[data.id] = data.labels||[];
       } catch(e){}
-      if(isLib || isConcDone){
+      if(isLib || isConcDone || isExcDone){
         try {
           let elapsed = 0;
           if(data.date_mod){
@@ -4132,6 +4224,7 @@
       const cardPending = this.isCardLocked(data);
       const goldenLocked = this.isTabletLiberado(data);
       const conclusaoLocked = this.isConclusaoPending(data);
+      const exclusaoLocked = this.isExclusaoPending(data);
       const progress = data.maintenance_progress || {total:machines.length, done: machines.filter(m=>m.is_done==1).length, percent: 0};
       if(progress.total && !progress.percent){
         progress.percent = progress.total? Math.round(progress.done/progress.total*100):0;
@@ -4149,7 +4242,7 @@
       const allNeed = total>0 && needsCount===total;
       // seleção em massa
       const isFinalized = this.isCardFinalized(data);
-      const selectMode = !!this._maintSelectMode && !cardPending && !isFinalized && !goldenLocked && !conclusaoLocked;
+      const selectMode = !!this._maintSelectMode && !cardPending && !isFinalized && !goldenLocked && !conclusaoLocked && !exclusaoLocked;
       if(!this._maintSelected) this._maintSelected = new Set();
       const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status (some se o card ainda não foi pego)
@@ -4185,6 +4278,11 @@
           <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
           <span title="Conclusão solicitada — aguardando liberação" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> 🔒 Bloqueado — aguardando "Liberar conclusão"</span>
         </div>`;
+      } else if (exclusaoLocked) {
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
+          <span title="Exclusão solicitada — aguardando liberação" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> 🔒 Bloqueado — aguardando "Liberar exclusão"</span>
+        </div>`;
       } else if (cardPending) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
           <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
@@ -4216,9 +4314,9 @@
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:10px 12px;justify-content:space-between;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span id="maint-progress-label" style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              ${lockedFinal || chamadoLocked || goldenLocked || conclusaoLocked ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
-              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
-              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
+              ${lockedFinal || chamadoLocked || goldenLocked || conclusaoLocked || exclusaoLocked ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
+              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
+              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
             </div>
@@ -4286,8 +4384,8 @@
       html += `<div style="display:grid;gap:10px">`;
       machines.forEach(m=>{
         const isLocked = !!(m.is_locked && Number(m.is_locked) == 1);
-        // trava do card (lista Pendente) + trava do chamado + finalizado (Assinatura) + dourado (Confirmar) + conclusão: mesma regra visual
-        const workLocked = isLocked || cardPending || lockedFinal || goldenLocked || conclusaoLocked;
+        // trava do card (lista Pendente) + trava do chamado + finalizado (Assinatura) + dourado (Confirmar) + conclusão/exclusão: mesma regra visual
+        const workLocked = isLocked || cardPending || lockedFinal || goldenLocked || conclusaoLocked || exclusaoLocked;
         const dis = workLocked ? 'disabled' : '';
         const isDone = m.is_done==1;
         const rawStatus = (m.status||"").toString().trim().toLowerCase();
@@ -4319,11 +4417,13 @@
             ? '✨ Tablet liberado — aguardando confirmação do técnico que finalizou. Nada pode ser editado até confirmar.'
             : (conclusaoLocked
               ? '🏁 Conclusão solicitada — aguardando "Liberar conclusão" na Pendência Chamados. Nada pode ser editado até liberar.'
-              : (cardPending
+              : (exclusaoLocked
+                ? '🗑️ Exclusão solicitada — aguardando "Liberar exclusão" na Pendência Chamados. Nada pode ser editado até liberar.'
+                : (cardPending
                 ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (membro ou admin do quadro) para liberar o atendimento.'
-                : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`)));
+                : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`))));
         const lockBanner = workLocked ? `<div style="background:${lockedFinal ? '#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc' : '#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600'};font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> ${lockTxt}</div>` : '';
-        const lockHint = lockedFinal ? 'Finalizado' : (goldenLocked ? 'Aguardando confirmação' : (conclusaoLocked ? 'Aguard. liberação' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado')));
+        const lockHint = lockedFinal ? 'Finalizado' : (goldenLocked ? 'Aguardando confirmação' : (conclusaoLocked ? 'Aguard. liberação' : (exclusaoLocked ? 'Aguard. exclusão' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado'))));
         html += `
           <div class="kp-maint-machine${isUrgent?' urgent':''}" data-mid="${m.id}" style="background:${workLocked ? '#fafafa' : (isUrgent?"#fff1f0":"#fff")};border-radius:8px;box-shadow:0 1px 1px rgba(9,30,66,.13);border-left:4px solid ${workLocked ? '#eb5a46' : borderColor};overflow:hidden;${workLocked ? 'opacity:.95' : ''}">
             ${lockBanner}
@@ -4332,7 +4432,7 @@
                 ${selectMode && !workLocked ? `<input type="checkbox" data-mid="${m.id}" ${this._maintSelected.has(String(m.id))?"checked":""} onchange="Kanpro.toggleMaintSelect(${m.id}, this.checked)" title="Selecionar máquina" style="width:18px;height:18px;accent-color:#0079bf;flex-shrink:0;cursor:pointer">` : ""}
                 <span style="background:${workLocked ? '#5e6c84' : (isUrgent?"#eb5a46":"#091e42")};color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>
                 <div style="flex:1;min-width:0">
-                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}${workLocked?` <span title="${goldenLocked?'Tablet liberado — aguardando confirmação do técnico':(conclusaoLocked?'Conclusão solicitada — aguardando liberação':(cardPending?'Card ainda na lista Pendente':'Travada pela Pendência Chamado'))}" style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">🔒 ${lockHint}</span>`:""}</div>
+                  <div style="font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model)} <small style="color:#5e6c84">#${m.seq}</small>${isUrgent?`<span style="background:#eb5a46;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:6px">URGÊNCIA</span>`:""}${workLocked?` <span title="${goldenLocked?'Tablet liberado — aguardando confirmação do técnico':(conclusaoLocked?'Conclusão solicitada — aguardando liberação':(exclusaoLocked?'Exclusão solicitada — aguardando liberação':(cardPending?'Card ainda na lista Pendente':'Travada pela Pendência Chamado')))}" style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">🔒 ${lockHint}</span>`:""}</div>
                   <div style="font-size:11px;color:#5e6c84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.label)}</div>
                 </div>
               </div>
@@ -4373,7 +4473,7 @@
       });
       html += `</div>`;
       html += finalizeFootHtml;
-      html += (lockedFinal || chamadoLocked || cardPending || goldenLocked || conclusaoLocked ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      html += (lockedFinal || chamadoLocked || cardPending || goldenLocked || conclusaoLocked || exclusaoLocked ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
         ${cardPending ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
       </div>`);
@@ -5493,6 +5593,20 @@
         return !!c && Number(c.conclusao_pending || 0) === 1;
       } catch(e){ return false; }
     },
+    isExclusaoPending(d){
+      try {
+        const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
+        return !!c && Number(c.exclusao_pending || 0) === 1;
+      } catch(e){ return false; }
+    },
+    isExclusaoPendencia(d){
+      try {
+        const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
+        if(!c) return false;
+        const st = String(c.chamado_status || '');
+        return (st === 'exclusao' || st === 'exclusao_ok') && Number(c.chamado_source_id || 0) > 0;
+      } catch(e){ return false; }
+    },
     isConclusaoPendencia(d){
       try {
         const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
@@ -5505,7 +5619,7 @@
       if(this.isCardLocked(this.currentCardId)) return true;
       try {
         const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));
-        if(d && (this.isTabletLiberado(d) || this.isConclusaoPending(d))) return true;
+        if(d && (this.isTabletLiberado(d) || this.isConclusaoPending(d) || this.isExclusaoPending(d))) return true;
       } catch(e){}
       return false;
     },
@@ -5523,6 +5637,7 @@
         const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));
         if(d && this.isTabletLiberado(d)){ try { this.showAlert('✨ Tablet liberado — aguardando confirmação do técnico que finalizou.\n\nNada pode ser editado até confirmar.', 'Bloqueado'); } catch(e){ alert('Tablet liberado — aguardando confirmação do técnico.'); } return; }
         if(d && this.isConclusaoPending(d)){ try { this.showAlert('🏁 Conclusão solicitada — aguardando "Liberar conclusão" na Pendência Chamados.\n\nNada pode ser editado até liberar.', 'Bloqueado'); } catch(e){ alert('Conclusão solicitada — aguardando liberação.'); } return; }
+        if(d && this.isExclusaoPending(d)){ try { this.showAlert('🗑️ Exclusão solicitada — aguardando "Liberar exclusão" na Pendência Chamados.\n\nNada pode ser editado até liberar.', 'Bloqueado'); } catch(e){ alert('Exclusão solicitada — aguardando liberação.'); } return; }
       } catch(e){}
       if(this.isCardWorkLocked()){ try { this.showAlert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.', 'Informação'); } catch(e){ alert('O card ainda está na lista Pendente — ninguém pegou ele ainda.\n\nClique em "Pegar" (membro ou admin do quadro) para mover para Em Andamento e liberar o atendimento.'); } }
       else { try { this.showAlert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.', 'Informação'); } catch(e){ alert('Máquina travada — aguardando Chamado criado. Nada pode ser editado.'); } }
@@ -7069,6 +7184,21 @@
       if(!this.isBoardAdmin()){ try { this.showAlert('Somente admin do quadro pode apagar cards.', 'Sem permissão'); } catch(e){ alert('Somente admin do quadro pode apagar cards.'); } return; }
       // cartão travado (Pendente): só o criador/admin do quadro consegue excluir
       if(this.cardLockedGuard(null, true)) return;
+      // Manutenção: exclusão com aprovação (pendência preta + Liberar exclusão)
+      try {
+        const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));
+        if(d && d.is_maintenance == 1){
+          if(this.isExclusaoPending(d)){ try { this.showAlert('Exclusão já solicitada — aguardando "Liberar exclusão".', 'Aguarde'); } catch(e){} return; }
+          if(!await this.kpConfirm('Solicitar a exclusão deste card?\n\nEle trava e abre pendência preta na Pendência Chamados. Um admin clica em "Liberar exclusão" para excluir de verdade.', 'Excluir com aprovação')) return;
+          const res = await this.ajax('request_exclusao', {cards_id: this.currentCardId});
+          if(!res || !res.success){ try { this.showAlert((res && res.msg) || 'Erro ao solicitar', 'Erro'); } catch(e){ alert((res && res.msg) || 'Erro'); } return; }
+          if(res.already) this.showToast('Exclusão já solicitada — aguardando liberação');
+          else this.showToast('🗑️ Exclusão solicitada — pendência #' + res.pendencia_id);
+          this.refreshCardModal();
+          this.forceSync();
+          return;
+        }
+      } catch(e){}
       if(!await this.kpConfirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
       this.ajax('delete_card', {cards_id: this.currentCardId}).then(res=>{
         if(res.success){ this.cards = this.cards.filter(c=> c.id!=this.currentCardId); this.closeCardModal(); this.renderBoard(); }

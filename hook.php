@@ -232,6 +232,10 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'conclusao_pending')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `conclusao_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=aguardando Liberar conclusao na Pendencia Chamados' AFTER `tablet_liberado_pending`");
         }
+        // Exclusão de manutenção: origem travada aguardando "Liberar exclusão" na Pendência Chamados
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'exclusao_pending')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `exclusao_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=aguardando Liberar exclusao na Pendencia Chamados' AFTER `conclusao_pending`");
+        }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `tablet_liberado_pending`");
         }
