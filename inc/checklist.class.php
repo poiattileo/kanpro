@@ -4,7 +4,7 @@ if (!defined('GLPI_ROOT')) {
 }
 
 class PluginKanproChecklist extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
     static function getTable($classname = null) { return 'glpi_plugin_kanpro_checklists'; }
     static function getTypeName($nb = 0) { return 'Checklist'; }
 

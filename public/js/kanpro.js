@@ -5831,10 +5831,12 @@
     isMachineLocked(mid){
       try {
         if(this.isCardFinalized()){
-          // Edicao aberta (botao Editar na Retirada): permite editar, espelha
-          // o finalizedGuard. Sem isso o save morria aqui em silencio e o
-          // refresh do modal revertia o valor em ~2s. O backend segue como
-          // trava real (so libera com edicao_by gravado).
+          // Sessão de edição aberta (botão Editar na Retirada): permite editar —
+          // espelha o finalizedGuard. Sem isso, todo edit de máquina com edição
+          // aberta caía aqui em silêncio (maintLockAlert não mostra nada com
+          // edição aberta) e o refresh do modal revertia o valor em ~2s.
+          // O backend continua sendo a trava real (kanpro_need_not_finalized
+          // só libera com edicao_by gravado).
           let edOpen = false;
           try {
             const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));

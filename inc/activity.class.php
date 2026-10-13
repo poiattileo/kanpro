@@ -4,7 +4,7 @@ if (!defined('GLPI_ROOT')) {
 }
 
 class PluginKanproActivity extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
     static function getTypeName($nb = 0) { return 'Atividade'; }
 
     static function getForBoard($boards_id, $limit = 50): array {

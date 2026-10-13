@@ -3,6 +3,7 @@
 // Tabela glpi_plugin_kanpro_configs (name/value). Só quem edita o plugin.
 include('../../../inc/includes.php');
 include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
+require_once GLPI_ROOT . '/plugins/kanpro/inc/compat.php';
 Session::checkRight('plugin_kanpro', UPDATE);
 
 global $DB, $CFG_GLPI;
@@ -72,7 +73,7 @@ echo "<textarea name='acting_map' rows='4' style='width:100%;font-family:monospa
 echo "</td></tr>";
 
 echo "<tr class='tab_bg_2'><td colspan='2' class='center' style='padding:12px'>";
-echo Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]);
+echo Html::hidden('_glpi_csrf_token', ['value' => kanpro_csrf_token()]);
 echo "<button type='submit' name='update' value='1' class='btn btn-primary'><i class='ti ti-device-floppy'></i> Salvar configurações</button>";
 echo "</td></tr>";
 echo "</table></div>";

@@ -2,6 +2,7 @@
 if (function_exists('opcache_invalidate')) @opcache_invalidate(__FILE__, true);
 include('../../../inc/includes.php');
 include_once(GLPI_ROOT . '/plugins/kanpro/inc/acting.php');
+require_once GLPI_ROOT . '/plugins/kanpro/inc/compat.php';
 @ob_clean();
 header('Content-Type: application/json; charset=UTF-8');
 // debug log para 403
@@ -57,7 +58,7 @@ function kanpro_ajax_guard(string $action): void {
         // Se o framework já validou via header, o bridge copiou p/ $_POST. Valida sem consumir.
         try {
             // GLPI 11: checkCSRF($data, $preserve=true). GLPI 10: checkCSRF($data) — extra arg é ignorado.
-            Session::checkCSRF($_POST, true);
+            kanpro_check_csrf($_POST);
         } catch (Throwable $e) {
             http_response_code(403);
             jexit(['success'=>false,'msg'=>'Sessão expirada ou token inválido — recarregue a página (F5).','csrf'=>true]);
@@ -4697,7 +4698,7 @@ switch ($action) {
             }
             if (!$tr) jexit(['success'=>false,'msg'=>'Nenhum termo gerado para este card ainda.','need_term'=>true]);
             $tid = (int)$tr['id'];
-            try { $base = Plugin::getWebDir('assetmgrstatus'); } catch (Throwable $e) { $base = ''; }
+            try { $base = kanpro_web_dir('assetmgrstatus'); } catch (Throwable $e) { $base = ''; }
             if (!$base) $base = '/plugins/assetmgrstatus';
             $signed = !empty($tr['assinatura_image']) && !empty($tr['assinatura_tecnico_image']);
             jexit(['success'=>true,'transfer_id'=>$tid,'signed'=>$signed,
@@ -6247,7 +6248,7 @@ switch ($action) {
                     'work_status'        => $work_status,
                 ]);
                 try{ \GlpiPlugin\Assetmgrstatus\Transfer::logStatus($transfer_id, 'pronto', "KanPro Retirada Urgência: Máquina #{$row['seq']} '{$row['model']}' de #{$cid} para #{$newId}"); }catch(Throwable $e){}
-                $base = Plugin::getWebDir('assetmgrstatus');
+                $base = kanpro_web_dir('assetmgrstatus');
                 if(!$base) $base = '/plugins/assetmgrstatus';
                 $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
             }
@@ -6529,7 +6530,7 @@ switch ($action) {
                         $DB->update('glpi_plugin_assetmgrstatus_transfer_items', ['origin_entity_name' => mb_substr($card->fields['name'],0,255)], ['transfers_id'=>$transfer_id]);
                     }
                 } catch(Throwable $e) {}
-                $base = Plugin::getWebDir('assetmgrstatus');
+                $base = kanpro_web_dir('assetmgrstatus');
                 if(!$base) $base = '/plugins/assetmgrstatus';
                 $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
                 $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';
@@ -6758,7 +6759,7 @@ switch ($action) {
             kanpro_ticket_followup($finTid, $finMsg);
             kanpro_ticket_solve($finTid, "Manutenção concluída pelo KanPro" . ($finName !== '' ? ' (finalizado por ' . $finName . ')' : '') . " — {$total} máquinas verificadas (Garantia: {$cntGarantiaTerm} | OK: {$cntOkTerm} | Inservível: {$cntInservivelTerm}). Termo de assinatura #{$transfer_id} gerado para coleta na escola.");
         }
-        $base = Plugin::getWebDir('assetmgrstatus');
+        $base = kanpro_web_dir('assetmgrstatus');
         if(!$base) $base = '/plugins/assetmgrstatus';
         $assinatura_url = $base.'/front/assinatura.php?f=pendente&highlight='.$transfer_id;
         $pdf_url = $base.'/front/transfer_pdf.php?id='.$transfer_id.'&stage=pronto';

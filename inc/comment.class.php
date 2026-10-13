@@ -4,7 +4,7 @@ if (!defined('GLPI_ROOT')) {
 }
 
 class PluginKanproComment extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
     static function getTypeName($nb = 0) { return _n('Comentário', 'Comentários', $nb); }
 
     function prepareInputForAdd($input) {

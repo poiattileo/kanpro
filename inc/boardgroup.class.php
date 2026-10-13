@@ -4,7 +4,7 @@ if (!defined('GLPI_ROOT')) {
 }
 
 class PluginKanproBoardGroup extends CommonDBTM {
-    static $rightname = 'plugin_kanpro';
+    static string $rightname = 'plugin_kanpro';
 
     static function getTypeName($nb = 0) {
         return _n('Grupo de quadros', 'Grupos de quadros', $nb, 'kanpro');
