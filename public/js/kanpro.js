@@ -5830,7 +5830,18 @@
     },
     isMachineLocked(mid){
       try {
-        if(this.isCardFinalized()) return true;
+        if(this.isCardFinalized()){
+          // Edicao aberta (botao Editar na Retirada): permite editar, espelha
+          // o finalizedGuard. Sem isso o save morria aqui em silencio e o
+          // refresh do modal revertia o valor em ~2s. O backend segue como
+          // trava real (so libera com edicao_by gravado).
+          let edOpen = false;
+          try {
+            const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));
+            edOpen = !!(d && this.isEdicaoOpen(d));
+          } catch(_){}
+          if(!edOpen) return true;
+        }
         if(this.isCardWorkLocked()) return true;
         const m = this.maintMachineById(mid);
         return !!(m && m.is_locked && Number(m.is_locked) == 1);
