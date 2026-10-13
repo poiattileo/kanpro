@@ -5958,7 +5958,17 @@
       this._diaryTimers[mid]=setTimeout(()=> this.autoSaveDiary(mid), delay);
     },
     autoSaveDiary(mid){
-      if(this.isCardFinalized()){ const ta0=document.getElementById("maint-diary-"+mid); if(ta0) ta0.value = this._lastDiarySaved[mid] || ta0.value; return; }
+      if(this.isCardFinalized()){
+        // Edicao aberta (botao Editar na Retirada): permite salvar, espelha
+        // finalizedGuard/isMachineLocked. Sem isso o texto digitado era
+        // revertido em silencio e nada chegava ao servidor.
+        let edOpen = false;
+        try {
+          const d = (this._lastModalData && String(this._lastModalData.id)===String(this.currentCardId)) ? this._lastModalData : (this.cards||[]).find(x=> String(x.id)===String(this.currentCardId));
+          edOpen = !!(d && this.isEdicaoOpen(d));
+        } catch(_){}
+        if(!edOpen){ const ta0=document.getElementById("maint-diary-"+mid); if(ta0) ta0.value = this._lastDiarySaved[mid] || ta0.value; return; }
+      }
       if(this.isMachineLocked(mid)){ const ta0=document.getElementById("maint-diary-"+mid); if(ta0) ta0.value = this._lastDiarySaved[mid] || ta0.value; return; }
       const ta=document.getElementById("maint-diary-"+mid);
       const status=document.getElementById("maint-save-status-"+mid);
