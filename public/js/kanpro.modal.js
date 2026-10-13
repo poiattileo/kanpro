@@ -5,6 +5,19 @@
   if (!window.Kanpro) return;
   const K = window.Kanpro;
 
+  // Fecha overlay por clique fora — SÓ clique genuíno (mesma regra do helper de
+  // kanpro.js; global guardada, vale a última definição idêntica).
+  if(!window.kpOverlayClose) window.kpOverlayClose = function(overlay, onClose){
+    let downOn = false;
+    overlay.addEventListener('mousedown', e=>{ downOn = (e.target===overlay); });
+    overlay.addEventListener('click', e=>{
+      if(e.target!==overlay || !downOn) return;
+      downOn = false;
+      try { const s=window.getSelection(); if(s && !s.isCollapsed && String(s.toString()).length>0) return; } catch(_){}
+      onClose(e);
+    });
+  };
+
   // Fecha tudo com Esc numa ordem só (antes cada modal tinha seu listener vazando).
   let __escBound = false;
   function bindEscOnce(){
@@ -137,7 +150,7 @@
         document.body.appendChild(overlay);
         trapFocus(overlay);
         const cleanup = (val)=>{ overlay.remove(); resolve(val); };
-        overlay.addEventListener('click', e=>{ if(e.target===overlay) cleanup(false); });
+        window.kpOverlayClose(overlay, ()=> cleanup(false));
         overlay.querySelector('[data-a="cancel"]').onclick = ()=> cleanup(false);
         overlay.querySelector('[data-a="ok"]').onclick = ()=> cleanup(true);
       });
@@ -160,7 +173,7 @@
         trapFocus(overlay);
         const input = overlay.querySelector('[data-a="input"]');
         const cleanup = (val)=>{ overlay.remove(); resolve(val); };
-        overlay.addEventListener('click', e=>{ if(e.target===overlay) cleanup(null); });
+        window.kpOverlayClose(overlay, ()=> cleanup(null));
         overlay.querySelector('[data-a="cancel"]').onclick = ()=> cleanup(null);
         overlay.querySelector('[data-a="ok"]').onclick = ()=> cleanup(input.value);
         input.addEventListener('keydown', e=>{

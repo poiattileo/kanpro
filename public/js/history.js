@@ -137,6 +137,18 @@
   }
   // ---- Calendariozinho popup (sem dependência externa) ----
   var KPH_MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  // Fecha overlay por clique fora — SÓ clique genuíno (mesma regra do helper de
+  // kanpro.js; global guardada, vale a última definição idêntica).
+  if(!window.kpOverlayClose) window.kpOverlayClose = function(overlay, onClose){
+    let downOn = false;
+    overlay.addEventListener('mousedown', e=>{ downOn = (e.target===overlay); });
+    overlay.addEventListener('click', e=>{
+      if(e.target!==overlay || !downOn) return;
+      downOn = false;
+      try { const s=window.getSelection(); if(s && !s.isCollapsed && String(s.toString()).length>0) return; } catch(_){}
+      onClose(e);
+    });
+  };
   function kphCloseCalendar(){
     var c = document.getElementById('kph-cal');
     if (c && c.parentNode) c.parentNode.removeChild(c);
@@ -320,7 +332,7 @@
         + '</div></div>';
       document.body.appendChild(ov);
       var self = this;
-      ov.addEventListener('click', function(e){ if(e.target === ov) self.close(); });
+      window.kpOverlayClose(ov, function(){ self.close(); });
       this.reload();
     },
     close: function(){

@@ -300,12 +300,25 @@
           if(sel) this.openCard(parseInt(sel.dataset.cardId));
         }
       });
+      // Fecha overlay por clique fora — SÓ clique genuíno: tem que COMEÇAR no
+      // overlay (arrasto de seleção que termina fora gera click no overlay e
+      // nunca fecha) e não pode haver texto selecionado. Global guardada
+      // (modal.js/history.js definem igual — vale a última, comportamento idêntico).
+      if(!window.kpOverlayClose) window.kpOverlayClose = function(overlay, onClose){
+        let downOn = false;
+        overlay.addEventListener('mousedown', e=>{ downOn = (e.target===overlay); });
+        overlay.addEventListener('click', e=>{
+          if(e.target!==overlay || !downOn) return;
+          downOn = false;
+          try { const s=window.getSelection(); if(s && !s.isCollapsed && String(s.toString()).length>0) return; } catch(_){}
+          onClose(e);
+        });
+      };
       // clique fora do card-modal (overlay) fecha — SÓ se for longe do card.
       // Margem invisível (~48px) em volta: clique acidental colado no modal não fecha,
       // tem que clicar bem pra fora. Evita perder o que estava digitando.
       const m = document.getElementById('kanpro-card-modal');
-      if(m) m.addEventListener('click', e=>{
-        if(e.target.id!=='kanpro-card-modal') return;
+      if(m) window.kpOverlayClose(m, (e)=>{
         if(this._clickInsideSafeMargin(e, '#kp-modal-box')) return;
         this.closeCardModal();
       });
@@ -649,7 +662,7 @@
         else if(e.key==='Enter'){ const it = items[this._qfIndex]; if(it){ this.closeQuickFind(); this.openCard(parseInt(it.dataset.cardId)); } }
         else if(e.key==='Escape'){ e.stopPropagation(); this.closeQuickFind(); }
       });
-      overlay.addEventListener('click', e=>{ if(e.target===overlay) this.closeQuickFind(); });
+      window.kpOverlayClose(overlay, ()=> this.closeQuickFind());
       this.renderQuickFind('');
       setTimeout(()=> input.focus(), 30);
     },
@@ -3373,7 +3386,7 @@
           </div>
         </div>`;
       document.body.appendChild(ov);
-      ov.addEventListener('click', e=>{ if(e.target === ov) this.taskItemAttDone(); });
+      window.kpOverlayClose(ov, ()=> this.taskItemAttDone());
       // ESC em pilha: o overlay é o topo, fecha só ele e segura a propagação
       // para o handler global não fechar o modal de baixo junto
       try { if(this._taskAttKey) document.removeEventListener('keydown', this._taskAttKey, true); } catch(e){}
@@ -7173,7 +7186,7 @@
         <img src="${url}" alt="${this.escape(name||'')}" style="max-width:90vw;max-height:82vh;object-fit:contain;border-radius:4px;box-shadow:0 8px 32px rgba(0,0,0,.5);cursor:default" onclick="event.stopPropagation()">
         ${name ? `<div style="color:#fff;margin-top:12px;font-size:13px;opacity:.8">${this.escape(name)}</div>` : ''}
       `;
-      overlay.addEventListener('click', ()=> overlay.remove());
+      window.kpOverlayClose(overlay, ()=> overlay.remove());
       const onKey = e=>{ if(e.key==='Escape'){ overlay.remove(); document.removeEventListener('keydown', onKey); } };
       document.addEventListener('keydown', onKey);
       document.body.appendChild(overlay);
@@ -8383,7 +8396,7 @@
           </div>`;
         document.body.appendChild(overlay);
         const cleanup = (val)=>{ overlay.remove(); resolve(val); };
-        overlay.addEventListener('click', e=>{ if(e.target===overlay) cleanup(false); });
+        window.kpOverlayClose(overlay, ()=> cleanup(false));
         overlay.querySelector('[data-a="cancel"]').onclick = ()=> cleanup(false);
         overlay.querySelector('[data-a="ok"]').onclick = ()=> cleanup(true);
         const onKey = e=>{ if(e.key==='Escape'){ cleanup(false); document.removeEventListener('keydown', onKey); } };
@@ -8406,7 +8419,7 @@
         document.body.appendChild(overlay);
         const input = overlay.querySelector('[data-a="input"]');
         const cleanup = (val)=>{ overlay.remove(); resolve(val); };
-        overlay.addEventListener('click', e=>{ if(e.target===overlay) cleanup(null); });
+        window.kpOverlayClose(overlay, ()=> cleanup(null));
         overlay.querySelector('[data-a="cancel"]').onclick = ()=> cleanup(null);
         overlay.querySelector('[data-a="ok"]').onclick = ()=> cleanup(input.value);
         input.addEventListener('keydown', e=>{
