@@ -786,7 +786,12 @@ function plugin_kanpro_install(): bool {
 
     PluginKanproProfile::install();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::registerCron();
-    if (class_exists('PluginKanproTelegram')) PluginKanproTelegram::registerCron();
+    // Telegram descontinuado: garante que a tarefa cron não exista (fresh install e updates).
+    try {
+        if ($DB->tableExists('glpi_crontasks')) {
+            $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproTelegram']);
+        }
+    } catch (Throwable $e) {}
     return true;
 }
 
@@ -795,7 +800,12 @@ function plugin_kanpro_uninstall(): bool {
 
     PluginKanproProfile::uninstall();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
-    if (class_exists('PluginKanproTelegram')) PluginKanproTelegram::unregisterCron();
+    // Telegram descontinuado (a tabela de configs é dropada abaixo mesmo assim).
+    try {
+        if ($DB->tableExists('glpi_crontasks')) {
+            $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproTelegram']);
+        }
+    } catch (Throwable $e) {}
 
     $tables = [
         'glpi_plugin_kanpro_entities_contacts',

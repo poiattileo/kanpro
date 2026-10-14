@@ -43,18 +43,6 @@ function kanpro_cfg_lines(string $key): string {
 
 $reminderLines = kanpro_cfg_lines('zap_reminder_recipients');
 $chamadoLines  = kanpro_cfg_lines('zap_chamado_recipients');
-$tgToken = function_exists('kanpro_config_get') ? kanpro_config_get('telegram_bot_token', '') : '';
-$tgAllowLines = '';
-if (function_exists('kanpro_config_get')) {
-    $tgAllow = json_decode(kanpro_config_get('telegram_allowlist', ''), true);
-    if (is_array($tgAllow)) {
-        $tmp = [];
-        foreach ($tgAllow as $chat => $login) {
-            $tmp[] = trim((string)$chat) . '=' . trim((string)$login);
-        }
-        $tgAllowLines = implode("\n", $tmp);
-    }
-}
 $mapRaw        = function_exists('kanpro_config_get') ? kanpro_config_get('acting_map', '') : '';
 if ($mapRaw !== '') {
     $tmp = json_decode($mapRaw, true);
@@ -78,14 +66,6 @@ echo "</td></tr>";
 
 echo "<tr class='tab_bg_1'><td><strong>Destinatários do chamado</strong><br><small>Um por linha. Recebem o aviso de novo chamado em Abrir Chamado.</small></td><td>";
 echo "<textarea name='zap_chamado_recipients' rows='4' style='width:100%' placeholder='um por linha'>" . htmlspecialchars($chamadoLines, ENT_QUOTES) . "</textarea>";
-echo "</td></tr>";
-
-echo "<tr class='tab_bg_1'><td><strong>Token do bot (Telegram)</strong><br><small>Criado com o @BotFather. Vazio = bot desligado.</small></td><td>";
-echo "<input type='text' name='telegram_bot_token' value='" . htmlspecialchars($tgToken, ENT_QUOTES) . "' style='width:100%;font-family:monospace' maxlength='255' placeholder='123456:ABC-DEF...'>";
-echo "</td></tr>";
-
-echo "<tr class='tab_bg_1'><td><strong>Quem pode usar o bot</strong><br><small>Um por linha: <code>chat_id=login_glpi</code>. Linhas com # são ignoradas. Descubra o chat id mandando /id para o bot.</small></td><td>";
-echo "<textarea name='telegram_allowlist' rows='4' style='width:100%;font-family:monospace' placeholder='123456789=leonardo'>" . htmlspecialchars($tgAllowLines, ENT_QUOTES) . "</textarea>";
 echo "</td></tr>";
 
 echo "<tr class='tab_bg_1'><td><strong>Mapa de login compartilhado</strong><br><small>JSON {\"login_usado\":\"pessoa_real\"}. Usado quando a equipe divide um login. Vazio = sem migração.</small></td><td>";

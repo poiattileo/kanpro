@@ -42,8 +42,17 @@ function plugin_init_kanpro() {
     // Hook para mudança de perfil
     $PLUGIN_HOOKS['change_profile']['kanpro'] = ['PluginKanproProfile', 'changeProfile'];
 
-    // Garante a tarefa cron do Telegram em instalações já existentes (sem reinstalar).
-    if (class_exists('PluginKanproTelegram')) PluginKanproTelegram::ensureCron();
+    // Telegram descontinuado: remove a tarefa cron e as configs restantes em
+    // instalações que já tinham o bot ligado (para o spam de erro no cron).
+    try {
+        global $DB;
+        if (isset($DB) && is_object($DB) && $DB->tableExists('glpi_crontasks')) {
+            $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproTelegram']);
+        }
+        if (isset($DB) && is_object($DB) && $DB->tableExists('glpi_plugin_kanpro_configs')) {
+            $DB->delete('glpi_plugin_kanpro_configs', ['name' => ['telegram_bot_token', 'telegram_allowlist', 'telegram_update_offset']]);
+        }
+    } catch (Throwable $e) {}
 }
 
 function plugin_version_kanpro() {

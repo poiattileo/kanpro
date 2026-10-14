@@ -100,35 +100,6 @@ if (!function_exists('kanpro_config_parse_post')) {
             $values[$key] = json_encode(array_values(array_unique($list)), JSON_UNESCAPED_UNICODE);
         }
 
-        // Telegram: token do bot (vazio = desligado, fail closed).
-        $tgToken = trim((string)($post['telegram_bot_token'] ?? ''));
-        if ($tgToken !== '' && preg_match('/\s/', $tgToken)) {
-            $errors[] = 'Token do Telegram inválido (não pode conter espaços).';
-        } else {
-            $values['telegram_bot_token'] = function_exists('kanpro_clean_text')
-                ? kanpro_clean_text($tgToken, 255)
-                : substr($tgToken, 0, 255);
-        }
-
-        // Telegram: allowlist um por linha no formato chat_id=login_glpi. Linhas # são comentários.
-        $tgLines = preg_split('/\r\n|\r|\n/', (string)($post['telegram_allowlist'] ?? ''));
-        $tgMap = [];
-        foreach ((array)$tgLines as $line) {
-            $line = trim((string)$line);
-            if ($line === '' || $line[0] === '#') {
-                continue;
-            }
-            $pair = explode('=', $line, 2);
-            $chat = trim((string)($pair[0] ?? ''));
-            $tgLogin = trim((string)($pair[1] ?? ''));
-            if ($chat === '' || $tgLogin === '' || !ctype_digit($chat) || preg_match('/\s/', $tgLogin)) {
-                $errors[] = "Telegram: linha inválida '{$line}' (use chat_id=login, ex. 123456789=leonardo).";
-                continue;
-            }
-            $tgMap[$chat] = $tgLogin;
-        }
-        $values['telegram_allowlist'] = json_encode($tgMap, JSON_UNESCAPED_UNICODE);
-
         // Mapa login compartilhado -> pessoa real (JSON {"origem":"destino"}).
         $mapRaw = trim((string)($post['acting_map'] ?? ''));
         if ($mapRaw === '') {
