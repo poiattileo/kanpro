@@ -40,6 +40,9 @@ function plugin_init_kanpro() {
 
     // Hook para mudança de perfil
     $PLUGIN_HOOKS['change_profile']['kanpro'] = ['PluginKanproProfile', 'changeProfile'];
+
+    // Garante a tarefa cron do Telegram em instalações já existentes (sem reinstalar).
+    if (class_exists('PluginKanproTelegram')) PluginKanproTelegram::ensureCron();
 }
 
 function plugin_version_kanpro() {

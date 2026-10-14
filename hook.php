@@ -786,6 +786,7 @@ function plugin_kanpro_install(): bool {
 
     PluginKanproProfile::install();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::registerCron();
+    if (class_exists('PluginKanproTelegram')) PluginKanproTelegram::registerCron();
     return true;
 }
 
@@ -794,6 +795,7 @@ function plugin_kanpro_uninstall(): bool {
 
     PluginKanproProfile::uninstall();
     if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::unregisterCron();
+    if (class_exists('PluginKanproTelegram')) PluginKanproTelegram::unregisterCron();
 
     $tables = [
         'glpi_plugin_kanpro_entities_contacts',
