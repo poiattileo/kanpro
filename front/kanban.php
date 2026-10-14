@@ -459,10 +459,8 @@ $board_name_esc = htmlspecialchars($board->fields['name'] ?? '', ENT_QUOTES);
 // o JS compara com o selo do polling e avisa quem está com aba aberta.
 $__kp_build = 0;
 try {
-    foreach (['public/js/kanpro.js','public/js/kanpro.modal.js','public/js/kanpro.dnd.js','public/js/kanpro.maintenance.js','public/js/kanpro.butler.js','public/js/kanpro.chamado.js','public/js/kanpro.deleted.js','public/js/history.js','public/css/kanpro.css'] as $__kf) {
-        $__km = @filemtime(__DIR__ . '/../' . $__kf);
-        if ($__km && $__km > $__kp_build) $__kp_build = (int)$__km;
-    }
+    // Fonte única em inc/acting.php (vale p/ o selo do polling também)
+    $__kp_build = function_exists('kanpro_build_stamp') ? kanpro_build_stamp() : 0;
 } catch (Throwable $e) {}
 
 echo <<<HTML

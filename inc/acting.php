@@ -464,10 +464,45 @@ if (!function_exists('kanpro_can_manage_members')) {
                 $hasM = countElementsInTable('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
                 $hasP = $DB->tableExists('glpi_plugin_kanpro_boards_profiles') && countElementsInTable('glpi_plugin_kanpro_boards_profiles', ['plugin_kanpro_boards_id' => (int)$bid]) > 0;
                 if (!$hasM && !$hasP) return true;
-            } catch (Throwable $e) {}
-        }
-        return false;
+        } catch (Throwable $e) {}
     }
+}
+
+if (!function_exists('kanpro_build_files')) {
+    // Lista canônica dos assets do kanban (fonte única do selo de build).
+    // Usada pelo ?v= do setup.php, pelo window.KANPRO.build (kanban.php) e pelo
+    // selo do polling (get_board_stamp). Manter as 3 em sincronia era frágil:
+    // qualquer arquivo faltando num dos lados gerava banner "nova versão" eterno.
+    function kanpro_build_files(): array {
+        return [
+            'public/js/kanpro.js',
+            'public/js/kanpro.modal.js',
+            'public/js/kanpro.dnd.js',
+            'public/js/kanpro.maintenance.js',
+            'public/js/kanpro.butler.js',
+            'public/js/kanpro.chamado.js',
+            'public/js/kanpro.deleted.js',
+            'public/js/history.js',
+            'public/css/kanpro.css',
+        ];
+    }
+}
+
+if (!function_exists('kanpro_build_stamp')) {
+    // Maior filemtime dos assets — carimbo do build p/ banner "nova versão".
+    function kanpro_build_stamp(): int {
+        $build = 0;
+        try {
+            $plugDir = dirname(__DIR__);
+            if (!is_dir($plugDir)) $plugDir = __DIR__ . '/..';
+            foreach (kanpro_build_files() as $rel) {
+                $m = @filemtime($plugDir . '/' . $rel);
+                if ($m && $m > $build) $build = (int)$m;
+            }
+        } catch (Throwable $e) {}
+        return (int)$build;
+    }
+}
 }
 
 if (!function_exists('kanpro_can_see_all')) {

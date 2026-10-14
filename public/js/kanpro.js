@@ -608,11 +608,13 @@
     },
 
     // Banner "nova versão": o ?v= atualiza quem navega; quem fica com a aba
-    // aberta só descobre pelo selo do polling. Mostra uma única vez.
+    // aberta só descobre pelo selo do polling. Mostra uma única vez, e SÓ
+    // quando o servidor está de fato mais novo (srv > boot). Diferença no
+    // sentido contrário (listas dessincadas, clock skew) nunca é "nova versão".
     maybeShowBuildBanner(serverBuild){
       const srv = parseInt(serverBuild || 0);
       const boot = parseInt(this.bootBuild || 0);
-      if(!(srv > 0) || !(boot > 0) || srv === boot || this._buildAlertShown) return;
+      if(!(srv > 0) || !(boot > 0) || srv <= boot || this._buildAlertShown) return;
       this._buildAlertShown = true;
       this.showBuildBanner();
     },
