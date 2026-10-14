@@ -138,7 +138,7 @@
       bindEscOnce();
       return new Promise(resolve=>{
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px';
         overlay.innerHTML = `
           <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:380px;width:100%;padding:20px">
             <div style="font-size:14px;color:#172b4d;margin-bottom:18px;white-space:pre-wrap;line-height:1.4">${this.escape(message)}</div>
@@ -159,7 +159,7 @@
       bindEscOnce();
       return new Promise(resolve=>{
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:30000;display:flex;align-items:center;justify-content:center;padding:16px';
         overlay.innerHTML = `
           <div style="background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:380px;width:100%;padding:20px">
             <div style="font-size:14px;color:#172b4d;margin-bottom:10px;font-weight:600">${this.escape(message)}</div>

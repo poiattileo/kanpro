@@ -39,6 +39,17 @@
       return root + '/plugins/kanpro/front/attachment.php?id=' + Number(id);
     } catch(_) { return '/plugins/kanpro/front/attachment.php?id=' + Number(id); }
   }
+  // Modal padrão do plugin (z-30000, sempre acima do picker z-20000) em vez de
+  // alert()/confirm() nativos no fluxo do chamado. Com fallback nativo.
+  function say(msg, title){
+    try { K.showAlert(msg, title); } catch(_) { try { alert(msg); } catch(_){} }
+  }
+  function ask(msg, title, okLabel){
+    try {
+      if (K.showConfirm) return K.showConfirm(msg, title, okLabel);
+    } catch(_){}
+    return Promise.resolve(confirm(msg));
+  }
 
   const C = {
     // Anexos pós-criação (registro: vale mesmo com o card travado no fluxo)
@@ -58,7 +69,7 @@
     attAdd(cardId, btn){
       const inp = document.getElementById('kc-att-' + cardId);
       const files = Array.from((inp && inp.files) || []);
-      if (!files.length) { alert('Escolha ao menos um arquivo.'); return; }
+      if (!files.length) { say('Escolha ao menos um arquivo.'); return; }
       const msg = document.getElementById('kc-att-msg-' + cardId);
       if (btn) btn.disabled = true;
       let ok = 0, fail = 0, i = 0;
@@ -78,9 +89,11 @@
       step();
     },
     attDel(cardId, attId, btn){
-      if (!confirm('Excluir este anexo?')) return;
-      if (btn) btn.disabled = true;
-      K.ajax('delete_attachment', {id: attId}).then(()=> this.open(cardId));
+      ask('Excluir este anexo?', 'Excluir anexo', 'Excluir').then(ok=>{
+        if (!ok) return;
+        if (btn) btn.disabled = true;
+        K.ajax('delete_attachment', {id: attId}).then(()=> this.open(cardId));
+      });
     },
     // Criação guiada: título + descrição + origem (URE ou Escola) + anexos.
     // flow 'pend_chamado' (completo, c/ clone) ou 'chamados_pendencia' (card+ticket, cai na Espera).
@@ -147,8 +160,8 @@
       const desc = document.getElementById('kc-desc')?.value.trim() || '';
       const origin = document.querySelector('input[name="kc-origin"]:checked')?.value || 'ure';
       const entities_id = origin === 'escola' ? Number(document.getElementById('kc-entity')?.value || 0) : 0;
-      if (!title) { alert('Título obrigatório'); return; }
-      if (origin === 'escola' && !entities_id) { alert('Selecione a escola (entidade).'); return; }
+      if (!title) { say('Título obrigatório'); return; }
+      if (origin === 'escola' && !entities_id) { say('Selecione a escola (entidade).'); return; }
       const files = Array.from(document.getElementById('kc-files')?.files || []);
       if (btn) { btn.disabled = true; btn.textContent = files.length ? `Criando + enviando ${files.length} anexo(s)...` : 'Criando...'; }
       const fd = new FormData();
@@ -160,7 +173,7 @@
       files.forEach(f=> fd.append('files[]', f, f.name));
       K.ajax(action, fd, true).then(res=>{
         if (!res || !res.success) {
-          alert((res && res.msg) || 'Erro');
+          say((res && res.msg) || 'Erro', 'Erro');
           if (btn) { btn.disabled = false; btn.textContent = 'Criar chamado'; }
           return;
         }
@@ -176,7 +189,7 @@
     // Visão simplificada (Abrir / Andamento / Finalizado)
     open(cardId){
       K.ajax('chamado_detail', {cards_id: cardId}).then(res=>{
-        if (!res || !res.success) { alert((res && res.msg) || 'Erro'); return; }
+        if (!res || !res.success) { say((res && res.msg) || 'Erro', 'Erro'); return; }
         const d = res.card;
         if (d.category === 'abrir_chamado') this.renderAbrir(d);
         else if (d.category === 'andamento_chamado') this.renderAndamento(d, res.updates || [], res.sibling || null);
@@ -299,7 +312,7 @@
       if (btn) { btn.disabled = true; btn.textContent = 'Abrindo...'; }
       const cardId = this._openCardId;
       K.ajax('chamado_mark_open', {cards_id: cardId, confirm_text: challenge}).then(res=>{
-        if (!res || !res.success) { alert((res && res.msg) || 'Erro'); if (btn) { btn.disabled = false; btn.textContent = '✔ Chamado aberto'; } return; }
+        if (!res || !res.success) { say((res && res.msg) || 'Erro', 'Erro'); if (btn) { btn.disabled = false; btn.textContent = '✔ Chamado aberto'; } return; }
         K.showToast && K.showToast('✅ Liberado para execução');
         this.autoDeleteCountdown(cardId, 30);
         try { K.forceSync && K.forceSync(); } catch(_){}
@@ -407,16 +420,16 @@
     },
     draftClear(cardId){ try { localStorage.removeItem(this.draftKey(cardId)); } catch(_){} },
     saveUpdate(cardId, btn){
-      if (this._andamentoLocked) { alert('🔒 Card bloqueado — aguarde o "Chamado aberto" em Abrir chamado.'); return; }
+      if (this._andamentoLocked) { say('🔒 Card bloqueado — aguarde o "Chamado aberto" em Abrir chamado.', 'Bloqueado'); return; }
       const note = document.getElementById('kc-note')?.value.trim() || '';
       const status = document.getElementById('kc-status')?.value || '';
-      if (!note) { alert('Escreva o que foi realizado.'); return; }
-      if (!status) { alert('Selecione o status (Pendente ou Finalizado).'); document.getElementById('kc-status')?.focus(); return; }
+      if (!note) { say('Escreva o que foi realizado.'); return; }
+      if (!status) { say('Selecione o status (Pendente ou Finalizado).'); document.getElementById('kc-status')?.focus(); return; }
       const doSave = ()=>{
         if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
         K.ajax('chamado_update', {cards_id: cardId, note, status}).then(res=>{
           if (!res || !res.success) {
-            alert((res && res.msg) || 'Erro');
+            say((res && res.msg) || 'Erro', 'Erro');
             if (btn) { btn.disabled = false; btn.textContent = 'Atualizar card'; }
             return;
           }
@@ -428,13 +441,8 @@
       };
       if (status === 'finalizado') {
         // padrão do plugin/GLPI (sem confirm nativo): mesmo visual do showConfirm do kanban
-        try {
-          if (K.showConfirm) {
-            K.showConfirm('Encerra o ticket no GLPI e move para Chamado finalizado.', 'Finalizar chamado?', 'Finalizar').then(ok=>{ if (ok) doSave(); });
-            return;
-          }
-        } catch(_){}
-        if (!confirm('Finalizar? Encerra o ticket no GLPI e move para Chamado finalizado.')) return;
+        ask('Encerra o ticket no GLPI e move para Chamado finalizado.', 'Finalizar chamado?', 'Finalizar').then(ok=>{ if (ok) doSave(); });
+        return;
       }
       doSave();
     },
@@ -459,7 +467,7 @@
       if (!ref) return;
       const {updates} = ref;
       const txt = ((updates || []).map(u=> (u.note || '').trim()).filter(Boolean).join('\n') || '').trim();
-      if (!txt) { alert('Nada para copiar.'); return; }
+      if (!txt) { say('Nada para copiar.'); return; }
       const done = ()=> { try { K.showToast && K.showToast('📋 Copiado!'); } catch(_){} if (btn) { const o = btn.textContent; btn.textContent = '✓ Copiado!'; setTimeout(()=>{ btn.textContent = o; }, 2000); } };
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).then(done).catch(()=> this.copyFallback(txt, done)); }
@@ -476,7 +484,7 @@
         document.execCommand('copy');
         ta.remove();
         done();
-      } catch(_){ alert('Não foi possível copiar automaticamente.'); }
+      } catch(_){ say('Não foi possível copiar automaticamente.'); }
     },
   };
 
