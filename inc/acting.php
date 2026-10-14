@@ -418,7 +418,7 @@ if (!function_exists('kanpro_my_board_role')) {
     function kanpro_my_board_role($bid) {
         global $DB;
         $best = null;
-        $rank = ['observer' => 1, 'member' => 2, 'admin' => 3];
+        $rank = ['observer' => 1, 'member' => 2, 'admin' => 3, 'gerente' => 4];
         try {
             foreach (array_unique([kanpro_acting_user_id(), (int)Session::getLoginUserID()]) as $uid) {
                 if ($uid <= 0) continue;
@@ -817,6 +817,8 @@ if (!function_exists('kanpro_readonly_actions')) {
             'get_card_term',
             'my_board_groups',
             'get_trash',
+            'get_deleted_cards',
+            'get_deleted_detail',
             'zap_lembrete_diagnose',
             'zap_lembrete_calendar',
             'rule_list',

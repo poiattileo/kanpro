@@ -282,6 +282,91 @@ function kanpro_user_brief($uid) {
     }
     return ['users_id' => (int)$uid, 'name' => $name, 'login' => $login, 'initials' => $initials];
 }
+// ---------- Aba "Excluídos": só gerente do quadro (criador ou papel gerente) ----------
+function kanpro_require_deleted_manager($bid) {
+    $bid = (int)$bid;
+    if ($bid > 0) kanpro_require_board_view($bid);
+    $ok = false;
+    try { $ok = function_exists('kanpro_can_see_all') ? kanpro_can_see_all($bid) : false; } catch (Throwable $e) { $ok = false; }
+    if (!$ok) {
+        http_response_code(403);
+        jexit(['success'=>false,'msg'=>'Aba Excluídos restrita ao gerente do quadro.']);
+    }
+}
+function kanpro_deleted_actor_name($uid) {
+    $uid = (int)$uid;
+    if ($uid <= 0) return 'Sistema';
+    try {
+        $u = new User();
+        if ($u->getFromDB($uid)) {
+            $full = trim(($u->fields['firstname'] ?? '') . ' ' . ($u->fields['realname'] ?? ''));
+            if ($full !== '') return $full . ' (' . ($u->fields['name'] ?? ('#' . $uid)) . ')';
+            return $u->getFriendlyName();
+        }
+    } catch (Throwable $e) {}
+    return 'Usuário #' . $uid;
+}
+// Snapshot p/ lixeira com notas de manutenção (anotações por máquina).
+// getFullData() traz machines + activities, mas não o conteúdo das notes —
+// sem isso o "recuperar" perdia as anotações. Anexa como maintenance_notes_by_machine.
+function kanpro_snapshot_card_for_trash($cards_id) {
+    global $DB;
+    $full = PluginKanproCard::getFullData((int)$cards_id);
+    if (!is_array($full)) return null;
+    $full['orig_card_id'] = (int)$cards_id;
+    $full['maintenance_notes_by_machine'] = [];
+    try {
+        if (!empty($full['maintenance_machines']) && $DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+            $mids = array_column($full['maintenance_machines'], 'id');
+            $mids = array_values(array_filter(array_map('intval', (array)$mids)));
+            if (!empty($mids)) {
+                $byMid = [];
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_notes', 'WHERE' => ['machine_id' => $mids], 'ORDER' => 'date_creation ASC']) as $nr) {
+                    $mid = (int)($nr['machine_id'] ?? 0);
+                    if ($mid <= 0) continue;
+                    $byMid[$mid][] = $nr;
+                }
+                $full['maintenance_notes_by_machine'] = $byMid;
+            }
+        }
+    } catch (Throwable $e) {}
+    return $full;
+}
+// Atividades órfãs: logs gravados com o cards_id DEPOIS do purge (ex.: exclusao_released)
+// ficam na tabela sem o card. Junta com o snapshot p/ histórico completo.
+function kanpro_orphan_activities_for_card($orig_card_id, $boards_id = 0): array {
+    global $DB;
+    $out = [];
+    try {
+        $orig_card_id = (int)$orig_card_id;
+        if ($orig_card_id <= 0) return [];
+        if (!$DB->tableExists('glpi_plugin_kanpro_activities')) return [];
+        $iter = $DB->request([
+            'SELECT' => ['a.*', 'u.name AS user_name', 'u.realname', 'u.firstname'],
+            'FROM'   => 'glpi_plugin_kanpro_activities AS a',
+            'LEFT JOIN' => ['glpi_users AS u' => ['ON' => ['u' => 'id', 'a' => 'users_id']]],
+            'WHERE'  => ['a.plugin_kanpro_cards_id' => $orig_card_id],
+            'ORDER'  => 'a.date_creation ASC',
+            'LIMIT'  => 200,
+        ]);
+        foreach ($iter as $a) {
+            if ($boards_id > 0 && (int)($a['plugin_kanpro_boards_id'] ?? 0) !== (int)$boards_id) continue;
+            $uname = trim(($a['firstname'] ?? '') . ' ' . ($a['realname'] ?? ''));
+            if ($uname === '') $uname = $a['user_name'] ?? 'Sistema';
+            $out[] = [
+                'id' => (int)($a['id'] ?? 0),
+                'date' => (string)($a['date_creation'] ?? ''),
+                'user' => $uname,
+                'user_id' => (int)($a['users_id'] ?? 0),
+                'action' => (string)($a['action'] ?? ''),
+                'details' => (string)($a['details'] ?? ''),
+                'card_id' => (int)($a['plugin_kanpro_cards_id'] ?? 0),
+                'orphan' => true,
+            ];
+        }
+    } catch (Throwable $e) {}
+    return $out;
+}
 // Migração runtime das novidades (fixar, aprovação, etiqueta com prazo, lixeira) — sem reinstalar.
 // DEPRECATED: schema canônico em hook.php. Mantido como wrapper barato (1x por request) p/ git-update sem reinstall.
 function kanpro_ensure_board_extras() {
@@ -4593,7 +4678,7 @@ switch ($action) {
         $c = new PluginKanproCard();
         if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         // snapshot p/ lixeira antes do purge (anexos físicos não são restaurados)
-        $full = PluginKanproCard::getFullData($cid);
+        $full = function_exists('kanpro_snapshot_card_for_trash') ? kanpro_snapshot_card_for_trash($cid) : PluginKanproCard::getFullData($cid);
         $ll = new PluginKanproList();
         $lname = $ll->getFromDB((int)$c->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
         $DB->insert('glpi_plugin_kanpro_trash', [
@@ -4621,7 +4706,7 @@ switch ($action) {
         $bidD = (int)$pc->fields['plugin_kanpro_boards_id'];
         // admin do quadro (criador/admin; UPDATE só em legado aberto) — mesma regra central
         if (!kanpro_can_manage_members($bidD)) jexit(['success'=>false,'msg'=>'Somente admin do quadro']);
-        $full = PluginKanproCard::getFullData($pid);
+        $full = function_exists('kanpro_snapshot_card_for_trash') ? kanpro_snapshot_card_for_trash($pid) : PluginKanproCard::getFullData($pid);
         $ll = new PluginKanproList();
         $lname = $ll->getFromDB((int)$pc->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
         try {
@@ -4652,7 +4737,7 @@ switch ($action) {
         if (($pc->fields['chamado_status'] ?? '') !== 'liberado') jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado aberto)']);
         $bidP = (int)$pc->fields['plugin_kanpro_boards_id'];
         kanpro_require_board_edit($bidP);
-        $full = PluginKanproCard::getFullData($pid);
+        $full = function_exists('kanpro_snapshot_card_for_trash') ? kanpro_snapshot_card_for_trash($pid) : PluginKanproCard::getFullData($pid);
         $ll = new PluginKanproList();
         $lname = $ll->getFromDB((int)$pc->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
         try {
@@ -4970,6 +5055,309 @@ switch ($action) {
         $DB->delete('glpi_plugin_kanpro_trash', ['id'=>$tid]);
         PluginKanproBoard::logActivity($bid, (int)$newId, $lid, 'card_restore', "Cartão '{$t['card_name']}' restaurado da lixeira");
         jexit(['success'=>true,'id'=>(int)$newId]);
+
+    case 'get_deleted_cards':
+        // Aba "Excluídos": lista de cards excluídos do quadro — SÓ gerente (criador ou gerente).
+        try {
+            $bid = (int)($_REQUEST['boards_id'] ?? 0);
+            if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+            kanpro_ensure_board_extras();
+            kanpro_require_deleted_manager($bid);
+            $bchk = new PluginKanproBoard();
+            if (!$bchk->getFromDB($bid)) jexit(['success'=>false,'msg'=>'Quadro não encontrado']);
+            $items = [];
+            $titer = $DB->request(['FROM'=>'glpi_plugin_kanpro_trash','WHERE'=>['plugin_kanpro_boards_id'=>$bid],'ORDER'=>'date_creation DESC','LIMIT'=>200]);
+            foreach ($titer as $t) {
+                $snap = json_decode($t['snapshot'] ?? '', true);
+                if (!is_array($snap)) $snap = [];
+                $origId = (int)($snap['orig_card_id'] ?? $snap['id'] ?? 0);
+                $isMaint = !empty($snap['is_maintenance']) ? 1 : 0;
+                $machTotal = is_array($snap['maintenance_machines'] ?? null) ? count($snap['maintenance_machines']) : 0;
+                // quem solicitou a exclusão (atividade exclusao_requested dentro do snapshot)
+                $requestedBy = 0; $requestedByName = ''; $requestedDate = '';
+                foreach (($snap['activities'] ?? []) as $a) {
+                    if (($a['action'] ?? '') === 'exclusao_requested') {
+                        $requestedBy = (int)($a['users_id'] ?? 0);
+                        $requestedDate = (string)($a['date_creation'] ?? '');
+                        break;
+                    }
+                }
+                if ($requestedBy > 0) { try { $requestedByName = kanpro_deleted_actor_name($requestedBy); } catch (Throwable $e) {} }
+                $delUid = (int)($t['users_id'] ?? 0);
+                $delName = '';
+                try { $delName = kanpro_deleted_actor_name($delUid); } catch (Throwable $e) {}
+                $items[] = [
+                    'trash_id' => (int)$t['id'],
+                    'orig_card_id' => $origId,
+                    'card_name' => (string)($t['card_name'] ?? ($snap['name'] ?? '')),
+                    'list_name' => (string)($t['list_name'] ?? ($snap['list_name'] ?? '')),
+                    'lists_id' => (int)($t['plugin_kanpro_lists_id'] ?? 0),
+                    'date' => (string)($t['date_creation'] ?? ''),
+                    'deleted_by' => $delUid,
+                    'deleted_by_name' => $delName,
+                    'requested_by' => $requestedBy,
+                    'requested_by_name' => $requestedByName,
+                    'requested_date' => $requestedDate,
+                    'is_maintenance' => $isMaint,
+                    'machines_total' => $machTotal,
+                    'description' => mb_substr((string)($snap['description'] ?? ''), 0, 160),
+                ];
+            }
+            jexit(['success'=>true,'board_id'=>$bid,'board_name'=>($bchk->fields['name'] ?? ''),'items'=>$items,'total'=>count($items)]);
+        } catch (Throwable $e) {
+            error_log('[KanPro] KanPro get_deleted_cards: ' . $e->getMessage());
+            jexit(['success'=>false,'msg'=>'Falha ao carregar excluídos']);
+        }
+
+    case 'get_deleted_detail':
+        // Detalhe de um excluído: snapshot completo + histórico (quem mudou/excluiu/solicitou).
+        try {
+            $tid = (int)($_REQUEST['trash_id'] ?? $_REQUEST['id'] ?? 0);
+            if (!$tid) jexit(['success'=>false,'msg'=>'Item inválido']);
+            kanpro_ensure_board_extras();
+            $t = $DB->request(['FROM'=>'glpi_plugin_kanpro_trash','WHERE'=>['id'=>$tid]])->current();
+            if (!$t) jexit(['success'=>false,'msg'=>'Item não encontrado']);
+            $bid = (int)($t['plugin_kanpro_boards_id'] ?? 0);
+            kanpro_require_deleted_manager($bid);
+            $snap = json_decode($t['snapshot'] ?? '', true);
+            if (!is_array($snap) || empty($snap['name'])) jexit(['success'=>false,'msg'=>'Snapshot inválido']);
+            $origId = (int)($snap['orig_card_id'] ?? $snap['id'] ?? 0);
+            // histórico do snapshot (quem mudou) + órfãos pós-purge
+            $hist = [];
+            foreach (($snap['activities'] ?? []) as $a) {
+                $uid = (int)($a['users_id'] ?? 0);
+                $uname = trim((($a['firstname'] ?? '') . ' ' . ($a['realname'] ?? '')));
+                if ($uname === '') $uname = ($a['user_name'] ?? '');
+                if ($uname === '') { try { $uname = kanpro_deleted_actor_name($uid); } catch (Throwable $e) {} }
+                $hist[] = ['date'=>(string)($a['date_creation'] ?? ''),'user'=>$uname,'user_id'=>$uid,
+                    'action'=>(string)($a['action'] ?? ''),'details'=>(string)($a['details'] ?? ''),'card_id'=>$origId];
+            }
+            try {
+                foreach (kanpro_orphan_activities_for_card($origId, $bid) as $oa) {
+                    $dup = false;
+                    foreach ($hist as $h) {
+                        if (($h['action'] ?? '') === ($oa['action'] ?? '') && ($h['date'] ?? '') === ($oa['date'] ?? '') && ($h['details'] ?? '') === ($oa['details'] ?? '')) { $dup = true; break; }
+                    }
+                    if (!$dup) $hist[] = $oa;
+                }
+            } catch (Throwable $e) {}
+            usort($hist, function($a,$b){ return strcmp((string)($b['date'] ?? ''), (string)($a['date'] ?? '')); });
+            // solicitou x liberou/excluiu
+            $requested = null; $released = null;
+            foreach ($hist as $h) {
+                if ($requested === null && ($h['action'] ?? '') === 'exclusao_requested') $requested = $h;
+                if ($released === null && ($h['action'] ?? '') === 'exclusao_released') $released = $h;
+            }
+            $delUid = (int)($t['users_id'] ?? 0);
+            // lista origem ainda existe?
+            $origLid = (int)($t['plugin_kanpro_lists_id'] ?? 0);
+            $origListOk = false; $origListName = (string)($t['list_name'] ?? '');
+            try {
+                $ll = new PluginKanproList();
+                if ($ll->getFromDB($origLid) && (int)$ll->fields['plugin_kanpro_boards_id'] === $bid) {
+                    $origListOk = true; $origListName = $ll->fields['name'];
+                }
+            } catch (Throwable $e) {}
+            // destino do recuperar (origem ou primeira ativa)
+            $destLid = $origLid; $destName = $origListName;
+            if (!$origListOk) {
+                try {
+                    $first = $DB->request(['FROM'=>'glpi_plugin_kanpro_lists','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'is_archived'=>0],'ORDER'=>'rank ASC','LIMIT'=>1])->current();
+                    if ($first) { $destLid = (int)$first['id']; $destName = (string)$first['name']; }
+                } catch (Throwable $e) {}
+            }
+            jexit(['success'=>true,'trash_id'=>$tid,'board_id'=>$bid,
+                'card' => $snap,
+                'trash' => ['list_name'=>(string)($t['list_name'] ?? ''),'lists_id'=>$origLid,
+                    'deleted_by'=>$delUid,'deleted_by_name'=>kanpro_deleted_actor_name($delUid),'date'=>(string)($t['date_creation'] ?? '')],
+                'history' => $hist,
+                'requested' => $requested,
+                'released' => $released,
+                'restore_target' => ['lists_id'=>$destLid,'list_name'=>$destName,'same_as_origin'=>$origListOk],
+            ]);
+        } catch (Throwable $e) {
+            error_log('[KanPro] KanPro get_deleted_detail: ' . $e->getMessage());
+            jexit(['success'=>false,'msg'=>'Falha ao carregar excluído']);
+        }
+
+    case 'restore_deleted_card':
+        // "Recuperar": recria o card na lista de origem (ou 1ª ativa) — SÓ gerente.
+        needEdit();
+        kanpro_ensure_board_extras();
+        kanpro_ensure_maintenance_tables();
+        $tid = (int)($_POST['trash_id'] ?? $_POST['id'] ?? 0);
+        if (!$tid) jexit(['success'=>false,'msg'=>'Item inválido']);
+        $t = $DB->request(['FROM'=>'glpi_plugin_kanpro_trash','WHERE'=>['id'=>$tid]])->current();
+        if (!$t) jexit(['success'=>false,'msg'=>'Item não encontrado']);
+        $bid = (int)($t['plugin_kanpro_boards_id'] ?? 0);
+        kanpro_require_deleted_manager($bid);
+        $snap = json_decode($t['snapshot'] ?? '', true);
+        if (!is_array($snap) || empty($snap['name'])) jexit(['success'=>false,'msg'=>'Snapshot inválido']);
+        $lid = (int)($t['plugin_kanpro_lists_id'] ?? 0);
+        $ll = new PluginKanproList();
+        if (!$ll->getFromDB($lid) || (int)$ll->fields['plugin_kanpro_boards_id'] !== $bid) {
+            $first = $DB->request(['FROM'=>'glpi_plugin_kanpro_lists','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'is_archived'=>0],'ORDER'=>'rank ASC','LIMIT'=>1])->current();
+            if (!$first) jexit(['success'=>false,'msg'=>'Quadro sem listas ativas']);
+            $lid = (int)$first['id'];
+        }
+        // rank no fim da lista destino
+        $newRank = 1024;
+        try {
+            $mx = $DB->request(['SELECT'=>['MAX'=>'rank AS maxrank'],'FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$lid]])->current();
+            $newRank = floatval($mx['maxrank'] ?? 0) + 1024;
+            if ($newRank <= 0) $newRank = 1024;
+        } catch (Throwable $e) {}
+        $isMaint = !empty($snap['is_maintenance']) ? 1 : 0;
+        $nc = new PluginKanproCard();
+        $add = [
+            'plugin_kanpro_boards_id'=>$bid, 'plugin_kanpro_lists_id'=>$lid,
+            'name'=>mb_substr(trim($snap['name'] ?? $t['card_name']), 0, 255),
+            'description'=>($snap['description'] ?? ''),
+            'rank'=>$newRank,
+            'due_date'=>($snap['due_date'] ?? null), 'start_date'=>($snap['start_date'] ?? null),
+            'cover_color'=>($snap['cover_color'] ?? null),
+            'is_completed'=>!empty($snap['is_completed']) ? 1 : 0,
+            'users_id'=>(int)($snap['users_id'] ?? kanpro_acting_user_id()),
+        ];
+        // opcionais só se a coluna existir (installs antigos sem migrate não quebram o add)
+        try {
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'is_pinned')) $add['is_pinned'] = !empty($snap['is_pinned']) ? 1 : 0;
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'is_urgent')) $add['is_urgent'] = !empty($snap['is_urgent']) ? 1 : 0;
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) $add['is_maintenance'] = $isMaint;
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_date') && !empty($snap['maintenance_date'])) $add['maintenance_date'] = $snap['maintenance_date'];
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_by') && !empty($snap['maintenance_by'])) $add['maintenance_by'] = (int)$snap['maintenance_by'];
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'tickets_id')) $add['tickets_id'] = (int)($snap['tickets_id'] ?? 0);
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'entities_id')) $add['entities_id'] = (int)($snap['entities_id'] ?? 0);
+            // origem restaurada sempre "limpa": sem pendência travada
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_source_id')) $add['chamado_source_id'] = 0;
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) $add['chamado_status'] = '';
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) $add['chamado_by'] = 0;
+        } catch (Throwable $e) {}
+        $newId = $nc->add($add);
+        if (!$newId) jexit(['success'=>false,'msg'=>'Falha ao recriar cartão']);
+        $newId = (int)$newId;
+        // garante flags de manutenção/pendências zeradas + chamado limpo
+        try {
+            $fix = ['exclusao_pending'=>0,'conclusao_pending'=>0,'edicao_pending'=>0,'edicao_by'=>0];
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_source_id')) $fix['chamado_source_id'] = 0;
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) $fix['chamado_status'] = '';
+            if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) $fix['chamado_by'] = 0;
+            if ($isMaint) {
+                if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'is_maintenance')) $fix['is_maintenance'] = 1;
+                if (!empty($snap['maintenance_date']) && $DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_date')) $fix['maintenance_date'] = $snap['maintenance_date'];
+                if (!empty($snap['maintenance_by']) && $DB->fieldExists('glpi_plugin_kanpro_cards', 'maintenance_by')) $fix['maintenance_by'] = (int)$snap['maintenance_by'];
+            }
+            $DB->update('glpi_plugin_kanpro_cards', $fix, ['id'=>$newId]);
+        } catch (Throwable $e) {}
+        // etiquetas
+        foreach (($snap['labels'] ?? []) as $sl) {
+            try {
+                $lname = trim($sl['name'] ?? ''); $lcolor = $sl['color'] ?? '#61bd4f';
+                $ex = $DB->request(['FROM'=>'glpi_plugin_kanpro_labels','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'name'=>$lname,'color'=>$lcolor],'LIMIT'=>1])->current();
+                $labelId = $ex ? (int)$ex['id'] : (new PluginKanproLabel())->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$lname,'color'=>$lcolor]);
+                if ($labelId) $DB->insert('glpi_plugin_kanpro_cards_labels', ['plugin_kanpro_cards_id'=>$newId,'plugin_kanpro_labels_id'=>$labelId]);
+            } catch (Throwable $e) {}
+        }
+        // membros
+        foreach (($snap['members'] ?? []) as $sm) {
+            try {
+                $muid = (int)($sm['id'] ?? $sm['users_id'] ?? 0);
+                if ($muid > 0) $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$newId,'users_id'=>$muid]);
+            } catch (Throwable $e) {}
+        }
+        // checklists + itens
+        foreach (($snap['checklists'] ?? []) as $scl) {
+            try {
+                $ncl = new PluginKanproChecklist();
+                $clid = $ncl->add(['plugin_kanpro_cards_id'=>$newId,'name'=>($scl['name'] ?? 'Checklist'),'rank'=>($scl['rank'] ?? 0)]);
+                if ($clid) {
+                    foreach (($scl['items'] ?? []) as $it) {
+                        $ni = new PluginKanproChecklistItem();
+                        $ni->add(['plugin_kanpro_checklists_id'=>$clid,'name'=>($it['name'] ?? ''),'is_checked'=>!empty($it['is_checked']) ? 1 : 0,
+                            'users_id'=>(int)($it['users_id'] ?? 0),'rank'=>($it['rank'] ?? 0),'due_date'=>($it['due_date'] ?? null)]);
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+        // comentários
+        foreach (($snap['comments'] ?? []) as $sc) {
+            try {
+                if (trim($sc['content'] ?? '') === '') continue;
+                $DB->insert('glpi_plugin_kanpro_comments', ['plugin_kanpro_cards_id'=>$newId,'users_id'=>(int)($sc['users_id'] ?? 0),
+                    'content'=>$sc['content'],'date_creation'=>($sc['date_creation'] ?? date('Y-m-d H:i:s')),'date_mod'=>date('Y-m-d H:i:s')]);
+            } catch (Throwable $e) {}
+        }
+        // manutenção: máquinas + anotações (numeração original preservada)
+        if ($isMaint && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            $notesByMid = $snap['maintenance_notes_by_machine'] ?? [];
+            if (!is_array($notesByMid)) $notesByMid = [];
+            foreach (($snap['maintenance_machines'] ?? []) as $mm) {
+                try {
+                    $oldMid = (int)($mm['id'] ?? 0);
+                    $row = [
+                        'plugin_kanpro_cards_id'=>$newId,
+                        'seq'=>(int)($mm['seq'] ?? 0),
+                        'model'=>mb_substr((string)($mm['model'] ?? ''), 0, 255),
+                        'label'=>mb_substr((string)($mm['label'] ?? ''), 0, 255),
+                        'diary'=>($mm['diary'] ?? null),
+                        'is_done'=>!empty($mm['is_done']) ? 1 : 0,
+                        'is_ok'=>!empty($mm['is_ok']) ? 1 : 0,
+                        'status'=>(string)($mm['status'] ?? ''),
+                        'is_inventoried'=>!empty($mm['is_inventoried']) ? 1 : 0,
+                        'needs_inventory'=>!empty($mm['needs_inventory']) ? 1 : 0,
+                        'is_urgent'=>!empty($mm['is_urgent']) ? 1 : 0,
+                        'is_locked'=>0,
+                        'locked_chamado_card_id'=>0,
+                        'users_id'=>(int)($mm['users_id'] ?? 0),
+                        'date_creation'=>date('Y-m-d H:i:s'),
+                        'date_mod'=>date('Y-m-d H:i:s'),
+                    ];
+                    // installs antigos sem as colunas novas: remove p/ o insert não falhar
+                    try {
+                        foreach (['diary','status','is_inventoried','needs_inventory','is_urgent','is_locked','locked_chamado_card_id'] as $__mf) {
+                            if (!$DB->fieldExists('glpi_plugin_kanpro_maintenance_machines', $__mf)) unset($row[$__mf]);
+                        }
+                    } catch (Throwable $e) {}
+                    $DB->insert('glpi_plugin_kanpro_maintenance_machines', $row);
+                    $newMid = (int)$DB->insertId();
+                    if ($newMid > 0 && $oldMid > 0 && !empty($notesByMid[(string)$oldMid] ?? $notesByMid[$oldMid] ?? null)) {
+                        $list = $notesByMid[(string)$oldMid] ?? $notesByMid[$oldMid];
+                        if (is_array($list) && $DB->tableExists('glpi_plugin_kanpro_maintenance_notes')) {
+                            foreach ($list as $nt) {
+                                if (trim((string)($nt['note'] ?? '')) === '') continue;
+                                $DB->insert('glpi_plugin_kanpro_maintenance_notes', [
+                                    'machine_id'=>$newMid,
+                                    'users_id'=>(int)($nt['users_id'] ?? 0),
+                                    'note'=>$nt['note'],
+                                    'date_creation'=>($nt['date_creation'] ?? date('Y-m-d H:i:s')),
+                                    'date_mod'=>date('Y-m-d H:i:s'),
+                                ]);
+                            }
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
+            try { if (function_exists('kanpro_sync_inventory_label')) kanpro_sync_inventory_label($newId); } catch (Throwable $e) {}
+        }
+        // histórico: preserva o que o card tinha (snapshot) no novo card + carimbo do recuperar
+        try {
+            foreach (($snap['activities'] ?? []) as $sa) {
+                if (trim((string)($sa['details'] ?? '') . ($sa['action'] ?? '')) === '') continue;
+                $DB->insert('glpi_plugin_kanpro_activities', [
+                    'plugin_kanpro_boards_id'=>$bid,
+                    'plugin_kanpro_cards_id'=>$newId,
+                    'plugin_kanpro_lists_id'=>$lid,
+                    'users_id'=>(int)($sa['users_id'] ?? 0),
+                    'action'=>(string)($sa['action'] ?? 'card_restore'),
+                    'details'=>(string)($sa['details'] ?? ''),
+                    'date_creation'=>($sa['date_creation'] ?? date('Y-m-d H:i:s')),
+                ]);
+            }
+        } catch (Throwable $e) {}
+        $DB->delete('glpi_plugin_kanpro_trash', ['id'=>$tid]);
+        try { kanpro_touch_card($newId); } catch (Throwable $e) {}
+        PluginKanproBoard::logActivity($bid, $newId, $lid, 'card_restore', "Cartão '{$t['card_name']}' recuperado dos Excluídos (era #".(int)($snap['orig_card_id'] ?? $snap['id'] ?? 0)." da lista '{$t['list_name']}')");
+        jexit(['success'=>true,'id'=>$newId,'lists_id'=>$lid]);
 
     case 'toggle_card_member':
         needEdit();
@@ -7090,7 +7478,7 @@ switch ($action) {
         // destrava + snapshot p/ lixeira + purge (mesmo ritual do delete_card)
         try { $DB->update('glpi_plugin_kanpro_cards', ['exclusao_pending'=>0,'date_mod'=>$nowExc2], ['id'=>$srcId]); } catch (Throwable $e) {}
         $srcCard->getFromDB($srcId);
-        $full = PluginKanproCard::getFullData($srcId);
+        $full = function_exists('kanpro_snapshot_card_for_trash') ? kanpro_snapshot_card_for_trash($srcId) : PluginKanproCard::getFullData($srcId);
         $ll = new PluginKanproList();
         $lname = $ll->getFromDB((int)$srcCard->fields['plugin_kanpro_lists_id']) ? $ll->fields['name'] : '';
         try {
@@ -7127,7 +7515,7 @@ switch ($action) {
         $nowX = date('Y-m-d H:i:s');
         try { $DB->update('glpi_plugin_kanpro_cards', ['exclusao_pending'=>0,'date_mod'=>$nowX], ['id'=>$srcId]); } catch (Throwable $e) {}
         kanpro_touch_card($srcId);
-        $full = PluginKanproCard::getFullData($pid);
+        $full = function_exists('kanpro_snapshot_card_for_trash') ? kanpro_snapshot_card_for_trash($pid) : PluginKanproCard::getFullData($pid);
         try {
             $DB->insert('glpi_plugin_kanpro_trash', [
                 'plugin_kanpro_boards_id'=>$bidC,

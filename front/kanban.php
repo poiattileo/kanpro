@@ -43,6 +43,23 @@ if (!$__histAdmin) {
 }
 if (!$__histAdmin && in_array(kanpro_board_profile_role($boards_id), ['admin', 'gerente'], true)) $__histAdmin = true;
 
+// Excluídos: SÓ gerente do quadro (criador ou papel gerente — admin comum não vê).
+// Usa a mesma regra central do backend (kanpro_can_see_all).
+$__canSeeDeleted = false;
+try {
+    if (function_exists('kanpro_can_see_all')) $__canSeeDeleted = kanpro_can_see_all($boards_id);
+    else {
+        $__canSeeDeleted = ($__creator === $__me && $__me > 0);
+        if (!$__canSeeDeleted) {
+            $__dmiter = $DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]]);
+            foreach ($__dmiter as $__dmr) {
+                if (($__dmr['role'] ?? '') === 'gerente') { $__canSeeDeleted = true; break; }
+            }
+        }
+        if (!$__canSeeDeleted && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($boards_id) === 'gerente') $__canSeeDeleted = true;
+    }
+} catch (Throwable $e) { $__canSeeDeleted = false; }
+
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
 try {
     if (function_exists('kanpro_migrate_shared_login')) kanpro_migrate_shared_login();
@@ -410,6 +427,10 @@ $acting_user_id_json = function_exists('kanpro_acting_user_id') ? (int) kanpro_a
 $history_btn = !empty($__histAdmin)
     ? '<button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>'
     : '';
+$deleted_btn = !empty($__canSeeDeleted)
+    ? '<button id="kanpro-deleted-btn" onclick="KanproDeleted.open(window.KANPRO.board.id)" title="Cards excluídos — só gerente vê" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-trash"></i> Excluídos <span id="kanpro-deleted-count" style="font-size:11px;color:#5e6c84"></span></button>'
+    : '';
+$__kp_can_see_deleted = !empty($__canSeeDeleted) ? '1' : '0';
 
 // Família de quadros: pai + irmãos + filhos ao lado do nome (troca rápida). Só o que pode ver.
 $family_html = '';
@@ -438,7 +459,7 @@ $board_name_esc = htmlspecialchars($board->fields['name'] ?? '', ENT_QUOTES);
 // o JS compara com o selo do polling e avisa quem está com aba aberta.
 $__kp_build = 0;
 try {
-    foreach (['public/js/kanpro.js','public/js/kanpro.modal.js','public/js/kanpro.dnd.js','public/js/kanpro.maintenance.js','public/js/kanpro.butler.js','public/js/kanpro.chamado.js','public/js/history.js','public/css/kanpro.css'] as $__kf) {
+    foreach (['public/js/kanpro.js','public/js/kanpro.modal.js','public/js/kanpro.dnd.js','public/js/kanpro.maintenance.js','public/js/kanpro.butler.js','public/js/kanpro.chamado.js','public/js/kanpro.deleted.js','public/js/history.js','public/css/kanpro.css'] as $__kf) {
         $__km = @filemtime(__DIR__ . '/../' . $__kf);
         if ($__km && $__km > $__kp_build) $__kp_build = (int)$__km;
     }
@@ -448,11 +469,12 @@ echo <<<HTML
 <style>
 /* esconde header padrão GLPI breadcrumb para efeito Trello full */
 #page { padding:0 !important; }
-/* Dark mode — só nas listas e nos botões Filtrar/Calendário/Relatório/Histórico */
+/* Dark mode — só nas listas e nos botões Filtrar/Calendário/Relatório/Histórico/Excluídos */
 .kanpro-dark .kp-list,
 .kanpro-dark #kanpro-filter-btn,
 .kanpro-dark #kanpro-calendar-btn,
-.kanpro-dark #kanpro-history-btn { filter: invert(0.9) hue-rotate(180deg); }
+.kanpro-dark #kanpro-history-btn,
+.kanpro-dark #kanpro-deleted-btn { filter: invert(0.9) hue-rotate(180deg); }
 .kanpro-dark .kp-list img,
 .kanpro-dark .kp-list .kp-avatar,
 .kanpro-dark .kp-list .ti { filter: invert(1) hue-rotate(180deg); }
@@ -491,6 +513,7 @@ echo <<<HTML
     <button id="kanpro-retirada-btn" onclick="Kanpro.openRetiradaNotify()" title="Escolas com cards na coluna Retirada (avisar retirada)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-bell"></i> Avisar retiradas</button>
     <button id="kanpro-show-hidden-btn" onclick="Kanpro.toggleShowHidden()" title="Exibir listas invisíveis (sem os cards)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-eye"></i> Exibir invisíveis</button>
     {$history_btn}
+    {$deleted_btn}
     <span id="kanpro-stats" style="color:#fff;font-size:13px;margin-left:auto;opacity:.9"></span>
   </div>
 
@@ -766,6 +789,7 @@ window.KANPRO = {
   openCardId: {$open_card_id_json},
   currentUserId: {$current_user_id},
   actingUserId: {$acting_user_id_json},
+  canSeeDeleted: {$__kp_can_see_deleted},
   themes: {$themes_json}
 };
 </script>
