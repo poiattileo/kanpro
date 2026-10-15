@@ -1,4 +1,4 @@
-// KanPro Excluídos — aba só do gerente (criador ou papel gerente).
+// KanPro Excluídos — todo mundo que pode ver o quadro.
 // Lista cards excluídos do quadro, mostra tudo + histórico
 // (quem mudou, quem solicitou exclusão, quem excluiu/liberou) e recupera
 // para a lista de origem.
@@ -110,7 +110,7 @@
         + '<div id="kpd-count" style="padding:8px 18px 0;font-size:12px;color:#5e6c84"></div>'
         + '<div id="kpd-body" style="padding:12px 18px;overflow-y:auto;min-height:120px"></div>'
         + '<div style="padding:12px 18px;border-top:1px solid #dfe1e6;background:#fff;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
-        + '<span style="font-size:11px;color:#97a0af;margin-right:auto;align-self:center">Só gerente do quadro vê esta aba. Recuperar volta para a lista de origem.</span>'
+        + '<span style="font-size:11px;color:#97a0af;margin-right:auto;align-self:center">Recuperar volta para a lista de origem.</span>'
         + '<button onclick="KanproDeleted.close()" style="background:#f4f5f7;border:1px solid #dfe1e6;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Fechar</button>'
         + '</div></div>';
       document.body.appendChild(ov);
