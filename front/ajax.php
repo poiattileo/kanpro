@@ -4744,8 +4744,8 @@ switch ($action) {
         jexit(['success'=>true]);
 
     case 'delete_liberado_pendencia':
-        // Auto-exclusão 30s após Chamado criado / Conclusão / Exclusão liberada: só pendência
-        // liberada + só admin do quadro (vale sem DELETE global).
+        // Auto-exclusão 30s após Chamado criado / Conclusão / Exclusão / Edição / Separação liberada:
+        // só pendência liberada + só admin do quadro (vale sem DELETE global).
         needEdit();
         kanpro_ensure_board_extras();
         $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
@@ -4754,7 +4754,7 @@ switch ($action) {
         if (!$pc->getFromDB($pid)) jexit(['success'=>true,'already_deleted'=>true]);
         if ((int)($pc->fields['chamado_source_id'] ?? 0) <= 0) jexit(['success'=>false,'msg'=>'Só Pendência Chamado se auto-exclui']);
         $stDel = (string)($pc->fields['chamado_status'] ?? '');
-        if (!in_array($stDel, ['liberado','conclusao_ok','exclusao_ok','edicao_ok'], true)) jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado criado)']);
+        if (!in_array($stDel, ['liberado','conclusao_ok','exclusao_ok','edicao_ok','separacao_ok'], true)) jexit(['success'=>false,'msg'=>'Ainda não liberado (sem Chamado criado)']);
         $bidD = (int)$pc->fields['plugin_kanpro_boards_id'];
         // admin do quadro (criador/admin; UPDATE só em legado aberto) — mesma regra central
         if (!kanpro_can_manage_members($bidD)) jexit(['success'=>false,'msg'=>'Somente admin do quadro']);
@@ -4770,7 +4770,7 @@ switch ($action) {
                 'users_id'=>kanpro_acting_user_id(), 'date_creation'=>date('Y-m-d H:i:s'),
             ]);
         } catch (Throwable $e) {}
-        PluginKanproBoard::logActivity($bidD, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', $stDel === 'conclusao_ok' ? "Pendência de conclusão #{$pid} auto-excluída 30s após liberação" : ($stDel === 'exclusao_ok' ? "Pendência de exclusão #{$pid} auto-excluída 30s após liberação" : ($stDel === 'edicao_ok' ? "Pendência de edição #{$pid} auto-excluída 30s após liberação" : "Pendência #{$pid} auto-excluída 30s após Chamado criado")));
+        PluginKanproBoard::logActivity($bidD, $pid, (int)$pc->fields['plugin_kanpro_lists_id'], 'chamado_autodelete', $stDel === 'conclusao_ok' ? "Pendência de conclusão #{$pid} auto-excluída 30s após liberação" : ($stDel === 'exclusao_ok' ? "Pendência de exclusão #{$pid} auto-excluída 30s após liberação" : ($stDel === 'edicao_ok' ? "Pendência de edição #{$pid} auto-excluída 30s após liberação" : ($stDel === 'separacao_ok' ? "Pendência de separação #{$pid} auto-excluída 30s após aprovação" : "Pendência #{$pid} auto-excluída 30s após Chamado criado"))));
         $pc->delete(['id'=>$pid], true);
         jexit(['success'=>true,'deleted'=>true]);
 
