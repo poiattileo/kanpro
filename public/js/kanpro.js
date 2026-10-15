@@ -132,7 +132,8 @@
           ? cardOrData
           : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
         if(!c || !(Number(c.split_group) > 0) || Number(c.split_pending) === 1) return '';
-        return (Number(c.split_index) === 2) ? '2/2' : '1/2';
+        // lado no formato ID/lado: pai 382 vira 382/1, filho vira 382/2
+        return Number(c.split_group) + '/' + (Number(c.split_index) === 2 ? '2' : '1');
       } catch(e){ return ''; }
     },
     isBoardMember(){
