@@ -3572,8 +3572,11 @@ switch ($action) {
     case 'global_search_cards':
         $q = trim($_POST['q'] ?? '');
         // busca por número do cartão: "244" ou "#244" (vale com 1+ dígitos)
+        // lado do split: "307" acha 307/1 e 307/2; "307/2" filtra só o lado 2
         $qNum = ltrim($q, '#');
         $isNum = ($qNum !== '' && ctype_digit($qNum));
+        $qSplitIdx = 0;
+        if (!$isNum && preg_match('/^#?(\d+)\s*\/\s*(\d+)$/', trim($q), $m)) { $isNum = true; $qNum = $m[1]; $qSplitIdx = (int)$m[2]; }
         if (!$isNum && mb_strlen($q) < 2) jexit(['success' => true, 'results' => []]);
         $nq = kanpro_norm_text($q);
         $entities = $_SESSION['glpiactiveentities'] ?? [0];
@@ -3605,6 +3608,8 @@ switch ($action) {
                 'board_name' => $board['name'],
                 'list_name'  => $list['name'] ?? '',
                 'city'       => !empty($c['is_maintenance']) ? kanpro_city_for_school((string)($c['name'] ?? '')) : '',
+                'split_group' => (int)($c['split_group'] ?? 0),
+                'split_index' => (int)($c['split_index'] ?? 0),
             ];
             return true;
         };
@@ -3615,7 +3620,7 @@ switch ($action) {
             'name'        => ['LIKE', "%{$q}%"],
             'description' => ['LIKE', "%{$q}%"],
         ];
-        if ($isNum) $orWhere['id'] = (int)$qNum;
+        if ($isNum) { $orWhere['id'] = (int)$qNum; $orWhere['split_group'] = (int)$qNum; }
         $cards_iter = $DB->request([
             'FROM'  => 'glpi_plugin_kanpro_cards',
             'WHERE' => [
@@ -3628,6 +3633,7 @@ switch ($action) {
         ]);
         foreach ($cards_iter as $c) {
             if (count($results) >= 40) break;
+            if ($qSplitIdx > 0 && (int)($c['split_index'] ?? 0) !== $qSplitIdx) continue;
             $push_card($c);
         }
         // 2) fallback sem acento em PHP (garante "cafe" achar "café" e vice-versa,
@@ -3648,6 +3654,7 @@ switch ($action) {
                 $cid = (int)$c['id'];
                 if (isset($seen_ids[$cid])) continue;
                 $hay = kanpro_norm_text(($c['name'] ?? '') . ' ' . ($c['description'] ?? '') . ' #' . $cid);
+                if ((int)($c['split_group'] ?? 0) > 0) $hay .= ' ' . (int)$c['split_group'] . '/' . ((int)($c['split_index'] ?? 0) === 2 ? '2' : '1');
                 if (mb_strpos($hay, $nq) !== false) $push_card($c);
                 elseif (!empty($citySchools) && !empty($c['is_maintenance']) && kanpro_card_matches_schools((string)($c['name'] ?? ''), $citySchools)) $push_card($c);
             }
