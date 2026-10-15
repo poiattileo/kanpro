@@ -108,6 +108,33 @@
         return members.some(m=> ids.includes(parseInt(m.id != null ? m.id : m.users_id)));
       } catch(e){ return true; }
     },
+    isSplitPending(cardOrData){
+      try {
+        const c = (cardOrData && typeof cardOrData === 'object')
+          ? cardOrData
+          : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
+        if(!c) return false;
+        return Number(c.split_pending) === 1;
+      } catch(e){ return false; }
+    },
+    isSplitWaiting(cardOrData){
+      try {
+        const c = (cardOrData && typeof cardOrData === 'object')
+          ? cardOrData
+          : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
+        if(!c) return false;
+        return Number(c.split_finalized) === 1;
+      } catch(e){ return false; }
+    },
+    splitBadge(cardOrData){
+      try {
+        const c = (cardOrData && typeof cardOrData === 'object')
+          ? cardOrData
+          : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
+        if(!c || !(Number(c.split_group) > 0) || Number(c.split_pending) === 1) return '';
+        return (Number(c.split_index) === 2) ? '2/2' : '1/2';
+      } catch(e){ return ''; }
+    },
     isBoardMember(){
       const ids = this.myUserIds();
       if(this.board && ids.includes(parseInt(this.board.users_id))) return true;
@@ -1384,6 +1411,18 @@
         div.style.background = '#f2fbf3';
         div.title = '🏁 Pendência de conclusão — admin pode liberar';
       }
+      // Split 1/2+2/2 aguardando aprovação: pai e filho verdes com borda verde
+      try {
+        if (Number(card.split_pending) === 1 && Number(card.is_maintenance) === 1) {
+          div.classList.add('kp-split-pending');
+          div.dataset.splitPending = "1";
+          div.style.borderColor = '#61bd4f';
+          div.style.borderWidth = '3px';
+          div.style.boxShadow = '0 0 0 3px rgba(97,189,79,.3), 0 2px 6px rgba(0,0,0,.15)';
+          div.style.background = '#f2fbf3';
+          div.title = '✂️ Separação aguardando aprovação — pai e filho travados até liberar';
+        }
+      } catch(_){}
       // Pendência de exclusão: preta com borda preta e fundo acinzentado, no topo
       const isExclusaoCard = (String(card.chamado_status || '') === 'exclusao' || String(card.chamado_status || '') === 'exclusao_ok') && Number(card.chamado_source_id || 0) > 0;
       if (isExclusaoCard) {
@@ -1504,6 +1543,16 @@
       if (lockedN > 0) {
         badges.push(`<span class="kp-badge" title="${lockedN} máquina(s) travada(s) aguardando Chamado criado" style="background:#ffebe6;color:#bf2600;font-weight:800;border:1px solid #eb5a46"><i class="ti ti-lock"></i> 🔒 ${lockedN} travada(s)</span>`);
       }
+      // Split 1/2+2/2: pendente de aprovação (verde) ou aprovado com contador
+      try {
+        if (Number(card.split_pending) === 1 && Number(card.is_maintenance) === 1) {
+          badges.push(`<span class="kp-badge" title="Separação aguardando aprovação — pai e filho travados" style="background:#61bd4f;color:#fff;font-weight:800;border:1px solid #61bd4f">✂️ Aguard. separação</span>`);
+        } else {
+          const sb = this.splitBadge(card);
+          if (sb) badges.push(`<span class="kp-badge" title="Card dividido em 2 partes — este é o lado ${sb}" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">✂️ ${sb}</span>`);
+          else if (this.isSplitWaiting(card)) badges.push(`<span class="kp-badge" title="Este lado já foi finalizado — aguardando o outro técnico" style="background:#fffae6;color:#975500;font-weight:800;border:1px solid #ffab00">⏳ Aguard. outro lado</span>`);
+        }
+      } catch(e){}
       // Pendência Chamado — selo rosa; pendência de Conclusão — selo verde
       const cardListForCh = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
       const chType = this.listTypeOf(cardListForCh);
@@ -1582,12 +1631,14 @@
           const isExcDoneMini = (chStMini === 'exclusao_ok');
           const isEdMini = (chStMini === 'edicao' || chStMini === 'edicao_ok');
           const isEdDoneMini = (chStMini === 'edicao_ok');
+          const isSepMini = (chStMini === 'separacao' || chStMini === 'separacao_ok');
+          const isSepDoneMini = (chStMini === 'separacao_ok');
           const amAdminMini = this.isBoardAdmin();
           const srcMini = card.chamado_source_id ? ('#' + card.chamado_source_id) : '';
           const machMini = (prog && prog.total > 0) ? `${prog.done||0}/${prog.total} máquina(s)` : ((card.description||'').match(/(\d+)\s*máquina/i)?.[0] || '');
           const miniC = isEdMini ? {bd:'#8d6e63', bg:'#efebe9', sh:'0 1px 4px rgba(141,110,99,.35)', id:'#5d4037'}
             : (isExcMini ? {bd:'#091e42', bg:'#e9edf2', sh:'0 1px 4px rgba(9,30,66,.3)', id:'#091e42'}
-            : (isConcMini ? {bd:'#61bd4f', bg:'#f2fbf3', sh:'0 1px 4px rgba(97,189,79,.3)', id:'#2e7d32'}
+            : ((isConcMini || isSepMini) ? {bd:'#61bd4f', bg:'#f2fbf3', sh:'0 1px 4px rgba(97,189,79,.3)', id:'#2e7d32'}
             : {bd:'#e1316f', bg:'#fff0f4', sh:'0 1px 4px rgba(225,49,111,.25)', id:'#e1316f'}));
           div.style.border = '2px solid ' + miniC.bd;
           div.style.borderLeft = '6px solid ' + miniC.bd;
@@ -1605,16 +1656,20 @@
               ? (isConcDoneMini
                 ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">✅ Conclusão liberada ✓</span>`
                 : `<span style="background:#61bd4f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">🏁 Pendência Conclusão</span>`)
+              : (isSepMini
+              ? (isSepDoneMini
+                ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">✅ Separação liberada ✓</span>`
+                : `<span style="background:#61bd4f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">✂️ Pendência Separação</span>`)
               : (isLibMini
                 ? `<span style="background:#e3fcef;color:#006644;border:1px solid #61bd4f;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Chamado criado ✓</span>`
-                : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`)));
+                : `<span style="background:#e1316f;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:800">📞 Pendência Chamado</span>`))));
           const infoLine = [
             srcMini ? `Origem <strong>${this.escape(srcMini)}</strong>` : '',
             machMini ? `🔧 ${this.escape(machMini)}` : '',
           ].filter(Boolean).join(' • ');
-          const openTitle = isEdMini ? 'Abrir para liberar a edição' : (isExcMini ? 'Abrir para liberar a exclusão' : (isConcMini ? 'Abrir para liberar a conclusão' : 'Abrir para confirmar o chamado criado'));
-          const waitTitle = isEdMini ? '“Liberar edição”' : (isExcMini ? '“Liberar exclusão”' : (isConcMini ? '“Liberar conclusão”' : '“Chamado criado”'));
-          const btnMini = (isLibMini || isConcDoneMini || isExcDoneMini || isEdDoneMini)
+          const openTitle = isEdMini ? 'Abrir para liberar a edição' : (isExcMini ? 'Abrir para liberar a exclusão' : (isConcMini ? 'Abrir para liberar a conclusão' : (isSepMini ? 'Abrir para aprovar a separação' : 'Abrir para confirmar o chamado criado')));
+          const waitTitle = isEdMini ? '“Liberar edição”' : (isExcMini ? '“Liberar exclusão”' : (isConcMini ? '“Liberar conclusão”' : (isSepMini ? '“Aprovar separação”' : '“Chamado criado”')));
+          const btnMini = (isLibMini || isConcDoneMini || isExcDoneMini || isEdDoneMini || isSepDoneMini)
             ? `<div style="margin-top:8px;background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:8px;padding:8px;text-align:center;font-size:12px;font-weight:800">✓ Liberado — excluindo em 30s ⏳</div>`
             : (amAdminMini
               ? `<div onclick="event.stopPropagation();Kanpro.openCard(${card.id})" title="${openTitle}" style="margin-top:8px;background:#fff;border:1px dashed ${miniC.bd};color:${miniC.id};border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700;cursor:pointer">👆 Abra o card para liberar<br>${waitTitle}</div>`
@@ -3761,7 +3816,8 @@
       const locked = this.isCardLocked(data);
       this._cardLocked = locked;
       const linkedRO = !locked && !this.canEditLinkedCard(data);
-      const readOnly = locked || linkedRO;
+      const splitRO = !locked && (this.isSplitPending(data) || this.isSplitWaiting(data));
+      const readOnly = locked || linkedRO || splitRO;
       const lockBox = $('#card-modal-lock');
       if(lockBox){
         lockBox.style.display = readOnly ? 'block' : 'none';
@@ -3769,7 +3825,9 @@
           ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Cartão da lista Pendente é travado — foi criado como Manutenção e o nome vem da entidade. Título, descrição, etiquetas, responsáveis, datas, capa e checklists não podem ser alterados.' + (this.isBoardAdmin() ? ' <span style="font-weight:600">Como admin do quadro você ainda pode excluí-lo.</span>' : '') + '</div>'
           : (linkedRO
             ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Somente quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo. Você está no modo somente leitura.</div>'
-            : '');
+            : (splitRO
+            ? '<div style="background:#f2fbf3;border:1px solid #61bd4f;color:#006644;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-scissors"></i> ✂️ Split 1/2+2/2 — card travado até a separação ser aprovada/juntada. Você está no modo somente leitura.</div>'
+            : ''));
       }
       $('#card-modal-title').style.cursor = readOnly ? 'default' : 'pointer';
       $('#card-modal-desc').style.cursor = readOnly ? 'default' : 'pointer';
@@ -4073,6 +4131,8 @@
       const isExcDone = (st === 'exclusao_ok');
       const isEd = (st === 'edicao' || st === 'edicao_ok');
       const isEdDone = (st === 'edicao_ok');
+      const isSep = (st === 'separacao' || st === 'separacao_ok');
+      const isSepDone = (st === 'separacao_ok');
       const srcId = data.chamado_source_id || '';
       const srcName = data.chamado_source_name || (srcId ? ('#' + srcId) : '—');
       const escola = data.name || srcName || ('Pendência #' + data.id);
@@ -4089,7 +4149,11 @@
           <span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#172b4d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${this.escape(nm)}">${this.escape(nm)}</span>
         </div>`;
       }).join('') : '<div style="color:#5e6c84;font-size:13px">Sem máquinas vinculadas.</div>';
-      const statusPill = isEd
+      const statusPill = isSep
+        ? (isSepDone
+          ? '<span style="background:#006644;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberada</span>'
+          : '<span style="background:#fff;color:#2e7d32;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. separação</span>')
+        : (isEd
         ? (isEdDone
           ? '<span style="background:#5d4037;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberada</span>'
           : '<span style="background:#fff;color:#5d4037;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. edição</span>')
@@ -4103,8 +4167,14 @@
           : '<span style="background:#fff;color:#2e7d32;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguard. liberação</span>')
         : (isLib
           ? '<span style="background:#006644;color:#fff;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">✓ Liberado</span>'
-          : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>')));
-      const actionHtml = isEd
+          : '<span style="background:#fff;color:#e1316f;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">⏳ Aguardando chamado</span>'))));
+      const actionHtml = isSep
+        ? (isSepDone
+          ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Separação aprovada — pai (1/2) e filho (2/2) destravados</div>`
+          : (amAdmin
+            ? `<button onclick="Kanpro.confirmSeparacao()" style="width:100%;background:linear-gradient(135deg,#2e9e4f,#61bd4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(46,158,79,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-scissors" style="font-size:20px"></i> Aprovar separação</button><div style="display:flex;gap:8px;margin-top:8px;align-items:center"><div style="flex:1;text-align:left;font-size:11px;color:#5e6c84">Destrava pai (1/2) e filho (2/2)</div><button onclick="Kanpro.cancelSeparacao()" style="background:#fff;border:1px solid #dfe1e6;color:#5e6c84;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap">Recusar</button></div>`
+            : `<div style="background:#fff;border:1px dashed #61bd4f;color:#2e7d32;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin clicar<br>"Aprovar separação"</div>`))
+        : (isEd
         ? (isEdDone
           ? `<div style="background:#efebe9;border:1px solid #8d6e63;color:#5d4037;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem destravada — edição liberada<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#8d6e63"></div></div></div>`
           : (amAdmin
@@ -4126,13 +4196,13 @@
           ? `<div style="background:#e3fcef;border:1px solid #61bd4f;color:#006644;border-radius:12px;padding:14px;text-align:center;font-weight:800;font-size:14px">✓ Origem desbloqueada — chamado criado<br><span style="font-size:12px;font-weight:600">este card se auto-exclui em <span id="kp-autodel-count">30s</span> ⏳</span><div style="height:6px;background:#dfe1e6;border-radius:3px;margin-top:10px;overflow:hidden"><div id="kp-autodel-bar" style="height:100%;width:100%;background:#61bd4f"></div></div></div>`
           : (amAdmin
             ? `<button onclick="Kanpro.confirmChamadoCriado()" style="width:100%;background:linear-gradient(135deg,#22b573,#0d8a4f);color:#fff;border:none;padding:16px;border-radius:12px;cursor:pointer;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(34,181,115,.45);display:flex;align-items:center;justify-content:center;gap:10px"><i class="ti ti-phone-check" style="font-size:20px"></i> Chamado criado</button><div style="text-align:center;font-size:11px;color:#5e6c84;margin-top:8px">Libera a origem • zap em 5s • auto-exclui em 30s</div>`
-            : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`))));
+            : `<div style="background:#fff;border:1px dashed #e1316f;color:#e1316f;border-radius:12px;padding:14px;text-align:center;font-weight:700;font-size:13px">⏳ Aguardando um admin confirmar<br>“Chamado criado” para liberar a origem</div>`)))));
       pc.innerHTML = `
-        <div style="background:${isEd ? 'linear-gradient(135deg,#4e342e,#8d6e63)' : (isExc ? 'linear-gradient(135deg,#091e42,#3a4a63)' : (isConc ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : 'linear-gradient(135deg,#d81b60,#ff5fa2)'))} ;padding:20px 20px 16px;color:#fff">
+        <div style="background:${isSep ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : (isEd ? 'linear-gradient(135deg,#4e342e,#8d6e63)' : (isExc ? 'linear-gradient(135deg,#091e42,#3a4a63)' : (isConc ? 'linear-gradient(135deg,#1b7a3d,#4caf6d)' : 'linear-gradient(135deg,#d81b60,#ff5fa2)')))} ;padding:20px 20px 16px;color:#fff">
           <div style="display:flex;align-items:center;gap:12px">
-            <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isEd ? '✏️' : (isExc ? '🗑️' : (isConc ? '🏁' : '📞'))}</span>
+              <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isSep ? '✂️' : (isEd ? '✏️' : (isExc ? '🗑️' : (isConc ? '🏁' : '📞')))}</span>
             <div style="min-width:0;flex:1">
-              <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isEd ? 'Pendência Edição' : (isExc ? 'Pendência Exclusão' : (isConc ? 'Pendência Conclusão' : 'Pendência Chamado'))}</div>
+                <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isSep ? 'Pendência Separação' : (isEd ? 'Pendência Edição' : (isExc ? 'Pendência Exclusão' : (isConc ? 'Pendência Conclusão' : 'Pendência Chamado')))}</div>
               <div style="font-size:12px;opacity:.92;margin-top:2px">#${data.id} • ${this.escape(boardName || data.list_name || '')}</div>
             </div>
             ${statusPill}
@@ -4439,6 +4509,9 @@
       const edicaoOpen = this.isEdicaoOpen(data);
       const edicaoPending = this.isEdicaoPending(data);
       const linkedRO = !this.canEditLinkedCard(data);
+      const splitPend = Number(data.split_pending) === 1;
+      const splitWait = Number(data.split_finalized) === 1;
+      const splitActive = Number(data.split_group) > 0 && !splitPend;
       const progress = data.maintenance_progress || {total:machines.length, done: machines.filter(m=>m.is_done==1).length, percent: 0};
       if(progress.total && !progress.percent){
         progress.percent = progress.total? Math.round(progress.done/progress.total*100):0;
@@ -4456,7 +4529,7 @@
       const allNeed = total>0 && needsCount===total;
       // seleção em massa
       const isFinalized = this.isCardFinalized(data);
-      const selectMode = !!this._maintSelectMode && !cardPending && (!isFinalized || edicaoOpen) && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !edicaoPending && !linkedRO;
+      const selectMode = !!this._maintSelectMode && !cardPending && (!isFinalized || edicaoOpen) && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !edicaoPending && !linkedRO && !splitPend && !splitWait;
       if(!this._maintSelected) this._maintSelected = new Set();
       const selCount = [...this._maintSelected].filter(id=> machines.some(m=> String(m.id)===String(id))).length;
       // botão finalizar: desabilita apenas se faltar status (some se o card ainda não foi pego)
@@ -4510,6 +4583,16 @@
           <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
           <span title="Edição aguardando liberação" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.7"><i class="ti ti-lock"></i> 🔒 Bloqueado — aguardando "Liberar edição"</span>
         </div>`;
+      } else if (splitPend) {
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f2fbf3;border:2px solid #61bd4f;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#006644;letter-spacing:.06em;margin-bottom:8px">SEPARAÇÃO 1/2 + 2/2</div>
+          <span title="Separação aguardando aprovação na Pendência Chamados" style="display:inline-block;background:#61bd4f;color:#fff;padding:12px 28px;border-radius:8px;font-weight:800;font-size:14px"><i class="ti ti-scissors"></i> ✂️ Aguardando aprovação da separação</span>
+        </div>`;
+      } else if (splitWait) {
+        finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#fffae6;border:2px solid #ffab00;border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:800;color:#975500;letter-spacing:.06em;margin-bottom:8px">SPLIT ${this.splitBadge(data) || '1/2'}</div>
+          <span title="Este lado já foi finalizado — o merge acontece quando o outro técnico finalizar" style="display:inline-block;background:#ffab00;color:#172b4d;padding:12px 28px;border-radius:8px;font-weight:800;font-size:14px">⏳ Sua parte finalizada — aguardando o outro lado</span>
+        </div>`;
       } else if (cardPending) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
           <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
@@ -4546,9 +4629,10 @@
           <div style="padding:12px 16px;background:#fffae6;border-bottom:1px solid #ffecb5;display:flex;align-items:center;gap:10px 12px;justify-content:space-between;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0"><i class="ti ti-tool" style="font-size:18px;color:#ff991f"></i><strong style="color:#172b4d;white-space:nowrap">Manutenção — Checklist por Máquina</strong> <span id="maint-progress-label" style="background:#ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${done}/${total} • ${pct}%</span>${hasMissing?` <span style="background:#eb5a46;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${missingStatus} sem Status</span>`:""}</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              ${lockedFinal || chamadoLocked || goldenLocked || conclusaoLocked || exclusaoLocked || linkedRO ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
-              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
-              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
+              ${lockedFinal || chamadoLocked || goldenLocked || conclusaoLocked || exclusaoLocked || linkedRO || splitPend || splitWait ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
+              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
+              ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
+              ${total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending ? `<button onclick="Kanpro.toggleSepararMode()" title="Escolher máquinas para levar a um card filho (Nome/2) — pai e filho travam até aprovar na Pendência Chamados" style="background:${this._separarMode?"#2e9e4f":"#fff"};border:1px solid #2e9e4f;color:${this._separarMode?"#fff":"#2e9e4f"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-scissors"></i> ${this._separarMode?"Cancelar":"✂️ Separar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
             </div>
@@ -4592,6 +4676,7 @@
             <span style="width:1px;height:20px;background:#b3f0ff;display:inline-block"></span>
             <input id="maint-bulk-diary" type="text" placeholder="📝 Relatório/diário p/ todas as selecionadas..." title="Mesmo texto para todas as selecionadas (sobrescreve)" style="flex:1;min-width:200px;padding:5px 10px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;background:#fff">
             <button onclick="Kanpro.bulkApplyDiary()" title="Aplica o mesmo relatório/diário para todas as selecionadas" style="background:#ff991f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">Aplicar diário</button>
+            ${this._separarMode ? `<span style="width:1px;height:20px;background:#b3f0ff;display:inline-block"></span><button onclick="Kanpro.requestSeparacao()" title="Cria o card filho (Nome/2) com as máquinas selecionadas e abre a aprovação" style="background:#2e9e4f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:800">✂️ Separar ${selCount} selecionada(s) → filho</button>` : ``}
           </div>`:""}
           ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
           ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
@@ -4621,7 +4706,7 @@
       machines.forEach(m=>{
         const isLocked = !!(m.is_locked && Number(m.is_locked) == 1);
         // trava do card (lista Pendente) + trava do chamado + finalizado (Assinatura) + dourado (Confirmar) + conclusão/exclusão/edição: mesma regra visual
-        const workLocked = isLocked || cardPending || lockedFinal || goldenLocked || conclusaoLocked || exclusaoLocked || edicaoPending || linkedRO;
+        const workLocked = isLocked || cardPending || lockedFinal || goldenLocked || conclusaoLocked || exclusaoLocked || edicaoPending || linkedRO || splitPend || splitWait;
         const dis = workLocked ? 'disabled' : '';
         const isDone = m.is_done==1;
         const rawStatus = (m.status||"").toString().trim().toLowerCase();
@@ -4649,6 +4734,10 @@
         const invBtns = this.maintInvBtnsHTML(m);
         const lockTxt = linkedRO
           ? '🔒 Somente quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo.'
+          : (splitPend
+          ? '✂️ Separação aguardando aprovação na Pendência Chamados. Nada pode ser editado até liberar.'
+          : (splitWait
+          ? '⏳ Este lado já foi finalizado — aguardando o outro técnico para juntar e gerar 1 termo só.'
           : (lockedFinal
           ? '🔒 Finalizado — enviado para Assinatura. Somente visualização.'
           : (goldenLocked
@@ -4661,7 +4750,7 @@
                   ? '✏️ Edição aguardando "Liberar edição" na Pendência Chamados. Nada pode ser editado até liberar.'
                   : (cardPending
                 ? '🔒 Bloqueado — o card ainda está na lista Pendente. Clique em <strong>Pegar</strong> (membro ou admin do quadro) para liberar o atendimento.'
-                : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`))))));
+                : `🔒 Travada — aguardando Chamado criado ${m.locked_chamado_card_id ? `(pendência #${m.locked_chamado_card_id})` : ''} — nada pode ser editado`))))))));
         const lockBanner = workLocked ? `<div style="background:${lockedFinal ? '#e6f4ff;border-bottom:1px solid #91d5ff;color:#0052cc' : '#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600'};font-size:12px;font-weight:800;padding:8px 12px;display:flex;align-items:center;gap:8px"><i class="ti ti-lock"></i> ${lockTxt}</div>` : '';
         const lockHint = lockedFinal ? 'Finalizado' : (goldenLocked ? 'Aguardando confirmação' : (conclusaoLocked ? 'Aguard. liberação' : (exclusaoLocked ? 'Aguard. exclusão' : (edicaoPending ? 'Aguard. edição' : (cardPending ? 'Bloqueado —Pegar p/ liberar' : 'Aguardando chamado')))));
         html += `
@@ -4713,7 +4802,7 @@
       });
       html += `</div>`;
       html += finalizeFootHtml;
-      html += (lockedFinal || chamadoLocked || cardPending || goldenLocked || conclusaoLocked || exclusaoLocked || edicaoPending || linkedRO ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      html += (lockedFinal || chamadoLocked || cardPending || goldenLocked || conclusaoLocked || exclusaoLocked || edicaoPending || linkedRO || splitPend || splitWait ? `` : `<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button onclick="Kanpro.openMaintenanceSetup(true)" style="background:#fff;border:1px solid #dfe1e6;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-plus"></i> Adicionar mais máquinas</button>
         ${(cardPending || edicaoOpen || edicaoPending) ? '' : `<button onclick="Kanpro.revertMaintenance()" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px"><i class="ti ti-arrow-back"></i> Reverter manutenção</button>`}
       </div>`);
@@ -5693,6 +5782,7 @@
     toggleMaintSelectMode(){
       if(this.finalizedGuard()) return;
       this._maintSelectMode = !this._maintSelectMode;
+      if(!this._maintSelectMode) this._separarMode = false;
       if(!this._maintSelected) this._maintSelected = new Set();
       this._maintSelected.clear(); // seleção sempre começa zerada ao (re)abrir o modo
       if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
@@ -5719,6 +5809,58 @@
       const fromDom = [...document.querySelectorAll('#card-modal-maintenance input[type="checkbox"][data-mid]:checked')]
         .map(el=> String(el.dataset.mid)).filter(id=> valid.has(id));
       return [...new Set([...fromSet, ...fromDom])];
+    },
+    toggleSepararMode(){
+      if(this.finalizedGuard()) return;
+      this._separarMode = !this._separarMode;
+      this._maintSelectMode = !!this._separarMode;
+      if(!this._maintSelected) this._maintSelected = new Set();
+      this._maintSelected.clear();
+      if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
+    },
+    async requestSeparacao(){
+      const cid = this.currentCardId;
+      if(!cid) return;
+      const mids = this.maintSelectedIds();
+      if(!mids.length){ this.showAlert('Escolha ao menos 1 máquina para levar ao card filho.', 'Separar'); return; }
+      const data = this._lastModalData;
+      const total = data && data.maintenance_machines ? data.maintenance_machines.length : 0;
+      if(total > 0 && mids.length >= total){ this.showAlert('Escolha só parte das máquinas — o pai precisa ficar com ao menos 1.', 'Separar'); return; }
+      const ok = await this.kpConfirm('Separar ' + mids.length + ' máquina(s) para um card filho?\n\nPai e filho travam (verdes) até aprovar a separação na Pendência Chamados. Depois de aprovada, cada lado vira 1/2 e 2/2.', 'Separar', 'Separar');
+      if(!ok) return;
+      const res = await this.ajax('request_separacao', {cards_id: cid, machine_ids: JSON.stringify(mids)});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao separar', 'Erro'); return; }
+      this._separarMode = false;
+      this._maintSelectMode = false;
+      try { if(this._maintSelected) this._maintSelected.clear(); } catch(e){}
+      this.showToast('✂️ Separação solicitada — filho #' + res.child_cards_id + ' e pendência #' + res.pendencia_id);
+      this.refreshCardModal();
+      this.forceSync();
+    },
+    async confirmSeparacao(){
+      const pid = this.currentCardId;
+      if(!pid) return;
+      if(!this.isBoardAdmin()){ this.showAlert('Somente admin do quadro pode aprovar a separação.', 'Sem permissão'); return; }
+      const ok = await this.kpConfirm('Aprovar a separação?\n\nPai (1/2) e filho (2/2) são destravados. Cada técnico finaliza o seu lado; o merge com 1 termo só acontece no 2º Finalizar.', 'Aprovar separação', 'Aprovar');
+      if(!ok) return;
+      const res = await this.ajax('confirm_separacao', {pendencia_cards_id: pid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao aprovar', 'Erro'); return; }
+      this.showToast('✅ Separação aprovada — #' + res.parent_cards_id + ' (1/2) e #' + res.child_cards_id + ' (2/2)');
+      this.refreshCardModal();
+      this.forceSync();
+      this.schedulePendenciaAutoDelete(pid, 30);
+    },
+    async cancelSeparacao(){
+      const pid = this.currentCardId;
+      if(!pid) return;
+      if(!this.isBoardAdmin()){ this.showAlert('Somente admin do quadro pode recusar a separação.', 'Sem permissão'); return; }
+      const ok = await this.kpConfirm('Recusar a separação?\n\nAs máquinas voltam para o pai, o filho é arquivado e esta pendência é excluída.', 'Recusar separação');
+      if(!ok) return;
+      const res = await this.ajax('cancel_separacao', {pendencia_cards_id: pid});
+      if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao recusar', 'Erro'); return; }
+      this.showToast('Separação recusada — máquinas de volta ao pai');
+      this.closeCardModal();
+      this.forceSync();
     },
     bulkAfterSuccess(msg){
       // Mantém seleção — usuário pode encadear status + feito + inventário sem remarcar tudo
@@ -6335,6 +6477,12 @@
           this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
           // abre novo card em modal?
           setTimeout(()=>{ if(res.pending_card_id) this.openCard(res.pending_card_id); }, 600);
+          return;
+        }
+        if(res.split_waiting){
+          this.showAlert(res.msg||'Sua parte foi finalizada. Aguardando o outro técnico finalizar para juntar e gerar 1 termo só.', 'Split 1/2 — aguardando');
+          this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          try { this.forceSync(); } catch(e){}
           return;
         }
         let msg = "Enviado para Assinatura!";
