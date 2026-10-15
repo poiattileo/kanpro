@@ -546,6 +546,39 @@ if (!function_exists('kanpro_can_edit_linked_card')) {
     }
 }
 
+if (!function_exists('kanpro_is_split_pending')) {
+    // Separação 1/2+2/2 aguardando aprovação: pai e filho travados (verdes).
+    function kanpro_is_split_pending(int $cards_id): bool {
+        try {
+            if ($cards_id <= 0) return false;
+            $c = new PluginKanproCard();
+            if (!$c->getFromDB($cards_id)) return false;
+            return !empty($c->fields['split_pending']);
+        } catch (Throwable $e) { return false; }
+    }
+}
+
+if (!function_exists('kanpro_split_sibling')) {
+    // Outro lado do split (pai <-> filho): id do irmão ou 0.
+    // Usa current() em vez de count() para continuar testável no FakeDB.
+    function kanpro_split_sibling(int $cards_id): int {
+        global $DB;
+        try {
+            if ($cards_id <= 0) return 0;
+            $c = new PluginKanproCard();
+            if (!$c->getFromDB($cards_id)) return 0;
+            $group = (int)($c->fields['split_group'] ?? 0);
+            if ($group <= 0) return 0;
+            $want = ((int)($c->fields['split_index'] ?? 0) === 2) ? 1 : 2;
+            $row = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_cards',
+                'WHERE' => ['split_group' => $group, 'split_index' => $want, 'is_archived' => 0],
+                'ORDER' => 'id DESC', 'LIMIT' => 1])->current();
+            $sib = (int)($row['id'] ?? 0);
+            return ($sib > 0 && $sib !== $cards_id) ? $sib : 0;
+        } catch (Throwable $e) { return 0; }
+    }
+}
+
 if (!function_exists('kanpro_can_manage_models')) {
     // Modelos de máquinas: criador/admin (via manage_members) + membro do quadro.
     function kanpro_can_manage_models($bid) {

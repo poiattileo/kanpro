@@ -416,4 +416,63 @@ kanpro_test('can_edit_linked_card: admin não-vinculado devolve false (sem bypas
     assert_true(kanpro_can_edit_linked_card(103) === false);
 });
 
+// ---------------------------------------------------------------------------
+// Split 1/2+2/2 (kanpro_is_split_pending / kanpro_split_sibling)
+// ---------------------------------------------------------------------------
+function kanpro_split_reset(): void {
+    global $DB;
+    $DB->createTable('glpi_plugin_kanpro_cards');
+    $DB->delete('glpi_plugin_kanpro_cards', []);
+    PluginKanproCard::$rows = [];
+}
+
+kanpro_test('split helpers existem', function () {
+    assert_true(function_exists('kanpro_is_split_pending'));
+    assert_true(function_exists('kanpro_split_sibling'));
+});
+
+kanpro_test('is_split_pending: id inválido devolve false', function () {
+    kanpro_split_reset();
+    assert_true(kanpro_is_split_pending(0) === false);
+});
+
+kanpro_test('is_split_pending: sem flag devolve false', function () {
+    kanpro_split_reset();
+    PluginKanproCard::$rows[301] = ['id' => 301, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1];
+    assert_true(kanpro_is_split_pending(301) === false);
+});
+
+kanpro_test('is_split_pending: com flag devolve true', function () {
+    kanpro_split_reset();
+    PluginKanproCard::$rows[301] = ['id' => 301, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'split_pending' => 1, 'split_group' => 301, 'split_index' => 1];
+    PluginKanproCard::$rows[302] = ['id' => 302, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'split_pending' => 1, 'split_group' => 301, 'split_index' => 2];
+    assert_true(kanpro_is_split_pending(301) === true);
+    assert_true(kanpro_is_split_pending(302) === true);
+});
+
+kanpro_test('split_sibling: pai acha filho e filho acha pai', function () {
+    global $DB;
+    kanpro_split_reset();
+    PluginKanproCard::$rows[301] = ['id' => 301, 'split_group' => 301, 'split_index' => 1];
+    PluginKanproCard::$rows[302] = ['id' => 302, 'split_group' => 301, 'split_index' => 2];
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 301, 'split_group' => 301, 'split_index' => 1, 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 302, 'split_group' => 301, 'split_index' => 2, 'is_archived' => 0]);
+    assert_same(302, kanpro_split_sibling(301));
+    assert_same(301, kanpro_split_sibling(302));
+});
+
+kanpro_test('split_sibling: fora de split ou irmão arquivado devolve 0', function () {
+    global $DB;
+    kanpro_split_reset();
+    PluginKanproCard::$rows[303] = ['id' => 303, 'split_group' => 0, 'split_index' => 0];
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 303, 'split_group' => 0, 'split_index' => 0, 'is_archived' => 0]);
+    assert_same(0, kanpro_split_sibling(303));
+    assert_same(0, kanpro_split_sibling(0));
+    PluginKanproCard::$rows[301] = ['id' => 301, 'split_group' => 301, 'split_index' => 1];
+    PluginKanproCard::$rows[302] = ['id' => 302, 'split_group' => 301, 'split_index' => 2];
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 301, 'split_group' => 301, 'split_index' => 1, 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 302, 'split_group' => 301, 'split_index' => 2, 'is_archived' => 1]);
+    assert_same(0, kanpro_split_sibling(301));
+});
+
 exit(kanpro_summary());

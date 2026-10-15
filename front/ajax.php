@@ -922,6 +922,18 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'edicao_pending')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `edicao_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=edicao aguardando Liberar edicao' AFTER `edicao_by`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'split_pending')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `split_pending` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=separacao 1/2+2/2 aguardando aprovacao (pai+filho travados)' AFTER `edicao_pending`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'split_group')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `split_group` INT NOT NULL DEFAULT '0' COMMENT 'id do card pai do split (0=fora de split)' AFTER `split_pending`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'split_index')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `split_index` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=pai (1/2), 2=filho (2/2)' AFTER `split_group`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'split_finalized')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `split_finalized` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=este lado finalizou e aguarda o irmao para o merge' AFTER `split_index`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
             if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
@@ -1232,6 +1244,20 @@ function kanpro_need_linked_card_edit(int $cards_id) {
     }
 }
 
+// Split 1/2+2/2 travado: separação aguardando aprovação (pai+filho) OU lado que
+// já finalizou aguardando o irmão. Nada pode ser alterado até liberar/juntar.
+function kanpro_need_not_split_locked(int $cards_id) {
+    if (function_exists('kanpro_is_split_pending') && kanpro_is_split_pending($cards_id)) {
+        jexit(['success'=>false,'msg'=>'✂️ Separação aguardando aprovação — pai e filho travados até liberar.','split_pending'=>true]);
+    }
+    try {
+        $c = new PluginKanproCard();
+        if ($c->getFromDB($cards_id) && !empty($c->fields['split_finalized'])) {
+            jexit(['success'=>false,'msg'=>'⏳ Este lado já foi finalizado — aguardando o outro técnico finalizar para juntar e gerar 1 termo só.','split_waiting'=>true]);
+        }
+    } catch (Throwable $e) {}
+}
+
 // Aprovações de pendência (liberar conclusão/exclusão/edição): quem gerencia o quadro
 // (criador/admin/gerente) OU quem tem acesso à lista "Pendência chamados" (onde a
 // pendência aparece). Sem lista, cai no comportamento antigo (gerencia o quadro).
@@ -1358,6 +1384,7 @@ function kanpro_card_chamado_locked_info(int $cards_id): array {
 }
 function kanpro_need_not_chamado_locked(int $cards_id) {
     kanpro_need_not_tablet_pending($cards_id);
+    kanpro_need_not_split_locked($cards_id);
     $info = kanpro_card_chamado_locked_info($cards_id);
     if ($info['locked'] > 0 || $info['pendencia_id'] > 0) {
         $pend = $info['pendencia_id'] > 0 ? (' (pendência #' . $info['pendencia_id'] . ')') : '';
@@ -6741,6 +6768,10 @@ switch ($action) {
         if (empty($card->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Este cartão não é de manutenção']);
         // card na lista Pendente = atendimento nem começou; o caminho é Pegar
         kanpro_need_card_editable($cid);
+        // split 1/2+2/2 aguardando aprovação: nada finaliza até liberar
+        if (function_exists('kanpro_is_split_pending') && kanpro_is_split_pending($cid)) jexit(['success'=>false,'msg'=>'✂️ Separação aguardando aprovação — finalize depois de liberada.','split_pending'=>true]);
+        // lado que já finalizou: só espera o irmão (re-finalizar não faz nada)
+        if (!empty($card->fields['split_finalized'])) jexit(['success'=>true,'already'=>true,'split_waiting'=>true,'msg'=>'⏳ Sua parte já foi finalizada — aguardando o outro técnico finalizar para juntar e gerar 1 termo só.']);
         // sessão de edição aberta: confirme ou cancele a edição antes de finalizar
         if (kanpro_is_edicao_open($cid)) jexit(['success'=>false,'msg'=>'Confirme ou cancele a edição antes de finalizar']);
         // autenticação por palavra (mesmo desafio da conversão p/ manutenção e do Pegar)
@@ -6755,6 +6786,43 @@ switch ($action) {
         }
         $total = count($machines);
         if ($total===0) jexit(['success'=>false,'msg'=>'Nenhuma máquina cadastrada. Configure as máquinas antes de finalizar.']);
+        // ---------- SPLIT 1/2+2/2: segundo lado a finalizar faz o MERGE no pai ----------
+        // (tudo volta para o pai, filho arquiva, flags zeradas; o fluxo segue normal e
+        // gera 1 termo só no id do pai). Classificação/validações abaixo rodam no junto.
+        $splitGroupId = (int)($card->fields['split_group'] ?? 0);
+        $splitActive = ($splitGroupId > 0);
+        if ($splitActive) {
+            $sibId = function_exists('kanpro_split_sibling') ? kanpro_split_sibling($cid) : 0;
+            $sibFin = false;
+            if ($sibId > 0) {
+                $sibC = new PluginKanproCard();
+                if ($sibC->getFromDB($sibId)) $sibFin = !empty($sibC->fields['split_finalized']);
+            }
+            if ($sibId > 0 && $sibFin) {
+                $parentId = $splitGroupId;
+                $childId = ($cid === $parentId) ? $sibId : $cid;
+                $nowMerge = date('Y-m-d H:i:s');
+                if ($childId !== $parentId) {
+                    try { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$parentId,'date_mod'=>$nowMerge], ['plugin_kanpro_cards_id'=>$childId]); } catch (Throwable $e) {}
+                    try { $DB->update('glpi_plugin_kanpro_cards', ['is_archived'=>1,'split_group'=>0,'split_index'=>0,'split_finalized'=>0,'split_pending'=>0,'date_mod'=>$nowMerge], ['id'=>$childId]); } catch (Throwable $e) {}
+                }
+                try { $DB->update('glpi_plugin_kanpro_cards', ['split_group'=>0,'split_index'=>0,'split_finalized'=>0,'split_pending'=>0,'date_mod'=>$nowMerge], ['id'=>$parentId]); } catch (Throwable $e) {}
+                PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $parentId, (int)$card->fields['plugin_kanpro_lists_id'], 'split_merged', "Split 1/2+2/2 reunido no pai #{$parentId} (filho #{$childId} arquivado) — termo único");
+                if ($cid !== $parentId) {
+                    $cid = $parentId;
+                    $card = new PluginKanproCard();
+                    if (!$card->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado após o merge']);
+                }
+                $machines = [];
+                if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+                    $iter = $DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']);
+                    foreach ($iter as $r) $machines[] = $r;
+                }
+                $total = count($machines);
+                if ($total===0) jexit(['success'=>false,'msg'=>'Nenhuma máquina após o merge (verifique o split).']);
+                $splitActive = false;
+            }
+        }
         // trava total: se há máquina aguardando chamado, não finaliza
         $locked = array_values(array_filter($machines, function ($m) { return !empty($m['is_locked']); }));
         if (!empty($locked)) {
@@ -6929,6 +6997,23 @@ switch ($action) {
         // Valida progresso 100% apenas para itens que vão para o termo (não pendentes)
         if ($nonCount>0 && !$force && $doneNon!==$nonCount) {
             jexit(['success'=>false,'msg'=>"Conclua 'Feito' de todos os itens que vão para o termo antes de finalizar (não pendentes: {$doneNon}/{$nonCount} • {$percentNon}%). Pendentes ({$pendingCount}) ficarão em novo card.",'need_100'=>true,'progress'=>['total'=>$nonCount,'done'=>$doneNon,'percent'=>$percentNon,'pending'=>$pendingCount]]);
+        }
+        // ---------- SPLIT 1/2+2/2: primeiro lado a finalizar AGUARDA o irmão ----------
+        // (sem termo, sem Retirada; o merge com 1 termo só acontece no 2º Finalizar).
+        // Split não admite "terceiro card": pendentes aqui são erro, não novo split.
+        if ($splitActive) {
+            $sibIdW = function_exists('kanpro_split_sibling') ? kanpro_split_sibling($cid) : 0;
+            if ($sibIdW <= 0) {
+                // irmão sumiu (arquivado): limpa o split e segue o fluxo normal
+                try { $DB->update('glpi_plugin_kanpro_cards', ['split_group'=>0,'split_index'=>0,'split_finalized'=>0,'split_pending'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]); } catch (Throwable $e) {}
+                $splitActive = false;
+            } else {
+                if ($pendingCount > 0) jexit(['success'=>false,'msg'=>'Card em split 1/2: resolva as máquinas Pendentes antes de finalizar (não há terceiro card).','need_status'=>true]);
+                try { $DB->update('glpi_plugin_kanpro_cards', ['split_finalized'=>1,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]); } catch (Throwable $e) {}
+                kanpro_touch_member($cid);
+                PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'split_waiting', "Split 1/2: lado #{$cid} finalizado — aguardando o irmão #{$sibIdW} para juntar e gerar 1 termo");
+                jexit(['success'=>true,'split_waiting'=>true,'sibling_cards_id'=>$sibIdW,'msg'=>'Sua parte foi finalizada. Aguardando o outro técnico finalizar para juntar os cards e gerar 1 termo só.']);
+            }
         }
         // verifica se assetmgrstatus está disponível (tabelas) — só necessário se houver itens para levar
         if ($nonCount>0 && (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers') || !$DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items'))) {
@@ -7384,6 +7469,7 @@ switch ($action) {
         $cat = kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']);
         if (!in_array($cat, ['andamento','retirada'], true)) jexit(['success'=>false,'msg'=>'Concluir só vale nas listas Em Andamento ou Retirada']);
         kanpro_need_linked_card_edit($cid);
+        if ((int)($c->fields['split_group'] ?? 0) > 0 || (function_exists('kanpro_is_split_pending') && kanpro_is_split_pending($cid))) jexit(['success'=>false,'msg'=>'Card em split 1/2: finalize pelo botão Finalizar para juntar com o outro lado e gerar 1 termo só.','split'=>true]);
         if (kanpro_is_tablet_pending($cid)) jexit(['success'=>false,'msg'=>'Tablet aguardando Confirmar — conclua por lá']);
         if (kanpro_is_edicao_open($cid) || kanpro_is_edicao_pending($cid)) jexit(['success'=>false,'msg'=>'Resolva a edição antes de concluir']);
         if (kanpro_is_exclusao_pending($cid)) jexit(['success'=>false,'msg'=>'Exclusão pendente — resolva antes de concluir']);
@@ -7455,6 +7541,7 @@ switch ($action) {
         if (empty($c->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Só card de manutenção usa exclusão com aprovação']);
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         kanpro_need_linked_card_edit($cid);
+        if ((int)($c->fields['split_group'] ?? 0) > 0 || (function_exists('kanpro_is_split_pending') && kanpro_is_split_pending($cid))) jexit(['success'=>false,'msg'=>'Card em split 1/2: finalize pelo botão Finalizar para juntar com o outro lado e gerar 1 termo só.','split'=>true]);
         if (kanpro_is_tablet_pending($cid)) jexit(['success'=>false,'msg'=>'Tablet aguardando Confirmar — resolva por lá']);
         if (kanpro_is_edicao_open($cid) || kanpro_is_edicao_pending($cid)) jexit(['success'=>false,'msg'=>'Resolva a edição antes de excluir']);
         if (kanpro_is_conclusao_pending($cid)) jexit(['success'=>false,'msg'=>'Conclusão pendente — resolva antes de excluir']);
@@ -7556,6 +7643,151 @@ switch ($action) {
         PluginKanproBoard::logActivity($bidC, $srcId, 0, 'exclusao_cancelled', "Exclusão cancelada — card #{$srcId} voltou ao normal (pendência #{$pid} excluída)");
         $pc->delete(['id'=>$pid], true);
         jexit(['success'=>true,'source_cards_id'=>$srcId,'cancelled'=>true]);
+
+    case 'request_separacao':
+        // Botão "Separar": técnico escolhe máquinas para levar a um card filho
+        // (Nome/2). Pai + filho travam (verdes) e abre pendência verde no topo da
+        // Pendência Chamados p/ aprovar a separação (destrava os dois: 1/2 e 2/2).
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $cid = (int)($_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        $mids = $_POST['machine_ids'] ?? $_POST['mids'] ?? [];
+        if (is_string($mids)) { $dec = json_decode($mids, true); $mids = is_array($dec) ? $dec : explode(',', $mids); }
+        $mids = array_values(array_unique(array_filter(array_map('intval', (array)$mids), function ($v) { return $v > 0; })));
+        if (!$cid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        if (empty($mids)) jexit(['success'=>false,'msg'=>'Escolha ao menos 1 máquina para separar']);
+        $c = new PluginKanproCard();
+        if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        if (empty($c->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Só card de manutenção pode ser separado']);
+        $bid = (int)$c->fields['plugin_kanpro_boards_id'];
+        $cat = kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']);
+        if (!in_array($cat, ['andamento','retirada'], true)) jexit(['success'=>false,'msg'=>'Separar só vale nas listas Em Andamento ou Retirada']);
+        kanpro_need_linked_card_edit($cid);
+        kanpro_need_not_split_locked($cid);
+        if ((int)($c->fields['split_group'] ?? 0) > 0) jexit(['success'=>false,'msg'=>'Este card já está em split 1/2 — não dá para separar de novo','split'=>true]);
+        if (kanpro_is_tablet_pending($cid) || kanpro_is_conclusao_pending($cid) || kanpro_is_exclusao_pending($cid) || kanpro_is_edicao_pending($cid)) jexit(['success'=>false,'msg'=>'Resolva a pendência atual antes de separar']);
+        if (kanpro_card_is_finalized($cid)) jexit(['success'=>false,'msg'=>'Manutenção finalizada — já foi enviada para Assinatura.','finalized'=>true]);
+        $all = [];
+        if ($DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
+            foreach ($DB->request(['FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$cid],'ORDER'=>'seq ASC']) as $r) $all[(int)$r['id']] = $r;
+        }
+        if (count($all) < 2) jexit(['success'=>false,'msg'=>'É preciso ter ao menos 2 máquinas para separar']);
+        $sel = [];
+        foreach ($mids as $mid) { if (isset($all[$mid])) $sel[$mid] = $all[$mid]; }
+        if (empty($sel)) jexit(['success'=>false,'msg'=>'Nenhuma máquina válida selecionada']);
+        if (count($sel) >= count($all)) jexit(['success'=>false,'msg'=>'Escolha só parte das máquinas — o pai precisa ficar com ao menos 1']);
+        foreach ($sel as $sm) { if (!empty($sm['is_locked'])) jexit(['success'=>false,'msg'=>'Máquina #' . (int)$sm['seq'] . ' travada — libere o chamado antes de separar']); }
+        $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
+        if (!$pendList) jexit(['success'=>false,'msg'=>'Crie a lista "Pendência chamados" (categoria) neste quadro','need_pend_list'=>true]);
+        $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
+        $nowSep = date('Y-m-d H:i:s');
+        // filho Nome/2 na mesma lista
+        $origName = trim($c->fields['name'] ?? ('Card #' . $cid));
+        $childName = mb_substr($origName . '/2', 0, 255);
+        $nc = new PluginKanproCard();
+        $childId = (int)$nc->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>(int)$c->fields['plugin_kanpro_lists_id'],'name'=>$childName,'description'=>($c->fields['description'] ?? '')]);
+        if (!$childId) jexit(['success'=>false,'msg'=>'Falha ao criar o card filho']);
+        $DB->update('glpi_plugin_kanpro_cards', ['is_maintenance'=>1,'maintenance_date'=>$nowSep,'maintenance_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'split_pending'=>1,'split_group'=>$cid,'split_index'=>2,'date_mod'=>$nowSep], ['id'=>$childId]);
+        // move as escolhidas (mantém seq) e zera o progresso delas — o filho recomeça
+        $selIds = array_keys($sel);
+        $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$childId,'is_done'=>0,'is_ok'=>0,'status'=>'','is_inventoried'=>0,'date_mod'=>$nowSep], ['id'=>$selIds]);
+        // trava o pai e marca o grupo
+        $DB->update('glpi_plugin_kanpro_cards', ['split_pending'=>1,'split_group'=>$cid,'split_index'=>1,'date_mod'=>$nowSep], ['id'=>$cid]);
+        // solicitante vira membro do filho
+        kanpro_touch_member($childId, $who);
+        // pendência verde no TOPO da Pendência Chamados
+        $pendLid = (int)$pendList['id'];
+        $first = null;
+        try { $first = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['plugin_kanpro_lists_id'=>$pendLid,'is_archived'=>0],'ORDER'=>'rank ASC','LIMIT'=>1])->current(); } catch (Throwable $e) {}
+        $topRank = ($first && isset($first['rank'])) ? ((float)$first['rank'] - 1024) : 1;
+        $nc2 = new PluginKanproCard();
+        $pendId = (int)$nc2->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$pendLid,'name'=>mb_substr($origName . ' — Separação', 0, 255),'description'=>"Separação 1/2+2/2 do card #{$cid}: filho #{$childId} ('{$childName}') com " . count($selIds) . " máquina(s). Aguardando aprovação para destravar os dois."]);
+        if (!$pendId) {
+            try { $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$cid], ['id'=>$selIds]); } catch (Throwable $e) {}
+            try { $DB->update('glpi_plugin_kanpro_cards', ['split_pending'=>0,'split_group'=>0,'split_index'=>0,'date_mod'=>$nowSep], ['id'=>$cid]); } catch (Throwable $e) {}
+            try { $DB->update('glpi_plugin_kanpro_cards', ['is_archived'=>1,'date_mod'=>$nowSep], ['id'=>$childId]); } catch (Throwable $e) {}
+            jexit(['success'=>false,'msg'=>'Falha ao criar pendência de separação']);
+        }
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'separacao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowSep], ['id'=>$pendId]);
+        kanpro_touch_card($cid);
+        kanpro_touch_card($childId);
+        kanpro_touch_card($pendId);
+        PluginKanproBoard::logActivity($bid, $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'separacao_requested', "Separação solicitada por #{$who} — filho #{$childId} com " . count($selIds) . " máquina(s); pai+filho travados até aprovar (pendência #{$pendId})");
+        PluginKanproBoard::logActivity($bid, $childId, (int)$c->fields['plugin_kanpro_lists_id'], 'separacao_created', "Card filho 2/2 criado a partir de #{$cid}");
+        jexit(['success'=>true,'child_cards_id'=>$childId,'pendencia_id'=>$pendId,'moved_machines'=>count($selIds)]);
+
+    case 'confirm_separacao':
+        // Botão "Aprovar separação": destrava pai + filho (viram 1/2 e 2/2).
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
+        $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+        if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma pendência de separação']);
+        $stS = (string)($pc->fields['chamado_status'] ?? '');
+        if ($stS === 'separacao_ok') jexit(['success'=>true,'already'=>true]);
+        if ($stS !== 'separacao') jexit(['success'=>false,'msg'=>'Use o botão próprio para este tipo de pendência']);
+        $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
+        if (!kanpro_can_approve_pendencia($bidC)) jexit(['success'=>false,'msg'=>'Somente quem gerencia o quadro ou tem acesso à Pendência Chamados pode aprovar a separação']);
+        $childRow = null;
+        try { $childRow = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['split_group'=>$srcId,'split_index'=>2,'is_archived'=>0],'ORDER'=>'id DESC','LIMIT'=>1])->current(); } catch (Throwable $e) {}
+        $childIdC = (int)($childRow['id'] ?? 0);
+        if ($childIdC <= 0) jexit(['success'=>false,'msg'=>'Card filho não encontrado (já arquivado?)']);
+        $nowSep2 = date('Y-m-d H:i:s');
+        try { $DB->update('glpi_plugin_kanpro_cards', ['split_pending'=>0,'date_mod'=>$nowSep2], ['id'=>[$srcId,$childIdC]]); } catch (Throwable $e) {}
+        try { $DB->update('glpi_plugin_kanpro_cards', ['chamado_status'=>'separacao_ok','date_mod'=>$nowSep2], ['id'=>$pid]); } catch (Throwable $e) {}
+        kanpro_touch_card($srcId);
+        kanpro_touch_card($childIdC);
+        kanpro_touch_card($pid);
+        PluginKanproBoard::logActivity($bidC, $srcId, 0, 'separacao_released', "Separação aprovada — pai #{$srcId} (1/2) e filho #{$childIdC} (2/2) destravados (pendência #{$pid})");
+        jexit(['success'=>true,'parent_cards_id'=>$srcId,'child_cards_id'=>$childIdC]);
+
+    case 'cancel_separacao':
+        // Botão "Recusar separação": máquinas voltam para o pai, filho arquiva.
+        needEdit();
+        kanpro_ensure_maintenance_tables();
+        $pid = (int)($_POST['pendencia_cards_id'] ?? $_POST['cards_id'] ?? $_POST['id'] ?? 0);
+        if (!$pid) jexit(['success'=>false,'msg'=>'Cartão inválido']);
+        $pc = new PluginKanproCard();
+        if (!$pc->getFromDB($pid)) jexit(['success'=>true,'already_deleted'=>true]);
+        $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
+        if (!$srcId) jexit(['success'=>false,'msg'=>'Este card não é uma pendência de separação']);
+        $stS = (string)($pc->fields['chamado_status'] ?? '');
+        if ($stS === 'separacao_ok') jexit(['success'=>false,'msg'=>'Separação já aprovada']);
+        if ($stS !== 'separacao') jexit(['success'=>false,'msg'=>'Use o botão próprio para este tipo de pendência']);
+        $bidC = (int)$pc->fields['plugin_kanpro_boards_id'];
+        if (!kanpro_can_approve_pendencia($bidC)) jexit(['success'=>false,'msg'=>'Somente quem gerencia o quadro ou tem acesso à Pendência Chamados pode recusar a separação']);
+        $nowX = date('Y-m-d H:i:s');
+        $childRow = null;
+        try { $childRow = $DB->request(['FROM'=>'glpi_plugin_kanpro_cards','WHERE'=>['split_group'=>$srcId,'split_index'=>2,'is_archived'=>0],'ORDER'=>'id DESC','LIMIT'=>1])->current(); } catch (Throwable $e) {}
+        $childIdX = (int)($childRow['id'] ?? 0);
+        $backN = 0;
+        if ($childIdX > 0) {
+            try {
+                foreach ($DB->request(['SELECT'=>['id'],'FROM'=>'glpi_plugin_kanpro_maintenance_machines','WHERE'=>['plugin_kanpro_cards_id'=>$childIdX]]) as $mm) {
+                    $DB->update('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id'=>$srcId,'date_mod'=>$nowX], ['id'=>(int)$mm['id']]);
+                    $backN++;
+                }
+            } catch (Throwable $e) {}
+            try { $DB->update('glpi_plugin_kanpro_cards', ['is_archived'=>1,'split_group'=>0,'split_index'=>0,'split_finalized'=>0,'split_pending'=>0,'date_mod'=>$nowX], ['id'=>$childIdX]); } catch (Throwable $e) {}
+        }
+        try { $DB->update('glpi_plugin_kanpro_cards', ['split_pending'=>0,'split_group'=>0,'split_index'=>0,'split_finalized'=>0,'date_mod'=>$nowX], ['id'=>$srcId]); } catch (Throwable $e) {}
+        kanpro_touch_card($srcId);
+        $full = function_exists('kanpro_snapshot_card_for_trash') ? kanpro_snapshot_card_for_trash($pid) : PluginKanproCard::getFullData($pid);
+        try {
+            $DB->insert('glpi_plugin_kanpro_trash', [
+                'plugin_kanpro_boards_id'=>$bidC,
+                'plugin_kanpro_lists_id'=>(int)$pc->fields['plugin_kanpro_lists_id'],
+                'list_name'=>'', 'card_name'=>$pc->fields['name'],
+                'snapshot'=>json_encode($full, JSON_UNESCAPED_UNICODE),
+                'users_id'=>kanpro_acting_user_id(), 'date_creation'=>$nowX,
+            ]);
+        } catch (Throwable $e) {}
+        PluginKanproBoard::logActivity($bidC, $srcId, 0, 'separacao_refused', "Separação recusada — {$backN} máquina(s) de volta ao pai #{$srcId} (pendência #{$pid} excluída)");
+        $pc->delete(['id'=>$pid], true);
+        jexit(['success'=>true,'source_cards_id'=>$srcId,'refused'=>true,'machines_back'=>$backN]);
 
     case 'start_edicao':
         // Botão "Editar" (manutenção finalizada em Retirada): abre sessão de edição.
