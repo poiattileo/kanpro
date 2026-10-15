@@ -731,8 +731,11 @@
       if(q){
         list = list.map(c=>{
           const name = (c.name||'').toLowerCase(), desc = (c.description||'').toLowerCase();
+          const code = this.cardCode(c).toLowerCase(), qd = q.replace(/^#/, '');
           let s = -1;
-          if(name.startsWith(q)) s = 0;
+          if(qd && (String(c.id) === qd || code === q || code === '#' + qd)) s = 0;
+          else if(name.startsWith(q)) s = 0;
+          else if(qd && code.includes(qd)) s = 1;
           else if(name.includes(q)) s = 1;
           else if(desc.includes(q)) s = 2;
           return {c, s};
@@ -746,7 +749,7 @@
         const l = (this.lists||[]).find(x=> x.id==c.plugin_kanpro_lists_id);
         const due = c.due_date ? ` • ${this.formatDateShort(c.due_date)}` : '';
         return `<div class="kp-qf-item" data-card-id="${c.id}" onclick="Kanpro.closeQuickFind();Kanpro.openCard(${c.id})" style="display:flex;justify-content:space-between;gap:8px;padding:9px 10px;border-radius:6px;cursor:pointer;background:#fff">
-          <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#${c.id} ${this.escape(c.name)}</span>
+          <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.cardCode(c)} ${this.escape(c.name)}</span>
           <span style="font-size:11px;color:#5e6c84;flex-shrink:0">${this.escape((l&&l.name)||'')}${due}</span>
         </div>`;
       }).join('') || '<div style="padding:20px;text-align:center;color:#5e6c84;font-size:13px">Nenhum cartão encontrado</div>';
@@ -8126,7 +8129,7 @@
           if(!res.results.length){ resultsBox.innerHTML = '<div style="text-align:center;color:#5e6c84;font-size:13px;padding:12px">Nenhum cartão encontrado.</div>'; return; }
           resultsBox.innerHTML = res.results.map(r=> `
             <div onclick="Kanpro.goToCard(${r.board_id}, ${r.card_id})" style="background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;cursor:pointer">
-              <div style="font-size:13px;font-weight:600;color:#172b4d"><span style="color:#5e6c84">#${r.card_id}</span> ${this.escape(r.card_name)}${r.city ? ` <span style="background:#e6fcff;color:#0052cc;border:1px solid #91d5ff;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700">📍 ${this.escape(r.city)}</span>` : ''}</div>
+              <div style="font-size:13px;font-weight:600;color:#172b4d"><span style="color:#5e6c84">${(r.split_group > 0) ? (r.split_group + '/' + (r.split_index == 2 ? '2' : '1')) : ('#' + r.card_id)}</span> ${this.escape(r.card_name)}${r.city ? ` <span style="background:#e6fcff;color:#0052cc;border:1px solid #91d5ff;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700">📍 ${this.escape(r.city)}</span>` : ''}</div>
               <div style="font-size:11px;color:#5e6c84;margin-top:2px"><i class="ti ti-layout-kanban"></i> ${this.escape(r.board_name)} ${r.list_name ? '· '+this.escape(r.list_name) : ''}</div>
             </div>`).join('');
         });
@@ -8477,7 +8480,7 @@
         const fDigits = this.filterText.replace(/^#/, '');
         const fIsNum = /^\d+$/.test(fDigits);
         const fIsMaintCity = card.is_maintenance == 1 && this.cityMatchMaintenance(card.name, this.filterText);
-        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText) || (fIsNum && String(card.id).includes(fDigits)) || fIsMaintCity;
+        const matchText = !this.filterText || this.normText(card.name).includes(this.filterText) || this.normText(card.description||'').includes(this.filterText) || (fIsNum && String(card.id).includes(fDigits)) || this.cardCode(card).toLowerCase().includes(this.filterText) || fIsMaintCity;
         // label filter
         let matchLabel = true;
         if(this.labelFilter.size>0){
@@ -8501,6 +8504,7 @@
       const fDigits = this.filterText.replace(/^#/, '');
       if(/^\d+$/.test(fDigits) && String(card.id).includes(fDigits)) return false;
       if(card.is_maintenance == 1 && this.cityMatchMaintenance(card.name, this.filterText)) return false;
+      if(this.cardCode(card).toLowerCase().includes(this.filterText)) return false;
       return true;
     },
     openFilterMenu(){
