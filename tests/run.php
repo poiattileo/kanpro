@@ -322,4 +322,98 @@ kanpro_test('stackMachineLines vazio devolve vazio', function () {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Trava por vínculo do card de manutenção (kanpro_can_edit_linked_card)
+// Só card de manutenção com ≥1 membro vinculado trava; gerente/criador do
+// quadro ignoram a trava; admin comum NÃO ganha bypass.
+// ---------------------------------------------------------------------------
+function kanpro_linked_reset(): void {
+    global $DB;
+    $DB->createTable('glpi_plugin_kanpro_cards_members');
+    $DB->createTable('glpi_plugin_kanpro_boards_members');
+    $DB->delete('glpi_plugin_kanpro_cards_members', []);
+    $DB->delete('glpi_plugin_kanpro_boards_members', []);
+    PluginKanproCard::$rows = [];
+    PluginKanproBoard::$rows = [];
+    Session::$userId = 0;
+}
+
+kanpro_test('can_edit_linked_card existe', function () {
+    assert_true(function_exists('kanpro_can_edit_linked_card'));
+});
+
+kanpro_test('can_edit_linked_card: id inválido devolve false', function () {
+    kanpro_linked_reset();
+    assert_true(kanpro_can_edit_linked_card(0) === false);
+});
+
+kanpro_test('can_edit_linked_card: card não-manutenção devolve true', function () {
+    kanpro_linked_reset();
+    PluginKanproCard::$rows[101] = ['id' => 101, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 0, 'users_id' => 55];
+    assert_true(kanpro_can_edit_linked_card(101) === true);
+});
+
+kanpro_test('can_edit_linked_card: manutenção sem membros devolve true (sem trava)', function () {
+    kanpro_linked_reset();
+    PluginKanproCard::$rows[102] = ['id' => 102, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    assert_true(kanpro_can_edit_linked_card(102) === true);
+});
+
+kanpro_test('can_edit_linked_card: manutenção com membro e não-vinculado devolve false', function () {
+    global $DB;
+    kanpro_linked_reset();
+    Session::$userId = 99;
+    PluginKanproCard::$rows[103] = ['id' => 103, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 103, 'users_id' => 42]);
+    assert_true(kanpro_can_edit_linked_card(103) === false);
+});
+
+kanpro_test('can_edit_linked_card: membro vinculado devolve true', function () {
+    global $DB;
+    kanpro_linked_reset();
+    Session::$userId = 42;
+    PluginKanproCard::$rows[103] = ['id' => 103, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 103, 'users_id' => 42]);
+    assert_true(kanpro_can_edit_linked_card(103) === true);
+});
+
+kanpro_test('can_edit_linked_card: criador do card devolve true', function () {
+    global $DB;
+    kanpro_linked_reset();
+    Session::$userId = 55;
+    PluginKanproCard::$rows[104] = ['id' => 104, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 104, 'users_id' => 42]);
+    assert_true(kanpro_can_edit_linked_card(104) === true);
+});
+
+kanpro_test('can_edit_linked_card: gerente do quadro devolve true', function () {
+    global $DB;
+    kanpro_linked_reset();
+    Session::$userId = 99;
+    PluginKanproCard::$rows[103] = ['id' => 103, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 103, 'users_id' => 42]);
+    $DB->insert('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => 7, 'users_id' => 99, 'role' => 'gerente']);
+    assert_true(kanpro_can_edit_linked_card(103) === true);
+});
+
+kanpro_test('can_edit_linked_card: criador do quadro devolve true', function () {
+    global $DB;
+    kanpro_linked_reset();
+    Session::$userId = 99;
+    PluginKanproBoard::$rows[7] = ['id' => 7, 'users_id' => 99];
+    PluginKanproCard::$rows[103] = ['id' => 103, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 103, 'users_id' => 42]);
+    assert_true(kanpro_can_edit_linked_card(103) === true);
+});
+
+kanpro_test('can_edit_linked_card: admin não-vinculado devolve false (sem bypass)', function () {
+    global $DB;
+    kanpro_linked_reset();
+    Session::$userId = 99;
+    PluginKanproCard::$rows[103] = ['id' => 103, 'plugin_kanpro_boards_id' => 7, 'is_maintenance' => 1, 'users_id' => 55];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 103, 'users_id' => 42]);
+    $DB->insert('glpi_plugin_kanpro_boards_members', ['plugin_kanpro_boards_id' => 7, 'users_id' => 99, 'role' => 'admin']);
+    assert_true(kanpro_can_edit_linked_card(103) === false);
+});
+
 exit(kanpro_summary());

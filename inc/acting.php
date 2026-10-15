@@ -519,6 +519,33 @@ if (!function_exists('kanpro_is_card_linked')) {
     }
 }
 
+if (!function_exists('kanpro_can_edit_linked_card')) {
+    // Card de manutenção "com dono" (≥1 membro vinculado): só quem pegou (vinculado),
+    // o Gerente do quadro ou o criador do quadro pode editar. Não-manutenção, card sem
+    // membros ou erro seguem o comportamento atual (sem trava).
+    // Admin comum do quadro NÃO ganha bypass — só gerente/criador (kanpro_can_see_all).
+    function kanpro_can_edit_linked_card(int $cards_id): bool {
+        global $DB;
+        try {
+            if ($cards_id <= 0) return false;
+            $c = new PluginKanproCard();
+            if (!$c->getFromDB($cards_id)) return false;
+            if (empty($c->fields['is_maintenance'])) return true;
+            $bid = (int)($c->fields['plugin_kanpro_boards_id'] ?? 0);
+            if (function_exists('kanpro_can_see_all') && kanpro_can_see_all($bid)) return true;
+            $hasMembers = false;
+            try {
+                $hasMembers = $DB->tableExists('glpi_plugin_kanpro_cards_members')
+                    && countElementsInTable('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => $cards_id]) > 0;
+            } catch (Throwable $e) {}
+            if (!$hasMembers) return true; // card sem vínculo: comportamento atual
+            return kanpro_is_card_linked($cards_id);
+        } catch (Throwable $e) {
+            return true; // fail-open: erro não deve trancar o card
+        }
+    }
+}
+
 if (!function_exists('kanpro_can_manage_models')) {
     // Modelos de máquinas: criador/admin (via manage_members) + membro do quadro.
     function kanpro_can_manage_models($bid) {
