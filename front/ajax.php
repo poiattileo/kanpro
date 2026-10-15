@@ -7662,7 +7662,8 @@ switch ($action) {
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         $cat = kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']);
         if (!in_array($cat, ['andamento','retirada'], true)) jexit(['success'=>false,'msg'=>'Separar só vale nas listas Em Andamento ou Retirada']);
-        kanpro_need_linked_card_edit($cid);
+        // Gerente/Admin do quadro pode separar mesmo sem vínculo; técnico precisa estar vinculado
+        if (!kanpro_can_edit_linked_card($cid) && !(function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid))) jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Gerente/Admin do quadro) pode separá-lo.']);
         kanpro_need_not_split_locked($cid);
         if ((int)($c->fields['split_group'] ?? 0) > 0) jexit(['success'=>false,'msg'=>'Este card já está em split 1/2 — não dá para separar de novo','split'=>true]);
         if (kanpro_is_tablet_pending($cid) || kanpro_is_conclusao_pending($cid) || kanpro_is_exclusao_pending($cid) || kanpro_is_edicao_pending($cid)) jexit(['success'=>false,'msg'=>'Resolva a pendência atual antes de separar']);
