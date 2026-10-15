@@ -282,15 +282,15 @@ function kanpro_user_brief($uid) {
     }
     return ['users_id' => (int)$uid, 'name' => $name, 'login' => $login, 'initials' => $initials];
 }
-// ---------- Aba "Excluídos": só gerente do quadro (criador ou papel gerente) ----------
+// ---------- Aba "Excluídos": todo mundo que pode ver o quadro ----------
 function kanpro_require_deleted_manager($bid) {
     $bid = (int)$bid;
     if ($bid > 0) kanpro_require_board_view($bid);
     $ok = false;
-    try { $ok = function_exists('kanpro_can_see_all') ? kanpro_can_see_all($bid) : false; } catch (Throwable $e) { $ok = false; }
+    try { $ok = function_exists('kanpro_can_view_board') ? kanpro_can_view_board($bid) : false; } catch (Throwable $e) { $ok = false; }
     if (!$ok) {
         http_response_code(403);
-        jexit(['success'=>false,'msg'=>'Aba Excluídos restrita ao gerente do quadro.']);
+        jexit(['success'=>false,'msg'=>'Sem acesso a este quadro.']);
     }
 }
 function kanpro_deleted_actor_name($uid) {
@@ -5109,7 +5109,7 @@ switch ($action) {
         jexit(['success'=>true,'id'=>(int)$newId]);
 
     case 'get_deleted_cards':
-        // Aba "Excluídos": lista de cards excluídos do quadro — SÓ gerente (criador ou gerente).
+        // Aba "Excluídos": lista de cards excluídos do quadro.
         try {
             $bid = (int)($_REQUEST['boards_id'] ?? 0);
             if (!$bid) jexit(['success'=>false,'msg'=>'Quadro inválido']);
@@ -5233,7 +5233,7 @@ switch ($action) {
         }
 
     case 'restore_deleted_card':
-        // "Recuperar": recria o card na lista de origem (ou 1ª ativa) — SÓ gerente.
+        // "Recuperar": recria o card na lista de origem (ou 1ª ativa).
         needEdit();
         kanpro_ensure_board_extras();
         kanpro_ensure_maintenance_tables();

@@ -43,21 +43,10 @@ if (!$__histAdmin) {
 }
 if (!$__histAdmin && in_array(kanpro_board_profile_role($boards_id), ['admin', 'gerente'], true)) $__histAdmin = true;
 
-// Excluídos: SÓ gerente do quadro (criador ou papel gerente — admin comum não vê).
-// Usa a mesma regra central do backend (kanpro_can_see_all).
+// Excluídos: todo mundo que pode ver o quadro.
 $__canSeeDeleted = false;
 try {
-    if (function_exists('kanpro_can_see_all')) $__canSeeDeleted = kanpro_can_see_all($boards_id);
-    else {
-        $__canSeeDeleted = ($__creator === $__me && $__me > 0);
-        if (!$__canSeeDeleted) {
-            $__dmiter = $DB->request(['SELECT' => ['role'], 'FROM' => 'glpi_plugin_kanpro_boards_members', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'users_id' => kanpro_viewer_ids()]]);
-            foreach ($__dmiter as $__dmr) {
-                if (($__dmr['role'] ?? '') === 'gerente') { $__canSeeDeleted = true; break; }
-            }
-        }
-        if (!$__canSeeDeleted && function_exists('kanpro_board_profile_role') && kanpro_board_profile_role($boards_id) === 'gerente') $__canSeeDeleted = true;
-    }
+    $__canSeeDeleted = function_exists('kanpro_can_view_board') ? kanpro_can_view_board($boards_id) : false;
 } catch (Throwable $e) { $__canSeeDeleted = false; }
 
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
@@ -428,7 +417,7 @@ $history_btn = !empty($__histAdmin)
     ? '<button id="kanpro-history-btn" onclick="KanproHistory.open(window.KANPRO.board.id)" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-history"></i> Histórico</button>'
     : '';
 $deleted_btn = !empty($__canSeeDeleted)
-    ? '<button id="kanpro-deleted-btn" onclick="KanproDeleted.open(window.KANPRO.board.id)" title="Cards excluídos — só gerente vê" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-trash"></i> Excluídos <span id="kanpro-deleted-count" style="font-size:11px;color:#5e6c84"></span></button>'
+    ? '<button id="kanpro-deleted-btn" onclick="KanproDeleted.open(window.KANPRO.board.id)" title="Cartões excluídos do quadro" style="background:rgba(255,255,255,.9);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:#172b4d"><i class="ti ti-trash"></i> Excluídos <span id="kanpro-deleted-count" style="font-size:11px;color:#5e6c84"></span></button>'
     : '';
 $__kp_can_see_deleted = !empty($__canSeeDeleted) ? '1' : '0';
 
