@@ -2436,18 +2436,19 @@
         }
       } catch(e){}
       if(btnPegar) btnPegar.style.display = 'none';
-      // sidebar: botão Concluir (cria 1x, acima do Excluir) — Manutenção em Em Andamento/Retirada
+      // sidebar: botão Ok (cria 1x, em AÇÕES acima do Excluir) — Manutenção em Em Andamento/Retirada
       let btnConcluir = document.getElementById('kp-concluir-btn');
-      if(sideBtns && !btnConcluir){
+      const sideAcoes = document.getElementById('kp-delete-btn')?.parentElement;
+      if(sideAcoes && !btnConcluir){
         btnConcluir = document.createElement('button');
         btnConcluir.id = 'kp-concluir-btn';
         btnConcluir.className = 'kp-sidebar-btn';
         btnConcluir.style.cssText = 'background:#61bd4f;color:#fff;border:1px solid #61bd4f;font-weight:800';
-        btnConcluir.innerHTML = '<i class="ti ti-check"></i> Concluir';
+        btnConcluir.innerHTML = '<i class="ti ti-check"></i> Ok';
         btnConcluir.onclick = ()=> Kanpro.requestConclusao();
         const delBtn = document.getElementById('kp-delete-btn');
-        if(delBtn && delBtn.parentElement === sideBtns) sideBtns.insertBefore(btnConcluir, delBtn);
-        else sideBtns.appendChild(btnConcluir);
+        if(delBtn && delBtn.parentElement === sideAcoes) sideAcoes.insertBefore(btnConcluir, delBtn);
+        else sideAcoes.appendChild(btnConcluir);
       }
       if(btnConcluir) btnConcluir.style.display = 'none';
       // sidebar: botão Editar (cria 1x, acima do Excluir) — manutenção finalizada em Retirada
@@ -4482,6 +4483,7 @@
       if(!isMaint){
         wrap.style.display="none";
         wrap.innerHTML="";
+        try { const _ss = document.getElementById('kp-separar-btn'); if(_ss) _ss.style.display='none'; } catch(e){}
         return;
       }
       wrap.style.display="block";
@@ -4540,6 +4542,28 @@
       const lockedFinal = !!isFinalized && !edicaoOpen;
       const chamadoLocked = (machines||[]).some(m=> m && Number(m.is_locked)==1);
       const chamadoPendId = ((machines||[]).find(m=> m && Number(m.is_locked)==1) || {}).locked_chamado_card_id || '';
+      // sidebar AÇÕES: espelha o botão Separar com a mesma regra do topo da manutenção
+      try {
+        const showSepSide = total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending;
+        const acoesBox = document.getElementById('kp-delete-btn')?.parentElement;
+        let sepBtn = document.getElementById('kp-separar-btn');
+        if(acoesBox && !sepBtn){
+          sepBtn = document.createElement('button');
+          sepBtn.id = 'kp-separar-btn';
+          sepBtn.className = 'kp-sidebar-btn';
+          sepBtn.style.cssText = 'background:#fff;border:1px solid #2e9e4f;color:#2e9e4f;font-weight:800';
+          sepBtn.onclick = ()=> Kanpro.toggleSepararMode();
+          const okBtn = document.getElementById('kp-concluir-btn');
+          const delBtn = document.getElementById('kp-delete-btn');
+          if(okBtn && okBtn.parentElement === acoesBox) acoesBox.insertBefore(sepBtn, okBtn);
+          else if(delBtn && delBtn.parentElement === acoesBox) acoesBox.insertBefore(sepBtn, delBtn);
+          else acoesBox.appendChild(sepBtn);
+        }
+        if(sepBtn){
+          sepBtn.style.display = showSepSide ? '' : 'none';
+          sepBtn.innerHTML = this._separarMode ? '<i class="ti ti-x"></i> Cancelar' : '<i class="ti ti-scissors"></i> ✂️ Separar';
+        }
+      } catch(e){}
       // Barra de conclusão separada (footer destacado) — não mistura com as ações de edição
       let finalizeFootHtml = "";
       const isTabletLiberadoFoot = String(data.chamado_status || '') === 'liberado' && Number(data.tablet_liberado_pending || 0) === 1;
@@ -4632,7 +4656,6 @@
               ${lockedFinal || chamadoLocked || goldenLocked || conclusaoLocked || exclusaoLocked || linkedRO || splitPend || splitWait ? `` : `<button onclick="Kanpro.openMaintenanceSetup()" style="background:#fff;border:1px solid #dfe1e6;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;flex-shrink:0"><i class="ti ti-plus"></i> ${total? "Adicionar" : "Configurar"} máquinas</button>`}
               ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait ? `<button onclick="Kanpro.setAllNeedsInventory(${allNeed?0:1})" title="${allNeed?"Tirar 'precisa inventariar' de todas as máquinas":"Marcar todas as máquinas como 'precisa inventariar'"}" style="background:${allNeed?"#fff":"#ede9fe"};border:1px solid #6554c0;color:#5e35b1;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-clipboard-list"></i> ${allNeed?"Tirar 'precisa' de todas":"📋 Todas precisam inventariar"}</button>`:""}
               ${total && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait ? `<button onclick="Kanpro.toggleMaintSelectMode()" title="Selecionar máquinas para ação em massa" style="background:${selectMode?"#0079bf":"#fff"};border:1px solid #0079bf;color:${selectMode?"#fff":"#0079bf"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-checkbox"></i> ${selectMode?"Cancelar":"Selecionar"}</button>`:""}
-              ${total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending ? `<button onclick="Kanpro.toggleSepararMode()" title="Escolher máquinas para levar a um card filho (Nome/2) — pai e filho travam até aprovar na Pendência Chamados" style="background:${this._separarMode?"#2e9e4f":"#fff"};border:1px solid #2e9e4f;color:${this._separarMode?"#fff":"#2e9e4f"};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-scissors"></i> ${this._separarMode?"Cancelar":"✂️ Separar"}</button>`:""}
               ${total? `<button onclick="Kanpro.printInfoSheet()" title="Imprimir folha informativa das máquinas (A4, envio automático)" style="background:#fff;border:1px solid #0052cc;color:#0052cc;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0"><i class="ti ti-printer"></i> Folha</button>`:""}
               ${total? `<button onclick="Kanpro.copyWhatsappUnits(this)" title="Copia resumo agrupado (ex: 12x Notebook Multilaser) para colar no WhatsApp" style="background:#25d366;border:1px solid #1da851;color:#fff;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0">📋 Copiar p/ WhatsApp</button>`:""}
             </div>
