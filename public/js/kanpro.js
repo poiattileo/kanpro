@@ -126,14 +126,15 @@
         return Number(c.split_finalized) === 1;
       } catch(e){ return false; }
     },
-    splitBadge(cardOrData){
+    // código exibido do card: lado do split (pai 382 vira 382/1, filho 382/2) ou #id
+    cardCode(cardOrId){
       try {
-        const c = (cardOrData && typeof cardOrData === 'object')
-          ? cardOrData
-          : (this.cards||[]).find(x=> String(x.id)===String(cardOrData));
-        if(!c || !(Number(c.split_group) > 0) || Number(c.split_pending) === 1) return '';
-        // lado no formato ID/lado: pai 382 vira 382/1, filho vira 382/2
-        return Number(c.split_group) + '/' + (Number(c.split_index) === 2 ? '2' : '1');
+        const c = (cardOrId && typeof cardOrId === 'object')
+          ? cardOrId
+          : (this.cards||[]).find(x=> String(x.id)===String(cardOrId));
+        if(c && Number(c.split_group) > 0) return Number(c.split_group) + '/' + (Number(c.split_index) === 2 ? '2' : '1');
+        const id = (c && c.id != null) ? c.id : cardOrId;
+        return '#' + id;
       } catch(e){ return ''; }
     },
     isBoardMember(){
@@ -1545,15 +1546,11 @@
       if (lockedN > 0) {
         badges.push(`<span class="kp-badge" title="${lockedN} máquina(s) travada(s) aguardando Chamado criado" style="background:#ffebe6;color:#bf2600;font-weight:800;border:1px solid #eb5a46"><i class="ti ti-lock"></i> 🔒 ${lockedN} travada(s)</span>`);
       }
-      // Split 1/2+2/2: pendente de aprovação (verde) ou aprovado com contador
+      // Split aguardando aprovação (verde) ou lado finalizado aguardando o outro
       try {
         if (Number(card.split_pending) === 1 && Number(card.is_maintenance) === 1) {
           badges.push(`<span class="kp-badge" title="Separação aguardando aprovação — pai e filho travados" style="background:#61bd4f;color:#fff;font-weight:800;border:1px solid #61bd4f">✂️ Aguard. separação</span>`);
-        } else {
-          const sb = this.splitBadge(card);
-          if (sb) badges.push(`<span class="kp-badge" title="Card dividido em 2 partes — este é o lado ${sb}" style="background:#e3fcef;color:#006644;font-weight:800;border:1px solid #61bd4f">✂️ ${sb}</span>`);
-          else if (this.isSplitWaiting(card)) badges.push(`<span class="kp-badge" title="Este lado já foi finalizado — aguardando o outro técnico" style="background:#fffae6;color:#975500;font-weight:800;border:1px solid #ffab00">⏳ Aguard. outro lado</span>`);
-        }
+        } else if (this.isSplitWaiting(card)) badges.push(`<span class="kp-badge" title="Este lado já foi finalizado — aguardando o outro técnico" style="background:#fffae6;color:#975500;font-weight:800;border:1px solid #ffab00">⏳ Aguard. outro lado</span>`);
       } catch(e){}
       // Pendência Chamado — selo rosa; pendência de Conclusão — selo verde
       const cardListForCh = this.lists.find(l=> l.id==card.plugin_kanpro_lists_id);
@@ -1708,7 +1705,7 @@
         ${coverHtml}
         ${labelsHtml}
         ${typeHtml}
-        <div class="kp-card-title"><span style="color:#5e6c84;font-weight:700;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
+        <div class="kp-card-title"><span style="color:#5e6c84;font-weight:700;margin-right:4px">${this.cardCode(card)}</span>${this.escape(card.name)}</div>
         ${badges.length?`<div class="kp-card-badges">${badges.join('')}</div>`:''}
         ${checkBarHtml}
         ${dueBarHtml}
@@ -3810,7 +3807,7 @@
         if(pc){ pc.style.display = 'none'; pc.innerHTML = ''; }
         document.getElementById('kp-pendencia-panel')?.remove();
       } catch(e){}
-      $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${data.id}</span>${this.escape(data.name)}`;
+      $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">${this.cardCode(data)}</span>${this.escape(data.name)}`;
       $('#card-modal-listname').textContent = data.list_name||'Lista';
       const createdEl = $('#card-modal-created');
       if(createdEl) createdEl.textContent = data.date_creation ? ` • 🕐 Criado em ${this.formatDate(data.date_creation)}` : '';
@@ -4206,7 +4203,7 @@
               <span style="background:rgba(255,255,255,.2);width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${isSep ? '✂️' : (isEd ? '✏️' : (isExc ? '🗑️' : (isConc ? '🏁' : '📞')))}</span>
             <div style="min-width:0;flex:1">
                 <div style="font-size:17px;font-weight:800;letter-spacing:.01em">${isSep ? 'Pendência Separação' : (isEd ? 'Pendência Edição' : (isExc ? 'Pendência Exclusão' : (isConc ? 'Pendência Conclusão' : 'Pendência Chamado')))}</div>
-              <div style="font-size:12px;opacity:.92;margin-top:2px">#${data.id} • ${this.escape(boardName || data.list_name || '')}</div>
+              <div style="font-size:12px;opacity:.92;margin-top:2px">${this.cardCode(data)} • ${this.escape(boardName || data.list_name || '')}</div>
             </div>
             ${statusPill}
           </div>
@@ -4218,7 +4215,7 @@
               <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#ad1457;letter-spacing:.05em">ESCOLA</div><div style="font-size:14px;font-weight:700;color:#172b4d">${this.escape(escola)}</div></div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">ORIGEM</div><div style="font-size:13px;font-weight:700;color:#172b4d;margin-top:2px">#${srcId} ${this.escape(srcName)}</div></div>
+              <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">ORIGEM</div><div style="font-size:13px;font-weight:700;color:#172b4d;margin-top:2px">${this.cardCode(srcId)} ${this.escape(srcName)}</div></div>
               <div style="background:#f4f5f7;border-radius:12px;padding:12px 14px"><div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.05em">SOLICITADO</div><div style="font-size:13px;font-weight:600;color:#172b4d;margin-top:2px">${this.escape(byName || '—')}${created ? `<div style="font-size:11px;color:#5e6c84;font-weight:400">${this.escape(created)}</div>` : ''}</div></div>
             </div>
           </div>
@@ -4226,7 +4223,7 @@
           <div>
             <div style="display:flex;align-items:center;gap:10px;background:#efebe9;border:1px solid #a1887f;border-radius:12px;padding:12px 14px">
               <span style="font-size:18px">✏️</span>
-              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#5d4037;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
+              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#5d4037;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">${this.cardCode(srcId)} ${this.escape(srcName)}</div>
               <div style="font-size:12px;color:#5e6c84">Travado até “Liberar edição” — depois continua em Retirada.</div></div>
             </div>
           </div>` : ''}
@@ -4234,7 +4231,7 @@
           <div>
             <div style="display:flex;align-items:center;gap:10px;background:#e9edf2;border:1px solid #091e42;border-radius:12px;padding:12px 14px">
               <span style="font-size:18px">🗑️</span>
-              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#091e42;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
+              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#091e42;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">${this.cardCode(srcId)} ${this.escape(srcName)}</div>
               <div style="font-size:12px;color:#5e6c84">Travado até “Liberar exclusão” — depois é excluído de verdade.</div></div>
             </div>
           </div>` : ''}
@@ -4242,7 +4239,7 @@
           <div>
             <div style="display:flex;align-items:center;gap:10px;background:#f2fbf3;border:1px solid #a9dfb8;border-radius:12px;padding:12px 14px">
               <span style="font-size:18px">🏁</span>
-              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#2e7d32;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">#${srcId} ${this.escape(srcName)}</div>
+              <div style="min-width:0"><div style="font-size:11px;font-weight:800;color:#2e7d32;letter-spacing:.05em">CARD ORIGEM</div><div style="font-size:14px;font-weight:700;color:#172b4d">${this.cardCode(srcId)} ${this.escape(srcName)}</div>
               <div style="font-size:12px;color:#5e6c84">Travado até “Liberar conclusão” — depois vai para Concluído.</div></div>
             </div>
           </div>` : ''}
@@ -4361,7 +4358,7 @@
             <span style="font-size:26px">📞</span>
             <div style="min-width:0">
               <div style="font-size:15px;font-weight:800">Pendência Chamado</div>
-              <div style="font-size:12px;opacity:.95">Origem <strong>#${srcId} ${this.escape(srcName)}</strong>${machTotal ? ` • 🔧 ${machTotal} máquina(s)` : ''}</div>
+              <div style="font-size:12px;opacity:.95">Origem <strong>${this.cardCode(srcId)} ${this.escape(srcName)}</strong>${machTotal ? ` • 🔧 ${machTotal} máquina(s)` : ''}</div>
               ${created ? `<div style="font-size:11px;opacity:.85">🕐 Solicitado em ${this.escape(created)}</div>` : ''}
             </div>
             <span style="margin-left:auto;background:${isLib ? '#006644' : '#fff'};color:${isLib ? '#fff' : '#e1316f'};padding:4px 12px;border-radius:14px;font-size:11px;font-weight:800;white-space:nowrap">${isLib ? '✓ Liberado' : '⏳ Aguardando'}</span>
@@ -4617,7 +4614,7 @@
         </div>`;
       } else if (splitWait) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#fffae6;border:2px solid #ffab00;border-radius:10px;padding:14px;text-align:center">
-          <div style="font-size:11px;font-weight:800;color:#975500;letter-spacing:.06em;margin-bottom:8px">SPLIT ${this.splitBadge(data) || '1/2'}</div>
+          <div style="font-size:11px;font-weight:800;color:#975500;letter-spacing:.06em;margin-bottom:8px">SPLIT ${this.cardCode(data)}</div>
           <span title="Este lado já foi finalizado — o merge acontece quando o outro técnico finalizar" style="display:inline-block;background:#ffab00;color:#172b4d;padding:12px 28px;border-radius:8px;font-weight:800;font-size:14px">⏳ Sua parte finalizada — aguardando o outro lado</span>
         </div>`;
       } else if (cardPending) {
@@ -6796,7 +6793,7 @@
         this.ajax('update_card', {id: this.currentCardId, name: novo}).then(res=>{
           if(res.success){
             cur.name=novo;
-            $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">#${this.currentCardId}</span>${this.escape(novo)}`;
+            $('#card-modal-title').innerHTML = `<span style="color:#5e6c84;font-weight:700;margin-right:6px">${this.cardCode(this.currentCardId)}</span>${this.escape(novo)}`;
             this.renderBoard();
             this.ajax('get_card', {cards_id: this.currentCardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); });
           }
