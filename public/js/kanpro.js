@@ -4544,7 +4544,8 @@
       const chamadoPendId = ((machines||[]).find(m=> m && Number(m.is_locked)==1) || {}).locked_chamado_card_id || '';
       // sidebar AÇÕES: espelha o botão Separar com a mesma regra do topo da manutenção
       try {
-        const showSepSide = total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending && this.isBoardAdmin();
+        // visível p/ gerente/admin mesmo em card alheio (linkedRO não esconde) — o backend valida na hora de separar
+        const showSepSide = total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending && this.isBoardAdmin();
         const acoesBox = document.getElementById('kp-delete-btn')?.parentElement;
         let sepBtn = document.getElementById('kp-separar-btn');
         if(acoesBox && !sepBtn){
