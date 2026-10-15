@@ -530,7 +530,8 @@
         // + zap de liberado (5s desde date_mod). Anti-duplicado no servidor.
         try {
           (this.cards||[]).forEach(c=>{
-            if(c && Number(c.chamado_source_id||0) > 0 && String(c.chamado_status||'') === 'liberado'){
+            const _stPD = String((c && c.chamado_status)||'');
+            if(c && Number(c.chamado_source_id||0) > 0 && (_stPD === 'liberado' || _stPD === 'separacao_ok')){
               let elapsed = 0;
               if(c.date_mod){
                 const ts = new Date(String(c.date_mod).replace(' ', 'T')).getTime();
@@ -540,7 +541,7 @@
                 const delRemain = Math.min(30, Math.max(2, 30 - elapsed));
                 if(delRemain <= 30) this.schedulePendenciaAutoDelete(c.id, delRemain);
               }
-              if(!(this._libZapTimers && this._libZapTimers[c.id])){
+              if(_stPD === 'liberado' && !(this._libZapTimers && this._libZapTimers[c.id])){
                 const zapRemain = 5 - elapsed;
                 if(zapRemain <= 0) this.scheduleLiberadoZap(c.id, 2);
                 else if(zapRemain <= 5) this.scheduleLiberadoZap(c.id, zapRemain);
@@ -4268,7 +4269,7 @@
         if(idx>=0){ this.cards[idx].name=data.name; this.cards[idx].description=data.description; this.cards[idx].chamado_status=data.chamado_status; }
         this.cardLabels[data.id] = data.labels||[];
       } catch(e){}
-      if(isLib || isConcDone || isExcDone || isEdDone){
+      if(isLib || isConcDone || isExcDone || isEdDone || isSepDone){
         try {
           let elapsed = 0;
           if(data.date_mod){
