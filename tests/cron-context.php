@@ -24,7 +24,7 @@ $DB = new FakeKanproDB();
 $DB->createTable('glpi_plugin_kanpro_configs');
 
 if (!class_exists('CommonDBTM')) {
-    eval('class CommonDBTM { public static $rightname = ""; }');
+    eval('class CommonDBTM { public static string $rightname = ""; }');
 }
 
 // Só a classe — NADA de inc/acting.php aqui de propósito.
