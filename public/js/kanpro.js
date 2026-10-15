@@ -287,6 +287,11 @@
       document.addEventListener('click', e=>{
         // se o elemento clicado foi removido do DOM (ex: removeMaintenanceRow remove a linha), não fecha o picker
         if(!document.contains(e.target)) return;
+        // arrasto de seleção: mousedown dentro do modal + mouseup fora gera um click fora —
+        // nesse instante a seleção ainda existe (o mousedown seguinte é que a desfaz), então não fecha nada
+        try {
+          if(window.getSelection && String(window.getSelection()).length > 0) return;
+        } catch(_){}
         const picker = document.getElementById('kanpro-picker');
         // picker que acabou de abrir NO MESMO clique não fecha: fluxos que abrem o picker de forma
         // síncrona no onclick (ex: FINALIZAR 100% abre a palavra-desafio) teriam o bubble chegando
