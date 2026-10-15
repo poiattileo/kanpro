@@ -7540,13 +7540,11 @@ switch ($action) {
         if (!$c->getFromDB($cid)) jexit(['success'=>false,'msg'=>'Cartão não encontrado']);
         if (empty($c->fields['is_maintenance'])) jexit(['success'=>false,'msg'=>'Só card de manutenção usa exclusão com aprovação']);
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
-        kanpro_need_linked_card_edit($cid);
-        if ((int)($c->fields['split_group'] ?? 0) > 0 || (function_exists('kanpro_is_split_pending') && kanpro_is_split_pending($cid))) jexit(['success'=>false,'msg'=>'Card em split 1/2: finalize pelo botão Finalizar para juntar com o outro lado e gerar 1 termo só.','split'=>true]);
-        if (kanpro_is_tablet_pending($cid)) jexit(['success'=>false,'msg'=>'Tablet aguardando Confirmar — resolva por lá']);
-        if (kanpro_is_edicao_open($cid) || kanpro_is_edicao_pending($cid)) jexit(['success'=>false,'msg'=>'Resolva a edição antes de excluir']);
-        if (kanpro_is_conclusao_pending($cid)) jexit(['success'=>false,'msg'=>'Conclusão pendente — resolva antes de excluir']);
+        // Excluir ignora travas de estado (split/tablet/edição/conclusão/finalizado):
+        // trava a origem e segue p/ aprovação ("Liberar exclusão"). Só mantém idempotência.
+        // Gerente/Admin pode solicitar mesmo sem vínculo; técnico precisa estar vinculado
+        if (!kanpro_can_edit_linked_card($cid) && !(function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid))) jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Gerente/Admin do quadro) pode solicitar a exclusão.']);
         if (kanpro_is_exclusao_pending($cid)) jexit(['success'=>true,'already'=>true,'msg'=>'Exclusão já solicitada — aguardando liberação']);
-        if (kanpro_card_is_finalized($cid)) jexit(['success'=>false,'msg'=>'Manutenção finalizada — já foi enviada para Assinatura.','finalized'=>true]);
         $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
         if (!$pendList) jexit(['success'=>false,'msg'=>'Crie a lista "Pendência chamados" (categoria) neste quadro','need_pend_list'=>true]);
         $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
