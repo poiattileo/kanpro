@@ -4544,7 +4544,7 @@
       const chamadoPendId = ((machines||[]).find(m=> m && Number(m.is_locked)==1) || {}).locked_chamado_card_id || '';
       // sidebar AÇÕES: espelha o botão Separar com a mesma regra do topo da manutenção
       try {
-        const showSepSide = total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending;
+        const showSepSide = total>=2 && !cardPending && !lockedFinal && !chamadoLocked && !goldenLocked && !conclusaoLocked && !exclusaoLocked && !linkedRO && !splitPend && !splitWait && !splitActive && !edicaoOpen && !edicaoPending && this.isBoardAdmin();
         const acoesBox = document.getElementById('kp-delete-btn')?.parentElement;
         let sepBtn = document.getElementById('kp-separar-btn');
         if(acoesBox && !sepBtn){
@@ -4552,7 +4552,7 @@
           sepBtn.id = 'kp-separar-btn';
           sepBtn.className = 'kp-sidebar-btn';
           sepBtn.style.cssText = 'background:#fff;border:1px solid #2e9e4f;color:#2e9e4f;font-weight:800';
-          sepBtn.onclick = ()=> Kanpro.toggleSepararMode();
+          sepBtn.onclick = ()=> Kanpro.openSepararModal();
           const okBtn = document.getElementById('kp-concluir-btn');
           const delBtn = document.getElementById('kp-delete-btn');
           if(okBtn && okBtn.parentElement === acoesBox) acoesBox.insertBefore(sepBtn, okBtn);
@@ -4561,7 +4561,7 @@
         }
         if(sepBtn){
           sepBtn.style.display = showSepSide ? '' : 'none';
-          sepBtn.innerHTML = this._separarMode ? '<i class="ti ti-x"></i> Cancelar' : '<i class="ti ti-scissors"></i> ✂️ Separar';
+          sepBtn.innerHTML = '<i class="ti ti-scissors"></i> ✂️ Separar';
         }
       } catch(e){}
       // Barra de conclusão separada (footer destacado) — não mistura com as ações de edição
@@ -4699,7 +4699,6 @@
             <span style="width:1px;height:20px;background:#b3f0ff;display:inline-block"></span>
             <input id="maint-bulk-diary" type="text" placeholder="📝 Relatório/diário p/ todas as selecionadas..." title="Mesmo texto para todas as selecionadas (sobrescreve)" style="flex:1;min-width:200px;padding:5px 10px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;background:#fff">
             <button onclick="Kanpro.bulkApplyDiary()" title="Aplica o mesmo relatório/diário para todas as selecionadas" style="background:#ff991f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700">Aplicar diário</button>
-            ${this._separarMode ? `<span style="width:1px;height:20px;background:#b3f0ff;display:inline-block"></span><button onclick="Kanpro.requestSeparacao()" title="Cria o card filho (Nome/2) com as máquinas selecionadas e abre a aprovação" style="background:#2e9e4f;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:800">✂️ Separar ${selCount} selecionada(s) → filho</button>` : ``}
           </div>`:""}
           ${hasMissing? `<div style="padding:8px 16px;background:#ffebe6;border-bottom:1px solid #ffbdad;color:#bf2600;font-size:12px"><i class="ti ti-alert-triangle"></i> <strong>Status Final obrigatório:</strong> selecione Garantia / Ok / Inservível / Pendente para todas as máquinas antes de finalizar. Faltam ${missingStatus}.</div>` : ""}
           ${pendenteCount>0? `<div style="padding:8px 16px;background:#e6fcff;border-bottom:1px solid #b3f0ff;color:#0052cc;font-size:11px"><i class="ti ti-info-circle"></i> ${pendenteCount} máquina(s) como <strong>Pendente</strong> ficarão em <strong>novo card</strong> após finalizar — as demais (Garantia/Ok/Inservível) irão para o termo e podem ser levadas.</div>` : ""}
@@ -5805,7 +5804,6 @@
     toggleMaintSelectMode(){
       if(this.finalizedGuard()) return;
       this._maintSelectMode = !this._maintSelectMode;
-      if(!this._maintSelectMode) this._separarMode = false;
       if(!this._maintSelected) this._maintSelected = new Set();
       this._maintSelected.clear(); // seleção sempre começa zerada ao (re)abrir o modo
       if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
@@ -5833,18 +5831,58 @@
         .map(el=> String(el.dataset.mid)).filter(id=> valid.has(id));
       return [...new Set([...fromSet, ...fromDom])];
     },
-    toggleSepararMode(){
-      if(this.finalizedGuard()) return;
-      this._separarMode = !this._separarMode;
-      this._maintSelectMode = !!this._separarMode;
-      if(!this._maintSelected) this._maintSelected = new Set();
-      this._maintSelected.clear();
-      if(this._lastModalData) this.renderMaintenanceInModal(this._lastModalData);
+    openSepararModal(){
+      const data = this._lastModalData;
+      const machines = (data && data.maintenance_machines) || [];
+      if(!machines.length){ this.showAlert('Nenhuma máquina cadastrada neste card.', 'Separar'); return; }
+      const total = machines.length;
+      const rows = machines.map(m=>{
+        const locked = Number(m.is_locked) == 1;
+        const st = String(m.status||'').trim().toLowerCase();
+        const stLabel = st==='garantia' ? '🛡️ Garantia' : st==='ok' ? '✅ OK' : st==='inservivel' ? '❌ Inservível' : (st==='pendente'||st==='pending') ? '⏳ Pendente' : 'sem status';
+        return `<label style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:8px 10px;${locked?'opacity:.55':''}">`
+          + `<input type="checkbox" data-mid="${m.id}" ${locked?'disabled':''} onchange="Kanpro.separarModalSel()" style="width:18px;height:18px;accent-color:#2e9e4f;flex-shrink:0;cursor:${locked?'not-allowed':'pointer'}">`
+          + `<span style="background:#091e42;color:#fff;min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">#${m.seq}</span>`
+          + `<span style="flex:1;min-width:0"><span style="display:block;font-weight:700;color:#172b4d;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.escape(m.model||'')}</span>`
+          + `<span style="display:block;font-size:11px;color:#5e6c84">${this.escape(m.label||'')} • ${stLabel}${locked?' • 🔒 travada':''}</span></span></label>`;
+      }).join('');
+      this.showPicker({title:'✂️ Separar máquinas', html:
+        `<div style="font-size:12px;color:#5e6c84;margin-bottom:10px"><strong>${this.escape((data && data.name)||'')}</strong> • ${total} máquina(s). Escolha <strong>parte</strong> para levar ao card filho (Nome/2) — o pai fica com o resto. Pai e filho travam (verdes) até aprovar na Pendência Chamados.</div>`
+        + `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">`
+        + `<button onclick="Kanpro.separarModalAll(true)" style="background:#fff;border:1px solid #dfe1e6;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px">Todas</button>`
+        + `<button onclick="Kanpro.separarModalAll(false)" style="background:#fff;border:1px solid #dfe1e6;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px">Limpar</button>`
+        + `<strong><span id="sep-sel-count">0</span> selecionada(s)</strong></div>`
+        + `<div id="sep-list" style="display:grid;gap:6px;max-height:46vh;overflow-y:auto;padding-right:2px">${rows}</div>`
+        + `<button id="sep-confirm-btn" onclick="Kanpro.requestSeparacao()" disabled style="margin-top:12px;background:#2e9e4f;color:#fff;border:none;padding:10px 16px;border-radius:6px;cursor:pointer;font-weight:800;width:100%;opacity:.5">Escolha ao menos 1 máquina</button>`});
+      const p = document.getElementById('kanpro-picker');
+      if(p){ p.style.minWidth='480px'; p.style.maxWidth='94vw'; p.style.width='560px'; p.style.maxHeight='92vh'; p.style.display='flex'; p.style.flexDirection='column'; }
+      const b = document.getElementById('picker-body');
+      if(b){ b.style.maxHeight='76vh'; b.style.overflowY='auto'; }
+    },
+    separarModalIds(){
+      return [...document.querySelectorAll('#kanpro-picker input[type="checkbox"][data-mid]:checked')].map(el=> String(el.dataset.mid));
+    },
+    separarModalAll(on){
+      document.querySelectorAll('#kanpro-picker input[type="checkbox"][data-mid]:not(:disabled)').forEach(el=>{ el.checked = !!on; });
+      this.separarModalSel();
+    },
+    separarModalSel(){
+      const data = this._lastModalData;
+      const total = data && data.maintenance_machines ? data.maintenance_machines.length : 0;
+      const n = this.separarModalIds().length;
+      const cnt = document.getElementById('sep-sel-count');
+      if(cnt) cnt.textContent = n;
+      const btn = document.getElementById('sep-confirm-btn');
+      if(btn){
+        if(n < 1){ btn.disabled = true; btn.style.opacity = '.5'; btn.textContent = 'Escolha ao menos 1 máquina'; }
+        else if(total > 0 && n >= total){ btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '⚠️ O pai precisa ficar com ao menos 1'; }
+        else { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = `✂️ Separar ${n} selecionada(s) → filho`; }
+      }
     },
     async requestSeparacao(){
       const cid = this.currentCardId;
       if(!cid) return;
-      const mids = this.maintSelectedIds();
+      const mids = this.separarModalIds();
       if(!mids.length){ this.showAlert('Escolha ao menos 1 máquina para levar ao card filho.', 'Separar'); return; }
       const data = this._lastModalData;
       const total = data && data.maintenance_machines ? data.maintenance_machines.length : 0;
@@ -5853,9 +5891,7 @@
       if(!ok) return;
       const res = await this.ajax('request_separacao', {cards_id: cid, machine_ids: JSON.stringify(mids)});
       if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao separar', 'Erro'); return; }
-      this._separarMode = false;
-      this._maintSelectMode = false;
-      try { if(this._maintSelected) this._maintSelected.clear(); } catch(e){}
+      try { this.closePicker(); } catch(e){}
       this.showToast('✂️ Separação solicitada — filho #' + res.child_cards_id + ' e pendência #' + res.pendencia_id);
       this.refreshCardModal();
       this.forceSync();
