@@ -534,10 +534,13 @@ kanpro_test('notifyrule addRule duplicado reativa o mesmo id', function () {
     kanpro_notify_reset();
     $a = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, true);
     assert_true(!empty($a['ok']), 'primeira criação deveria passar');
-    PluginKanproNotifyRule::setActive((int)$a['id'], 3, false);
+    $idA = (int)($a['id'] ?? 0);
+    assert_true($idA > 0, 'deveria voltar id');
+    PluginKanproNotifyRule::setActive($idA, 3, false);
     $b = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
     assert_true(!empty($b['ok']), 'recriação deveria passar');
-    assert_same((int)$a['id'], (int)$b['id'], 'deveria reaproveitar o id');
+    $idB = (int)($b['id'] ?? 0);
+    assert_same($idA, $idB, 'deveria reaproveitar o id');
     assert_same(1, countElementsInTable('glpi_plugin_kanpro_notify_rules', ['plugin_kanpro_boards_id' => 3]), 'deveria existir 1 linha');
     $rules = PluginKanproNotifyRule::getRulesForBoard(3);
     assert_same(1, count($rules));
