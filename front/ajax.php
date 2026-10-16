@@ -4202,6 +4202,14 @@ switch ($action) {
         if (empty($ggp['ok'])) jexit(['success'=>false,'msg'=>(string)($ggp['error'] ?? 'falha')]);
         jexit(['success'=>true]);
 
+    case 'notify_users':
+        // Autocomplete de logins (só leitura; exige ver o quadro).
+        $sgBid = (int)($_POST['boards_id'] ?? 0);
+        if ($sgBid <= 0) jexit(['success'=>false,'msg'=>'Quadro inválido']);
+        kanpro_require_board_view($sgBid);
+        if (!function_exists('kanpro_notify_user_suggest')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
+        jexit(['success'=>true,'users'=>kanpro_notify_user_suggest((string)($_POST['q'] ?? ''))]);
+
     case 'devolve_card':
         $cid = (int)($_POST['cards_id'] ?? 0);
         $c = new PluginKanproCard();

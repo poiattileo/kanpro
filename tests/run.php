@@ -780,4 +780,30 @@ kanpro_test('global approver salva e limpa', function () {
     assert_same('', kanpro_config_get('zap_approver', ''));
 });
 
+function kanpro_sug_reset(): void {
+    global $DB;
+    $DB->createTable('glpi_users');
+    $DB->delete('glpi_users', []);
+    $DB->insert('glpi_users', ['name' => 'ana.silva', 'realname' => 'Silva', 'firstname' => 'Ana', 'is_deleted' => 0, 'is_active' => 1]);
+    $DB->insert('glpi_users', ['name' => 'bruno.souza', 'realname' => 'Souza', 'firstname' => 'Bruno', 'is_deleted' => 0, 'is_active' => 1]);
+    $DB->insert('glpi_users', ['name' => 'ex.cluido', 'realname' => 'X', 'firstname' => 'Ex', 'is_deleted' => 1, 'is_active' => 1]);
+}
+
+kanpro_test('suggest filtra por nome e login', function () {
+    kanpro_sug_reset();
+    $a = kanpro_notify_user_suggest('ana');
+    assert_same(1, count($a), 'ana deveria achar 1');
+    assert_same('ana.silva', $a[0]['login'] ?? null);
+    $b = kanpro_notify_user_suggest('souza');
+    assert_same(1, count($b), 'souza deveria achar 1');
+    assert_same('bruno.souza', $b[0]['login'] ?? null);
+    assert_same([], kanpro_notify_user_suggest('zzz'), 'zzz não deveria achar nada');
+});
+
+kanpro_test('suggest sem termo lista ativos e respeita limite', function () {
+    kanpro_sug_reset();
+    assert_same(2, count(kanpro_notify_user_suggest('')), 'vazio deveria listar os 2 ativos (sem deletado)');
+    assert_same(1, count(kanpro_notify_user_suggest('', 1)), 'limite 1 deveria cortar');
+});
+
 exit(kanpro_summary());

@@ -451,6 +451,38 @@ if (!function_exists('kanpro_notify_global_approver')) {
     }
 }
 
+if (!function_exists('kanpro_notify_user_suggest')) {
+    // Sugestão de usuários do GLPI p/ autocomplete (login + nome).
+    // Filtra em PHP (vale no FakeDB e no GLPI); ignora deletados.
+    // Devolve [['login'=>,'name'=>]...] até $limit. Nunca joga exceção.
+    function kanpro_notify_user_suggest(string $q, int $limit = 50): array {
+        global $DB;
+        $out = [];
+        try {
+            if ($limit <= 0) $limit = 50;
+            if (!isset($DB) || !$DB->tableExists('glpi_users')) return $out;
+            $low = function ($s) {
+                $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
+                return $s;
+            };
+            $q = $low($q);
+            $rows = [];
+            foreach ($DB->request(['SELECT' => ['name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['is_deleted' => 0]]) as $r) $rows[] = $r;
+            if (count($rows) > 200) $rows = array_slice($rows, 0, 200);
+            foreach ($rows as $r) {
+                $login = trim((string)($r['name'] ?? ''));
+                if ($login === '') continue;
+                $display = trim(trim((string)($r['firstname'] ?? '')) . ' ' . trim((string)($r['realname'] ?? '')));
+                if ($display === '') $display = $login;
+                if ($q !== '' && strpos($low($login . ' ' . $display), $q) === false) continue;
+                $out[] = ['login' => $login, 'name' => $display];
+                if (count($out) >= $limit) break;
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;
