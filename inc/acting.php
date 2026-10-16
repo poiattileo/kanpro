@@ -498,9 +498,14 @@ if (!function_exists('kanpro_user_login_issue')) {
                     $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => (int)$em['users_id']], 'LIMIT' => 1])->current();
                 }
             }
+            if (!$row) {
+                try {
+                    $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current() ?: null;
+                } catch (Throwable $e) { $row = null; }
+            }
             if (!$row) return 'não encontrado';
             if (!empty($row['is_deleted'])) return 'excluído';
-            if (array_key_exists('is_active', $row) && !(int)$row['is_active']) return 'inativo';
+            if (array_key_exists('is_active', $row) && $row['is_active'] !== null && !(int)$row['is_active']) return 'inativo';
             return 'não encontrado';
         } catch (Throwable $e) { return 'não encontrado'; }
     }

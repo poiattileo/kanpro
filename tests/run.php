@@ -854,6 +854,16 @@ kanpro_test('login_issue diz o motivo certo', function () {
     assert_same('excluído', kanpro_user_login_issue('apagado'));
 });
 
+kanpro_test('resolveUser acha pela coluna email do usuário', function () {
+    global $DB;
+    kanpro_notify_reset();
+    $DB->insert('glpi_users', ['name' => 'leonardo.facao', 'realname' => 'Facao', 'firstname' => 'Leonardo', 'phone' => '11911112222', 'mobile' => '', 'email' => 'leonardo.facao@apoiofde.sp.gov.br', 'is_deleted' => 0, 'is_active' => 1]);
+    $u = PluginKanproNotifyRule::resolveUser('leonardo.facao@apoiofde.sp.gov.br');
+    assert_true(is_array($u), 'deveria resolver pelo email da coluna');
+    assert_same('leonardo.facao', $u['login'] ?? null);
+    assert_same('11911112222', $u['phone'] ?? null);
+});
+
 function kanpro_lib_reset(): void {
     global $DB;
     foreach (['glpi_plugin_kanpro_cards', 'glpi_plugin_kanpro_cards_members', 'glpi_users', 'glpi_plugin_kanpro_maintenance_machines', 'glpi_plugin_kanpro_maintenance_zaplog', 'glpi_plugin_kanpro_zapqueue'] as $t) {

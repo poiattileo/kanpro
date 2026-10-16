@@ -39,8 +39,14 @@ class PluginKanproNotifyRule extends CommonDBTM {
                     $row = $DB->request(['SELECT' => $cols, 'FROM' => 'glpi_users', 'WHERE' => ['id' => (int)$em['users_id'], 'is_deleted' => 0], 'LIMIT' => 1])->current();
                 }
             }
+            if (!$row) {
+                // coluna direta glpi_users.email (quando existir) — mesmo caminho do envio
+                try {
+                    $row = $DB->request(['SELECT' => $cols, 'FROM' => 'glpi_users', 'WHERE' => ['email' => $login, 'is_deleted' => 0], 'LIMIT' => 1])->current() ?: null;
+                } catch (Throwable $e) { $row = null; }
+            }
             if (!$row) return null;
-            if (array_key_exists('is_active', $row) && !(int)$row['is_active']) return null;
+            if (array_key_exists('is_active', $row) && $row['is_active'] !== null && !(int)$row['is_active']) return null;
             $email = '';
             if ($DB->tableExists('glpi_useremails')) {
                 $em2 = $DB->request(['SELECT' => ['email'], 'FROM' => 'glpi_useremails', 'WHERE' => ['users_id' => (int)($row['id'] ?? 0)], 'LIMIT' => 1])->current();
