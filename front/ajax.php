@@ -1154,6 +1154,8 @@ function kanpro_create_pendencia_chamado(int $boards_id, int $src_cards_id, arra
         PluginKanproBoard::logActivity($boards_id, $pendId, $targetLid, 'chamado_created', "Pendência Chamado criada via {$origin_label} de #{$src_cards_id} (" . count($mids) . " máquina(s))");
         $zapOk = false; $zapErr = '';
         try { if (class_exists('PluginKanproMaintenanceZap')) { $zr = PluginKanproMaintenanceZap::sendPendencia($pendId); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
+        // regras do quadro/categoria (central de notificações) — vale p/ todos os fluxos que criam pendência
+        try { if (function_exists('kanpro_notify_board_entry')) kanpro_notify_board_entry($boards_id, $pendId, $targetLid); } catch (Throwable $e) {}
         return ['pendencia_id'=>$pendId,'locked'=>count($mids),'zap_ok'=>$zapOk,'zap_error'=>$zapErr];
     } catch (Throwable $e) {
         return $fail('Erro: ' . $e->getMessage());
