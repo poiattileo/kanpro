@@ -712,21 +712,34 @@ class PluginKanproBoard extends CommonDBTM {
             foreach ($glabels as $gkey => $glabel) {
                 $glist = $gsum[($gkey === 'zap_chamado_recipients') ? 'chamado_recipients' : 'lembrete_recipients'] ?? [];
                 if (!is_array($glist)) $glist = [];
-                echo "<div style='margin-bottom:8px'><strong style='font-size:13px'>" . $glabel . "</strong> ";
-                if (empty($glist)) echo "<small style='color:#5e6c84'>— ninguém</small> ";
-                foreach ($glist as $gm) {
-                    $gmh = htmlspecialchars((string)$gm, ENT_QUOTES);
-                    echo "<span style='display:inline-block;background:#eef1f5;border-radius:10px;padding:2px 4px 2px 8px;margin:2px;font-size:12px'>" . $gmh . " ";
-                    echo "<button type='button' data-gedit='" . $gkey . "' data-glogin='" . $gmh . "' title='Editar' style='border:0;background:none;cursor:pointer'>✏️</button>";
-                    echo "<button type='button' data-gdel='" . $gkey . "' data-glogin='" . $gmh . "' title='Remover' style='border:0;background:none;cursor:pointer'>×</button></span> ";
+                echo "<div style='border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fafbfc'>";
+                echo "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'><strong style='font-size:13px'>" . $glabel . "</strong><small style='color:#6b778c'>" . count($glist) . " destinatário(s)</small></div>";
+                if (empty($glist)) {
+                    echo "<small style='color:#5e6c84'>— ninguém</small>";
+                } else {
+                    echo "<table style='width:100%;border-collapse:collapse;font-size:13px;background:#ffffff;border:1px solid #dfe1e6;border-radius:6px'>";
+                    foreach ($glist as $gm) {
+                        $gmh = htmlspecialchars((string)$gm, ENT_QUOTES);
+                        echo "<tr style='border-top:1px solid #ebecf0'>";
+                        echo "<td style='padding:6px 8px'>" . $gmh . "</td>";
+                        echo "<td style='padding:6px 8px;text-align:right;white-space:nowrap;width:64px'>";
+                        echo "<button type='button' data-gedit='" . $gkey . "' data-glogin='" . $gmh . "' title='Editar' style='border:0;background:none;cursor:pointer'>✏️</button>";
+                        echo "<button type='button' data-gdel='" . $gkey . "' data-glogin='" . $gmh . "' title='Remover' style='border:0;background:none;cursor:pointer'>×</button>";
+                        echo "</td></tr>";
+                    }
+                    echo "</table>";
                 }
-                echo "<br><input id='kanpro-g-in-" . $gkey . "' placeholder='login' style='padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px'> ";
+                echo "<div style='display:flex;gap:6px;margin-top:8px'>";
+                echo "<input id='kanpro-g-in-" . $gkey . "' placeholder='login' style='flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px'>";
                 echo "<button type='button' data-gadd='" . $gkey . "' class='btn btn-sm'>Adicionar</button></div>";
+                echo "</div>";
             }
             $gappr = trim((string)($gsum['approver'] ?? ''));
-            echo "<div style='margin-bottom:4px'><strong style='font-size:13px'>Aprovador</strong> ";
-            echo "<input id='kanpro-g-approver' value='" . htmlspecialchars($gappr, ENT_QUOTES) . "' placeholder='login ou e-mail (vazio desliga)' style='padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;width:260px;max-width:100%'> ";
-            echo "<button type='button' id='kanpro-g-approver-save' class='btn btn-sm'>Salvar</button></div>";
+            echo "<div style='border:1px solid #dfe1e6;border-radius:8px;padding:10px 12px;margin-bottom:4px;background:#fafbfc'>";
+            echo "<div style='margin-bottom:6px'><strong style='font-size:13px'>Aprovador</strong></div> ";
+            echo "<div style='display:flex;gap:6px'>";
+            echo "<input id='kanpro-g-approver' value='" . htmlspecialchars($gappr, ENT_QUOTES) . "' placeholder='login ou e-mail (vazio desliga)' style='flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px'>";
+            echo "<button type='button' id='kanpro-g-approver-save' class='btn btn-sm'>Salvar</button></div></div>";
             echo "<small style='color:#5e6c84'>Convivem com as regras acima. Também editável em <a href='config.form.php'>Configurações</a>.</small>";
             echo "<script>(function(){";
             echo "var BID='" . (int)$ID . "';";
