@@ -38,7 +38,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente', 'regra_entrada'];
     }
 
     /** Detecta se o card origem é 100% Tablet/Smartphone/Celular (fluxo Tablet). */
@@ -1486,6 +1486,108 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 : "WhatsApp lista_pendente FALHOU: " . implode('; ', $errors));
             if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
             return ['ok' => true, 'phones' => $phones];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Aviso imediato de regra do quadro: card entrou na categoria da regra.
+     * Canais da regra (whats via fila Evolution, mail via fila do GLPI).
+     * Trava de duplicado por (card, regra, canal). Nunca joga exceção.
+     */
+    static function sendRuleEntry(array $rule, int $cards_id, int $lists_id = 0): array {
+        try {
+            $ruleId = (int)($rule['id'] ?? 0);
+            if ($ruleId <= 0 || $cards_id <= 0) return ['ok' => false, 'error' => 'Regra/card inválido'];
+            if (empty($rule['is_active']) || empty($rule['notify_entry'])) return ['ok' => false, 'error' => 'regra inativa'];
+            $base = 'nb' . $ruleId;
+            if (self::alreadySent($cards_id, $base)) return ['ok' => false, 'error' => 'duplicate'];
+            $card = new PluginKanproCard();
+            if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Card não encontrado'];
+            $cardNome = trim((string)($card->fields['name'] ?? ''));
+            if ($cardNome === '') $cardNome = 'Card #' . $cards_id;
+            $boardNome = '';
+            $b = new PluginKanproBoard();
+            if ($b->getFromDB((int)($card->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
+            $listaNome = '';
+            try {
+                $lid = $lists_id > 0 ? $lists_id : (int)($card->fields['plugin_kanpro_lists_id'] ?? 0);
+                if ($lid > 0) {
+                    $l = new PluginKanproList();
+                    if ($l->getFromDB($lid)) $listaNome = trim((string)($l->fields['name'] ?? ''));
+                }
+            } catch (Throwable $e) {}
+            $desc = trim(strip_tags((string)($card->fields['description'] ?? '')));
+            if ($desc === '') $desc = '(sem descrição)';
+            if (function_exists('mb_substr')) $desc = mb_substr($desc, 0, 500);
+            else $desc = substr($desc, 0, 500);
+            $ticket = (int)($card->fields['tickets_id'] ?? 0);
+            $autor = 'desconhecido';
+            try {
+                $au = new User();
+                if ($au->getFromDB((int)($card->fields['users_id'] ?? 0))) {
+                    $autor = (string)$au->getFriendlyName();
+                    if (trim($autor) === '') $autor = (string)($au->fields['name'] ?? 'desconhecido');
+                }
+            } catch (Throwable $e) {}
+            $cat = trim(strtolower((string)($rule['list_category'] ?? '')));
+            $tpl = ($cat === 'pending') ? 'lista_pendente' : (($cat === 'chamados_espera') ? 'chamado_abrir' : 'card_alerta');
+            $data = array_merge(self::baseData($cards_id), [
+                'card_nome' => $cardNome,
+                'descricao' => $desc,
+                'quadro'    => $boardNome,
+                'lista'     => $listaNome,
+                'ticket'    => $ticket > 0 ? (string)$ticket : '-',
+                'autor'     => $autor,
+                'data'      => date('d/m/Y H:i'),
+            ]);
+            $txt = self::renderTxt($tpl, $data);
+            if ($txt === null || trim($txt) === '') {
+                $txt = 'Card novo: #' . $cards_id . ' "' . $cardNome . '" em ' . ($listaNome !== '' ? $listaNome : $cat) . ' — ' . date('d/m/Y H:i');
+            }
+            $kind = ($tpl === 'card_alerta') ? 'regra_entrada' : $tpl;
+            $login = trim((string)($rule['login'] ?? ''));
+            $sent = 0; $errors = []; $skipped = [];
+            if (!empty($rule['notify_whats'])) {
+                $ms = self::recipientMilestone($base, $login);
+                if (self::alreadySent($cards_id, $ms)) { $skipped[] = $login; }
+                else {
+                    $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
+                    if ($phone === '') { $errors[] = $login . ': sem telefone'; }
+                    else {
+                        $q = self::enqueue($kind, $cards_id, $ms, $phone, $txt);
+                        if (!empty($q['ok'])) { $sent++; }
+                        elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
+                        else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
+                    }
+                }
+            }
+            if (!empty($rule['notify_mail']) && function_exists('kanpro_queue_email')) {
+                $email = '';
+                try {
+                    if (class_exists('PluginKanproNotifyRule')) {
+                        $u = PluginKanproNotifyRule::resolveUser($login);
+                        if ($u !== null) $email = trim((string)($u['email'] ?? ''));
+                    }
+                } catch (Throwable $e) {}
+                $msm = self::recipientMilestone($base . 'm', $login);
+                if ($email === '') { $errors[] = $login . ': sem e-mail'; }
+                elseif (self::alreadySent($cards_id, $msm)) { $skipped[] = $login; }
+                else {
+                    $mq = kanpro_queue_email($email, 'KanPro: card novo em ' . ($listaNome !== '' ? $listaNome : $cat), $txt);
+                    if (!empty($mq['ok'])) { $sent++; self::markSent($cards_id, $msm, $email, true, ''); }
+                    else { $errors[] = $login . ': ' . ($mq['error'] ?? 'falha no e-mail'); }
+                }
+            }
+            self::logCard($cards_id, $sent > 0
+                ? "WhatsApp/e-mail regra #{$ruleId} na fila ({$sent})"
+                : "Regra #{$ruleId} FALHOU: " . implode('; ', $errors));
+            if ($sent <= 0) {
+                if (!empty($skipped) && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
+                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem canal'];
+            }
+            return ['ok' => true];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }

@@ -580,4 +580,38 @@ kanpro_test('list_type_label cobre pending e rejeita desconhecido', function () 
     assert_same('', kanpro_list_type_label('banana'));
 });
 
+function kanpro_rule_send_reset(): void {
+    global $DB;
+    kanpro_notify_reset();
+    $DB->createTable('glpi_plugin_kanpro_zapqueue');
+    $DB->createTable('glpi_plugin_kanpro_maintenance_zaplog');
+    $DB->delete('glpi_plugin_kanpro_zapqueue', []);
+    $DB->delete('glpi_plugin_kanpro_maintenance_zaplog', []);
+}
+
+kanpro_test('sendRuleEntry segunda chamada é duplicate', function () {
+    kanpro_rule_send_reset();
+    $add = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
+    assert_true(!empty($add['ok']), 'regra deveria criar');
+    $rules = PluginKanproNotifyRule::getRulesForBoard(3);
+    assert_same(1, count($rules));
+    $r1 = PluginKanproMaintenanceZap::sendRuleEntry($rules[0], 55, 9);
+    assert_true(!empty($r1['ok']), 'primeiro envio deveria enfileirar: ' . ($r1['error'] ?? ''));
+    $r2 = PluginKanproMaintenanceZap::sendRuleEntry($rules[0], 55, 9);
+    assert_true(empty($r2['ok']), 'segunda chamada não deveria enviar');
+    assert_same('duplicate', $r2['error'] ?? '', 'deveria ser duplicate');
+});
+
+kanpro_test('sendRuleEntry sem telefone pula sem excepcionar', function () {
+    global $DB;
+    kanpro_rule_send_reset();
+    $DB->insert('glpi_users', ['name' => 'so.fone.falta', 'realname' => 'Falta', 'firstname' => 'So', 'phone' => '', 'mobile' => '', 'email' => 'so.falta@exemplo.com', 'is_deleted' => 0, 'is_active' => 1]);
+    $add = PluginKanproNotifyRule::addRule(3, 'pending', 'so.fone.falta', true, false);
+    assert_true(!empty($add['ok']), 'regra deveria criar');
+    $rules = PluginKanproNotifyRule::getRulesForBoard(3);
+    $r = PluginKanproMaintenanceZap::sendRuleEntry($rules[0], 56, 9);
+    assert_true(empty($r['ok']), 'sem telefone não deveria enviar');
+    assert_true(str_contains((string)($r['error'] ?? ''), 'sem telefone'), 'erro deveria citar sem telefone');
+});
+
 exit(kanpro_summary());
