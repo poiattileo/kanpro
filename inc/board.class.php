@@ -654,6 +654,14 @@ class PluginKanproBoard extends CommonDBTM {
             $ncats = ['backlog','todo','doing','done','awaiting','pending','andamento','retirada','pend_chamado','chamados_pendencia','chamados_espera','abrir_chamado','andamento_chamado','chamado_finalizado'];
             echo "<tr class='tab_bg_1'>";
             echo "<td>🔔 Notificações<br><small style='color:#6b778c'>Por categoria: card novo avisa na hora + resumo 8/10/13/15h</small></td><td colspan='3'>";
+            $mylogin = '';
+            try {
+                if (class_exists('User') && class_exists('Session')) {
+                    $me = new User();
+                    if ($me->getFromDB((int)Session::getLoginUserID())) $mylogin = trim((string)($me->fields['name'] ?? ''));
+                }
+            } catch (Throwable $e) {}
+            if ($mylogin !== '') echo "<div style='margin-bottom:6px'><small style='color:#5e6c84'>Você está logado como <strong>" . htmlspecialchars($mylogin, ENT_QUOTES) . "</strong> — use esse login nas regras.</small></div>";
             echo "<div id='kanpro-notify-list'>";
             if (empty($nrules)) {
                 echo "<small style='color:#5e6c84'>Nenhuma regra — adicione abaixo quem avisar por categoria.</small>";
