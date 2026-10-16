@@ -680,4 +680,12 @@ kanpro_test('digest segunda chamada no turno é duplicate', function () {
     assert_same('duplicate', $r2['error'] ?? '');
 });
 
+kanpro_test('notify_global_summary tem estrutura', function () {
+    $s = kanpro_notify_global_summary();
+    foreach (['chamado_recipients', 'approver', 'lembrete_recipients', 'lembrete_slots'] as $k) {
+        assert_true(array_key_exists($k, $s), 'faltando ' . $k);
+    }
+    assert_same([8, 10, 13], $s['lembrete_slots']);
+});
+
 exit(kanpro_summary());

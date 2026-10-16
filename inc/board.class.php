@@ -703,6 +703,20 @@ class PluginKanproBoard extends CommonDBTM {
             echo "</td></tr>";
         }
 
+        // Avisos globais (somente leitura — gerencia em KanPro > Configurações)
+        if (!$is_new && function_exists('kanpro_notify_global_summary')) {
+            $gsum = kanpro_notify_global_summary();
+            echo "<tr class='tab_bg_1'>";
+            echo "<td>📢 Avisos globais<br><small style='color:#6b778c'>Valem p/ todos os quadros</small></td><td colspan='3'>";
+            echo "<small style='color:#5e6c84'>";
+            echo "Chamado/Pendente: <strong>" . count($gsum['chamado_recipients']) . "</strong> destinatário(s)";
+            if (trim((string)($gsum['approver'] ?? '')) !== '') echo " • Aprovador: <strong>" . htmlspecialchars((string)$gsum['approver'], ENT_QUOTES) . "</strong>";
+            echo " • Lembrete " . htmlspecialchars(implode('/', $gsum['lembrete_slots']), ENT_QUOTES) . "h: <strong>" . count($gsum['lembrete_recipients']) . "</strong> destinatário(s)";
+            echo " — <a href='config.form.php'>ajustar em Configurações</a>. Convivem com as regras acima.";
+            echo "</small>";
+            echo "</td></tr>";
+        }
+
         echo "<tr class='tab_bg_1'>";
         echo "<td>Descrição</td><td colspan='3'>";
         echo "<textarea name='comment' rows='3' style='width:100%'>" . htmlspecialchars($this->fields['comment'] ?? '') . "</textarea>";

@@ -277,6 +277,30 @@ if (!function_exists('kanpro_list_matches_category')) {
     }
 }
 
+if (!function_exists('kanpro_notify_global_summary')) {
+    // Resumo somente-leitura dos avisos globais (p/ a central do quadro). Puro.
+    function kanpro_notify_global_summary(): array {
+        $recips = function (string $key): array {
+            if (!function_exists('kanpro_config_get')) return [];
+            $dec = json_decode((string)kanpro_config_get($key, ''), true);
+            if (!is_array($dec)) return [];
+            $out = [];
+            foreach ($dec as $v) {
+                $v = trim((string)$v);
+                if ($v !== '') $out[] = $v;
+            }
+            return array_values(array_unique($out));
+        };
+        $approver = function_exists('kanpro_config_get') ? trim((string)kanpro_config_get('zap_approver', '')) : '';
+        return [
+            'chamado_recipients' => $recips('zap_chamado_recipients'),
+            'approver' => $approver,
+            'lembrete_recipients' => $recips('zap_reminder_recipients'),
+            'lembrete_slots' => [8, 10, 13],
+        ];
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;
