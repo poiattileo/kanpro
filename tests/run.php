@@ -842,4 +842,51 @@ kanpro_test('updaterule inválido falha', function () {
     assert_true(empty(PluginKanproNotifyRule::updateRule((int)($a['id'] ?? 0), 3, 'pending', 'ze.regra', false, false)['ok']), 'sem canal deveria falhar');
 });
 
+function kanpro_lib_reset(): void {
+    global $DB;
+    foreach (['glpi_plugin_kanpro_cards', 'glpi_plugin_kanpro_cards_members', 'glpi_users', 'glpi_plugin_kanpro_maintenance_machines', 'glpi_plugin_kanpro_maintenance_zaplog', 'glpi_plugin_kanpro_zapqueue'] as $t) {
+        $DB->createTable($t);
+        $DB->delete($t, []);
+    }
+    PluginKanproCard::$rows = [];
+    User::$rows = [];
+    User::$rows[7] = ['name' => 'tec.nico', 'firstname' => 'Tec', 'realname' => 'Nico', 'phone' => '11999998888', 'mobile' => '', 'is_deleted' => 0, 'is_active' => 1];
+    $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id' => 325, 'users_id' => 7]);
+}
+
+function kanpro_lib_queued_text(): string {
+    global $DB;
+    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_zapqueue']) as $r) {
+        return (string)($r['message'] ?? '');
+    }
+    return '';
+}
+
+kanpro_test('liberado mostra ticket resolvido pelo clone', function () {
+    global $DB;
+    kanpro_lib_reset();
+    PluginKanproCard::$rows[400] = ['id' => 400, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => '', 'chamado_source_id' => 325, 'chamado_status' => 'liberado', 'chamado_by' => 7, 'chamado_machines' => '[]', 'date_creation' => '2026-10-16 14:00:00'];
+    PluginKanproCard::$rows[325] = ['id' => 325, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => 'Escola X', 'tickets_id' => 0, 'users_id' => 7];
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 325, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => 'Escola X', 'tickets_id' => 0, 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 410, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 10, 'name' => 'Escola X', 'tickets_id' => 777, 'chamado_source_id' => 325, 'is_archived' => 0]);
+    $r = PluginKanproMaintenanceZap::sendLiberado(400);
+    assert_true(!empty($r['ok']), 'deveria enfileirar: ' . ($r['error'] ?? ''));
+    $txt = kanpro_lib_queued_text();
+    assert_true(str_contains($txt, '#777'), 'mensagem deveria trazer o ticket do clone: ' . mb_substr($txt, 0, 120));
+    assert_true(str_contains($txt, 'Um chamado foi criado'), 'mensagem deveria usar o texto novo');
+    $row = $DB->request(['SELECT' => ['tickets_id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['id' => 325]])->current();
+    assert_same(777, (int)($row['tickets_id'] ?? 0), 'origem deveria ser carimbada (autocura)');
+});
+
+kanpro_test('liberado sem ticket mostra traço', function () {
+    global $DB;
+    kanpro_lib_reset();
+    PluginKanproCard::$rows[400] = ['id' => 400, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => '', 'chamado_source_id' => 325, 'chamado_status' => 'liberado', 'chamado_by' => 7, 'chamado_machines' => '[]', 'date_creation' => '2026-10-16 14:00:00'];
+    PluginKanproCard::$rows[325] = ['id' => 325, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => 'Escola X', 'tickets_id' => 0, 'users_id' => 7];
+    $DB->insert('glpi_plugin_kanpro_cards', ['id' => 325, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => 'Escola X', 'tickets_id' => 0, 'is_archived' => 0]);
+    $r = PluginKanproMaintenanceZap::sendLiberado(400);
+    assert_true(!empty($r['ok']), 'deveria enfileirar mesmo sem ticket: ' . ($r['error'] ?? ''));
+    assert_true(str_contains(kanpro_lib_queued_text(), '#—'), 'sem ticket deveria mostrar traço');
+});
+
 exit(kanpro_summary());

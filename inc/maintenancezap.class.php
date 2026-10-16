@@ -1134,13 +1134,34 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 self::logCard($pendenciaId, 'WhatsApp liberado NÃO enviado: origem sem técnico atribuído');
                 return ['ok' => false, 'error' => 'sem tecnico'];
             }
-            // chamado (nº + nome)
+            // chamado (nº + nome): origem validada, senão clone vinculado (autocura o vínculo).
+            $srcTid = 0;
+            try {
+                if (function_exists('kanpro_card_ticket_id')) $srcTid = kanpro_card_ticket_id($srcId);
+            } catch (Throwable $e) {}
+            if ($srcTid <= 0) {
+                try { $srcTid = (int)($src->fields['tickets_id'] ?? 0); } catch (Throwable $e) {}
+            }
+            if ($srcTid <= 0) {
+                try {
+                    if (isset($DB) && $DB->tableExists('glpi_plugin_kanpro_cards')) {
+                        foreach ($DB->request(['SELECT' => ['id', 'tickets_id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $srcId], 'ORDER' => 'id DESC']) as $cl) {
+                            $t = (int)($cl['tickets_id'] ?? 0);
+                            if ($t > 0) {
+                                $srcTid = $t;
+                                try { $DB->update('glpi_plugin_kanpro_cards', ['tickets_id' => $srcTid], ['id' => $srcId]); } catch (Throwable $e2) {}
+                                break;
+                            }
+                        }
+                    }
+                } catch (Throwable $e) {}
+            }
             $chId = $srcTid > 0 ? (string)$srcTid : '—';
-            $chNome = '';
+            $chNome = '—';
             if ($srcTid > 0 && class_exists('Ticket')) {
                 try {
                     $tk = new Ticket();
-                    if ($tk->getFromDB($srcTid)) $chNome = (string)($tk->fields['name'] ?? '');
+                    if ($tk->getFromDB($srcTid)) $chNome = trim((string)($tk->fields['name'] ?? '')) !== '' ? (string)$tk->fields['name'] : '—';
                 } catch (Throwable $e) {}
             }
             $boardName = '';

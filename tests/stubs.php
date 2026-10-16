@@ -95,13 +95,31 @@ if (!class_exists('Session')) {
 }
 
 if (!class_exists('User')) {
-    // Usuário mínimo: getFromDB falha (cai no login da sessão).
+    // Usuário mínimo: getFromDB consulta as linhas semeadas (cai no login da sessão se vazio).
     class User {
         /** @var array<string,mixed> */
         public array $fields = [];
 
+        /** @var array<int,array<string,mixed>> linhas por id p/ getFromDB */
+        public static array $rows = [];
+
         public function getFromDB(int $id): bool {
+            if ($id <= 0) {
+                return false;
+            }
+            if (isset(self::$rows[$id])) {
+                $this->fields = self::$rows[$id];
+                return true;
+            }
             return false;
+        }
+
+        public function getFriendlyName(): string {
+            $full = trim(trim((string)($this->fields['firstname'] ?? '')) . ' ' . trim((string)($this->fields['realname'] ?? '')));
+            if ($full !== '') {
+                return $full;
+            }
+            return (string)($this->fields['name'] ?? '');
         }
     }
 }
