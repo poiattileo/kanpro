@@ -838,8 +838,20 @@ kanpro_test('updaterule inválido falha', function () {
     assert_true(empty(PluginKanproNotifyRule::updateRule(999, 3, 'banana', 'ze.regra', true, false)['ok']), 'categoria ruim deveria falhar');
     $a = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
     assert_true(!empty($a['ok']), 'criação deveria passar');
-    assert_true(empty(PluginKanproNotifyRule::updateRule((int)($a['id'] ?? 0), 3, 'pending', 'ninguem', true, false)['ok']), 'usuário inexistente deveria falhar');
     assert_true(empty(PluginKanproNotifyRule::updateRule((int)($a['id'] ?? 0), 3, 'pending', 'ze.regra', false, false)['ok']), 'sem canal deveria falhar');
+    $nu = PluginKanproNotifyRule::updateRule((int)($a['id'] ?? 0), 3, 'pending', 'ninguem', true, false);
+    assert_true(empty($nu['ok']), 'usuário inexistente deveria falhar');
+    assert_true(str_contains((string)($nu['error'] ?? ''), 'ninguem'), 'erro deveria citar o login');
+});
+
+kanpro_test('login_issue diz o motivo certo', function () {
+    global $DB;
+    kanpro_notify_reset();
+    $DB->insert('glpi_users', ['name' => 'dormente', 'realname' => 'D', 'firstname' => 'Dor', 'phone' => '', 'mobile' => '', 'is_deleted' => 0, 'is_active' => 0]);
+    $DB->insert('glpi_users', ['name' => 'apagado', 'realname' => 'A', 'firstname' => 'Apa', 'phone' => '', 'mobile' => '', 'is_deleted' => 1, 'is_active' => 1]);
+    assert_same('não encontrado', kanpro_user_login_issue('ninguem'));
+    assert_same('inativo', kanpro_user_login_issue('dormente'));
+    assert_same('excluído', kanpro_user_login_issue('apagado'));
 });
 
 function kanpro_lib_reset(): void {

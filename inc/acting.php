@@ -483,6 +483,29 @@ if (!function_exists('kanpro_notify_user_suggest')) {
     }
 }
 
+if (!function_exists('kanpro_user_login_issue')) {
+    // Diagnóstico p/ mensagem de erro: por que o login não resolve?
+    // Devolve 'não encontrado' | 'inativo' | 'excluído'. Puro p/ testes.
+    function kanpro_user_login_issue(string $login): string {
+        global $DB;
+        try {
+            $login = trim($login);
+            if ($login === '' || !isset($DB) || !$DB->tableExists('glpi_users')) return 'não encontrado';
+            $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['name' => $login], 'LIMIT' => 1])->current();
+            if (!$row && $DB->tableExists('glpi_useremails')) {
+                $em = $DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_useremails', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current();
+                if ($em && (int)($em['users_id'] ?? 0) > 0) {
+                    $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => (int)$em['users_id']], 'LIMIT' => 1])->current();
+                }
+            }
+            if (!$row) return 'não encontrado';
+            if (!empty($row['is_deleted'])) return 'excluído';
+            if (array_key_exists('is_active', $row) && !(int)$row['is_active']) return 'inativo';
+            return 'não encontrado';
+        } catch (Throwable $e) { return 'não encontrado'; }
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;

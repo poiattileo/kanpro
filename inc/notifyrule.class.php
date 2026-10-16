@@ -90,7 +90,10 @@ class PluginKanproNotifyRule extends CommonDBTM {
             if (!$whats && !$mail) return $fail('Escolha ao menos um canal (WhatsApp ou e-mail)');
             if (!isset($DB) || !$DB->tableExists(self::TABLE)) return $fail('Tabela indisponível');
             $u = self::resolveUser($login);
-            if ($u === null) return $fail('Usuário GLPI não encontrado');
+            if ($u === null) {
+                $why = function_exists('kanpro_user_login_issue') ? kanpro_user_login_issue($login) : 'não encontrado';
+                return $fail('Usuário GLPI ' . $why . ': ' . $login);
+            }
             $warnings = [];
             if ($whats && trim($u['phone']) === '') $warnings[] = 'sem telefone';
             if ($mail && trim($u['email']) === '') $warnings[] = 'sem e-mail';
@@ -139,7 +142,10 @@ class PluginKanproNotifyRule extends CommonDBTM {
             $cur = $DB->request(['FROM' => self::TABLE, 'WHERE' => ['id' => $id, 'plugin_kanpro_boards_id' => $bid], 'LIMIT' => 1])->current();
             if (!$cur) return $fail('Regra não encontrada');
             $u = self::resolveUser($login);
-            if ($u === null) return $fail('Usuário GLPI não encontrado');
+            if ($u === null) {
+                $why = function_exists('kanpro_user_login_issue') ? kanpro_user_login_issue($login) : 'não encontrado';
+                return $fail('Usuário GLPI ' . $why . ': ' . $login);
+            }
             $clash = $DB->request(['SELECT' => ['id'], 'FROM' => self::TABLE, 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'list_category' => $cat, 'users_id' => $u['users_id']], 'LIMIT' => 1])->current();
             if ($clash && (int)($clash['id'] ?? 0) !== $id) return $fail('Já existe regra igual (mesmo quadro, categoria e usuário)');
             $warnings = [];
