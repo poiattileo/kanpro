@@ -911,4 +911,93 @@ kanpro_test('liberado sem ticket mostra traço', function () {
     assert_true(str_contains(kanpro_lib_queued_text(), '#—'), 'sem ticket deveria mostrar traço');
 });
 
+function kanpro_gez_reset(): void {
+    global $DB;
+    foreach (['glpi_plugin_kanpro_configs', 'glpi_plugin_kanpro_lists', 'glpi_plugin_kanpro_cards', 'glpi_users', 'glpi_plugin_kanpro_maintenance_zaplog', 'glpi_plugin_kanpro_zapqueue'] as $t) {
+        $DB->createTable($t);
+        $DB->delete($t, []);
+    }
+    PluginKanproCard::$rows = [];
+    $DB->insert('glpi_users', ['name' => 'ze.regra', 'realname' => 'Regra', 'firstname' => 'Zé', 'phone' => '', 'mobile' => '11988887777', 'is_deleted' => 0, 'is_active' => 1]);
+    $DB->insert('glpi_users', ['name' => 'outro.user', 'realname' => 'User', 'firstname' => 'Outro', 'phone' => '1133334444', 'mobile' => '', 'is_deleted' => 0, 'is_active' => 1]);
+}
+
+kanpro_test('grupoARecipients lê zap_chamado_recipients', function () {
+    kanpro_gez_reset();
+    $json = json_encode(['ze.regra']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_chamado_recipients', $json);
+    assert_same(['ze.regra'], PluginKanproMaintenanceZap::grupoARecipients());
+});
+
+kanpro_test('grupoBRecipients lê zap_grupo_b_recipients', function () {
+    kanpro_gez_reset();
+    $json = json_encode(['outro.user']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_grupo_b_recipients', $json);
+    assert_same(['outro.user'], PluginKanproMaintenanceZap::grupoBRecipients());
+    global $DB;
+    $DB->delete_rows_for_test('glpi_plugin_kanpro_configs', ['name' => 'zap_grupo_b_recipients']);
+    assert_same([], PluginKanproMaintenanceZap::grupoBRecipients());
+});
+
+kanpro_test('sendGrupoA segunda chamada é duplicate', function () {
+    global $DB;
+    kanpro_gez_reset();
+    $json = json_encode(['ze.regra']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_chamado_recipients', $json);
+    PluginKanproCard::$rows[55] = ['id' => 55, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 9, 'name' => 'Card A', 'tickets_id' => 0, 'users_id' => 7];
+    $r1 = PluginKanproMaintenanceZap::sendGrupoA(55, 9, 'pending');
+    assert_true(!empty($r1['ok']), 'primeiro envio deveria enfileirar: ' . ($r1['error'] ?? ''));
+    $r2 = PluginKanproMaintenanceZap::sendGrupoA(55, 9, 'pending');
+    assert_true(empty($r2['ok']), 'segunda chamada não deveria enviar');
+    assert_same('duplicate', $r2['error'] ?? '');
+});
+
+kanpro_test('sendGrupoB pendencia simples envia', function () {
+    global $DB;
+    kanpro_gez_reset();
+    $json = json_encode(['outro.user']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_grupo_b_recipients', $json);
+    PluginKanproCard::$rows[60] = ['id' => 60, 'plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => 11, 'name' => 'Novo chamado', 'description' => 'desc', 'tickets_id' => 42, 'users_id' => 7, 'chamado_source_id' => 0, 'chamado_by' => 7];
+    $r = PluginKanproMaintenanceZap::sendGrupoB(60, 11, 'pend_chamado');
+    assert_true(!empty($r['ok']), 'pendencia simples deveria enfileirar: ' . ($r['error'] ?? ''));
+});
+
+kanpro_test('digest dos grupos zerado falha', function () {
+    kanpro_gez_reset();
+    $r = PluginKanproMaintenanceZap::sendGruposDigest(8, true);
+    assert_true(empty($r['ok']), 'sem cards não deveria enviar');
+});
+
+kanpro_test('digest dos grupos envia e duplica no turno', function () {
+    global $DB;
+    kanpro_gez_reset();
+    $jsonA = json_encode(['ze.regra']);
+    $jsonB = json_encode(['outro.user']);
+    if (!is_string($jsonA) || !is_string($jsonB)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_chamado_recipients', $jsonA);
+    kanpro_config_set('zap_grupo_b_recipients', $jsonB);
+    $lid1 = (int)$DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => 3, 'name' => 'Pendente', 'list_type' => 'pending', 'is_archived' => 0]);
+    $lid2 = (int)$DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => 3, 'name' => 'Pendência Chamado', 'list_type' => 'pend_chamado', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => $lid1, 'name' => 'C1', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => $lid2, 'name' => 'C2', 'is_archived' => 0]);
+    $r1 = PluginKanproMaintenanceZap::sendGruposDigest(8, true);
+    assert_true(!empty($r1['ok']), 'digest deveria enfileirar: ' . ($r1['error'] ?? ''));
+    $r2 = PluginKanproMaintenanceZap::sendGruposDigest(8, true);
+    assert_true(empty($r2['ok']), 'segunda chamada não deveria enviar');
+});
+
 exit(kanpro_summary());

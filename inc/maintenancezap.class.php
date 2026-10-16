@@ -38,7 +38,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente', 'regra_entrada', 'digest_resumo'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente', 'espera_novo', 'digest_grupos'];
     }
 
     /** Detecta se o card origem é 100% Tablet/Smartphone/Celular (fluxo Tablet). */
@@ -1023,82 +1023,6 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
      * Aviso de Pendência Chamado: 1 msg por card novo na lista Pendência Chamado.
      * Destinatário fixo = fone do aprovador (nunca quebra o fluxo).
      */
-    static function sendPendencia(int $pendenciaId): array {
-        global $DB;
-        try {
-            if ($pendenciaId <= 0) return ['ok' => false, 'error' => 'Card inválido'];
-            if (self::alreadySent($pendenciaId, 'pendencia')) return ['ok' => false, 'error' => 'duplicate'];
-            $pc = new PluginKanproCard();
-            if (!$pc->getFromDB($pendenciaId)) return ['ok' => false, 'error' => 'Card não encontrado'];
-            $srcId = (int)($pc->fields['chamado_source_id'] ?? 0);
-            if ($srcId <= 0) return ['ok' => false, 'error' => 'Sem origem'];
-            $src = new PluginKanproCard();
-            $srcName = '';
-            if ($src->getFromDB($srcId)) $srcName = (string)($src->fields['name'] ?? '');
-            $boardName = '';
-            $b = new PluginKanproBoard();
-            if ($b->getFromDB((int)($pc->fields['plugin_kanpro_boards_id'] ?? 0))) $boardName = (string)($b->fields['name'] ?? '');
-            $listName = '';
-            $l = new PluginKanproList();
-            if ($l->getFromDB((int)($pc->fields['plugin_kanpro_lists_id'] ?? 0))) $listName = (string)($l->fields['name'] ?? '');
-            // máquinas da solicitação (ids guardados no card da pendência)
-            $mids = [];
-            try { $mids = json_decode((string)($pc->fields['chamado_machines'] ?? '[]'), true) ?: []; } catch (Throwable $e) { $mids = []; }
-            $mids = array_values(array_filter(array_map('intval', (array)$mids)));
-            $lines = [];
-            if (!empty($mids) && $DB->tableExists('glpi_plugin_kanpro_maintenance_machines')) {
-                try {
-                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_maintenance_machines', 'WHERE' => ['id' => $mids], 'ORDER' => 'seq ASC']) as $m) {
-                        $lines[] = '#' . (int)($m['seq'] ?? 0) . ' — ' . trim((string)($m['model'] ?? '')) . ' (' . self::statusLabel($m['status'] ?? '') . ')';
-                    }
-                } catch (Throwable $e) {}
-            }
-            $cardNome = (string)($pc->fields['name'] ?? '');
-            $solNome = '';
-            $solId = (int)($pc->fields['chamado_by'] ?? 0);
-            if ($solId > 0) {
-                try {
-                    $su = new User();
-                    if ($su->getFromDB($solId)) $solNome = $su->getFriendlyName();
-                    else $solNome = 'Usuário #' . $solId;
-                } catch (Throwable $e) { $solNome = 'Usuário #' . $solId; }
-            }
-            $data = [
-                'card_id'     => (string)$pendenciaId,
-                'card_nome'   => $cardNome,
-                'escola'      => $cardNome !== '' ? $cardNome : $srcName,
-                'quadro'      => $boardName,
-                'lista'       => $listName !== '' ? $listName : 'Pendência Chamado',
-                'origem_id'   => (string)$srcId,
-                'origem_nome' => $srcName,
-                'quantidade'  => (string)count($mids),
-                'maquinas'    => $lines ? implode("\n", $lines) : '(sem máquinas vinculadas)',
-                'data'        => date('d/m/Y H:i'),
-                'solicitado_por' => $solNome !== '' ? $solNome : '—',
-            ];
-            $phone = self::resolveApproverPhone();
-            $phone = self::normalizeBRPhone((string)$phone);
-            if ($phone === '') {
-                self::markSent($pendenciaId, 'pendencia', '', false, 'sem telefone do aprovador');
-                self::logCard($pendenciaId, 'WhatsApp pendencia NÃO enviado: aprovador sem telefone cadastrado (' . self::pendenciaApprover() . ')');
-                return ['ok' => false, 'error' => 'sem telefone'];
-            }
-            $txt = self::renderTxt('pendencia', $data);
-            if ($txt === null || $txt === '') {
-                self::markSent($pendenciaId, 'pendencia', $phone, false, 'template vazio');
-                return ['ok' => false, 'error' => 'template vazio'];
-            }
-            // fila: envio real no cron zapqueue (zaplog + atividade saem no consumidor).
-            $q = self::enqueue('pendencia', $pendenciaId, 'pendencia', $phone, $txt);
-            if (empty($q['ok'])) {
-                return ['ok' => false, 'error' => (string)($q['error'] ?? 'falha')] + ['phone' => $phone];
-            }
-            return ['ok' => true, 'queued' => true, 'phone' => $phone];
-        } catch (Throwable $e) {
-            return ['ok' => false, 'error' => $e->getMessage()];
-        }
-    }
-
     /**
      * Aviso de liberado: 1 msg por técnico membro da origem, 5s após Chamado criado.
      * Anti-duplicado por técnico (milestone liberado_<uid>). Nunca joga exceção.
@@ -1382,87 +1306,29 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         }
     }
 
-    /**
-     * Aviso de novo chamado em Abrir chamado: 1 msg por clone novo, com dados do
-     * card + quem criou, para os responsáveis configurados (config 'zap_chamado_recipients').
-     * Trava de duplicado por clone (milestone chamado_abrir). Nunca joga exceção.
-     */
-    static function chamadoAbrirRecipients(): array {
+    /** Destinatários do Grupo A (Chamados Espera + Pendente). */
+    static function grupoARecipients(): array {
         return self::configRecipients('zap_chamado_recipients');
     }
 
-    static function sendChamadoAbrir(int $cloneId): array {
-        try {
-            if ($cloneId <= 0) return ['ok' => false, 'error' => 'Card inválido'];
-            if (self::alreadySent($cloneId, 'chamado_abrir')) return ['ok' => false, 'error' => 'duplicate'];
-            $clone = new PluginKanproCard();
-            if (!$clone->getFromDB($cloneId)) return ['ok' => false, 'error' => 'Card não encontrado'];
-            $cardNome = trim((string)($clone->fields['name'] ?? ''));
-            if ($cardNome === '') $cardNome = 'Card #' . $cloneId;
-            $desc = trim(strip_tags((string)($clone->fields['description'] ?? '')));
-            if ($desc === '') $desc = '(sem descrição)';
-            if (function_exists('mb_substr')) $desc = mb_substr($desc, 0, 500);
-            else $desc = substr($desc, 0, 500);
-            $boardNome = '';
-            $b = new PluginKanproBoard();
-            if ($b->getFromDB((int)($clone->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
-            $ticket = (int)($clone->fields['tickets_id'] ?? 0);
-            // autor = quem criou o card original (users_id do clone)
-            $autor = 'desconhecido';
-            try {
-                $au = new User();
-                if ($au->getFromDB((int)($clone->fields['users_id'] ?? 0))) {
-                    $autor = $au->getFriendlyName();
-                    if (trim($autor) === '') $autor = (string)($au->fields['name'] ?? 'desconhecido');
-                }
-            } catch (Throwable $e) {}
-            $txt = self::renderTxt('chamado_abrir', [
-                'card_id'   => (string)$cloneId,
-                'card_nome' => $cardNome,
-                'descricao' => $desc,
-                'quadro'    => $boardNome,
-                'ticket'    => $ticket > 0 ? (string)$ticket : '-',
-                'autor'     => $autor,
-                'data'      => date('d/m/Y H:i'),
-            ]);
-            if ($txt === null || $txt === '') {
-                $txt = "Novo chamado em Abrir chamado: #{$cloneId} \"{$cardNome}\" (ticket #{$ticket}), criado por {$autor}";
-            }
-            $sent = 0; $errors = []; $phones = [];
-            foreach (self::chamadoAbrirRecipients() as $login) {
-                $ms = self::recipientMilestone('chamado_abrir', (string)$login);
-                if (self::alreadySent($cloneId, $ms)) continue;
-                $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
-                if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
-                // fila: um job por destinatário (milestone por destinatário).
-                $q = self::enqueue('chamado_abrir', $cloneId, $ms, $phone, $txt);
-                if (!empty($q['ok'])) { $sent++; $phones[] = $phone; }
-                elseif (($q['error'] ?? '') !== 'duplicate') $errors[] = $login . ': ' . ($q['error'] ?? 'falha');
-            }
-            self::logCard($cloneId, $sent > 0
-                ? "WhatsApp chamado_abrir na fila para " . implode(',', $phones) . " ({$sent})"
-                : "WhatsApp chamado_abrir FALHOU: " . implode('; ', $errors));
-            if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
-            return ['ok' => true, 'phones' => $phones];
-        } catch (Throwable $e) {
-            return ['ok' => false, 'error' => $e->getMessage()];
-        }
+    /** Destinatários do Grupo B (Pendência Chamados + Abrir chamado). */
+    static function grupoBRecipients(): array {
+        return self::configRecipients('zap_grupo_b_recipients');
     }
 
     /**
-     * Aviso de card novo em lista Pendente: 1 msg por card, com dados do card +
-     * quadro/lista, para os responsáveis configurados (config 'zap_chamado_recipients'
-     * — os mesmos do aviso de chamado). Trava de duplicado por card (milestone
-     * lista_pendente, por destinatário). Nunca joga exceção.
+     * Grupo A (Chamados Espera + Pendente): 1 msg por card para os 5,
+     * com dados do card + quadro/lista. Trava de duplicado por card
+     * (milestone grupo_a, por destinatário). Nunca joga exceção.
      */
-    static function listaPendenteRecipients(): array {
-        return self::configRecipients('zap_chamado_recipients');
-    }
-
-    static function sendListaPendente(int $cards_id, int $lists_id = 0): array {
+    static function sendGrupoA(int $cards_id, int $lists_id = 0, string $category = ''): array {
         try {
             if ($cards_id <= 0) return ['ok' => false, 'error' => 'Card inválido'];
-            if (self::alreadySent($cards_id, 'lista_pendente')) return ['ok' => false, 'error' => 'duplicate'];
+            if ($category === '' && function_exists('kanpro_list_category')) {
+                try { $category = kanpro_list_category($lists_id); } catch (Throwable $e) {}
+            }
+            if (!in_array($category, ['chamados_espera', 'pending'], true)) return ['ok' => false, 'error' => 'categoria fora do grupo'];
+            if (self::alreadySent($cards_id, 'grupo_a')) return ['ok' => false, 'error' => 'duplicate'];
             $card = new PluginKanproCard();
             if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Card não encontrado'];
             $cardNome = trim((string)($card->fields['name'] ?? ''));
@@ -1470,7 +1336,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $boardNome = '';
             $b = new PluginKanproBoard();
             if ($b->getFromDB((int)($card->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
-            $listaNome = 'Pendente';
+            $listaNome = ($category === 'pending') ? 'Pendente' : 'Chamados Espera';
             try {
                 $lid = $lists_id > 0 ? $lists_id : (int)($card->fields['plugin_kanpro_lists_id'] ?? 0);
                 if ($lid > 0) {
@@ -1481,31 +1347,37 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     }
                 }
             } catch (Throwable $e) {}
+            $ticket = (int)($card->fields['tickets_id'] ?? 0);
             $data = array_merge(self::baseData($cards_id), [
                 'card_nome' => $cardNome,
                 'quadro'    => $boardNome,
                 'lista'     => $listaNome,
+                'ticket'    => $ticket > 0 ? (string)$ticket : '-',
                 'data'      => date('d/m/Y H:i'),
             ]);
-            $txt = self::renderTxt('lista_pendente', $data);
+            $tpl = ($category === 'pending') ? 'lista_pendente' : 'espera_novo';
+            $txt = self::renderTxt($tpl, $data);
             if ($txt === null || trim($txt) === '') {
-                $txt = "Card novo em Pendente: #{$cards_id} \"{$cardNome}\" ({$listaNome}) em " . date('d/m/Y H:i');
+                $txt = "Card novo em {$listaNome}: #{$cards_id} \"{$cardNome}\" em " . date('d/m/Y H:i');
             }
-            $sent = 0; $errors = []; $phones = [];
-            foreach (self::listaPendenteRecipients() as $login) {
-                $ms = self::recipientMilestone('lista_pendente', (string)$login);
-                if (self::alreadySent($cards_id, $ms)) continue;
+            $sent = 0; $errors = []; $phones = []; $skipped = [];
+            foreach (self::grupoARecipients() as $login) {
+                $ms = self::recipientMilestone('grupo_a', (string)$login);
+                if (self::alreadySent($cards_id, $ms)) { $skipped[] = $login; continue; }
                 $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
                 if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
-                // fila: um job por destinatário (milestone por destinatário).
-                $q = self::enqueue('lista_pendente', $cards_id, $ms, $phone, $txt);
+                $q = self::enqueue($tpl, $cards_id, $ms, $phone, $txt);
                 if (!empty($q['ok'])) { $sent++; $phones[] = $phone; }
-                elseif (($q['error'] ?? '') !== 'duplicate') $errors[] = $login . ': ' . ($q['error'] ?? 'falha');
+                elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
+                else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
             }
             self::logCard($cards_id, $sent > 0
-                ? "WhatsApp lista_pendente na fila para " . implode(',', $phones) . " ({$sent})"
-                : "WhatsApp lista_pendente FALHOU: " . implode('; ', $errors));
-            if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
+                ? "WhatsApp grupo A na fila para " . implode(',', $phones) . " ({$sent})"
+                : "WhatsApp grupo A FALHOU: " . implode('; ', $errors));
+            if ($sent <= 0) {
+                if (!empty($skipped) && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
+                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
+            }
             return ['ok' => true, 'phones' => $phones];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
@@ -1513,17 +1385,18 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Aviso imediato de regra do quadro: card entrou na categoria da regra.
-     * Canais da regra (whats via fila Evolution, mail via fila do GLPI).
-     * Trava de duplicado por (card, regra, canal). Nunca joga exceção.
+     * Grupo B (Pendência Chamados + Abrir chamado): 1 msg por card para os 2,
+     * com dados do card + origem/máquinas quando houver. Trava de duplicado
+     * por card (milestone grupo_b, por destinatário). Nunca joga exceção.
      */
-    static function sendRuleEntry(array $rule, int $cards_id, int $lists_id = 0): array {
+    static function sendGrupoB(int $cards_id, int $lists_id = 0, string $category = ''): array {
         try {
-            $ruleId = (int)($rule['id'] ?? 0);
-            if ($ruleId <= 0 || $cards_id <= 0) return ['ok' => false, 'error' => 'Regra/card inválido'];
-            if (empty($rule['is_active']) || empty($rule['notify_entry'])) return ['ok' => false, 'error' => 'regra inativa'];
-            $base = 'nb' . $ruleId;
-            if (self::alreadySent($cards_id, $base)) return ['ok' => false, 'error' => 'duplicate'];
+            if ($cards_id <= 0) return ['ok' => false, 'error' => 'Card inválido'];
+            if ($category === '' && function_exists('kanpro_list_category')) {
+                try { $category = kanpro_list_category($lists_id); } catch (Throwable $e) {}
+            }
+            if (!in_array($category, ['pend_chamado', 'abrir_chamado'], true)) return ['ok' => false, 'error' => 'categoria fora do grupo'];
+            if (self::alreadySent($cards_id, 'grupo_b')) return ['ok' => false, 'error' => 'duplicate'];
             $card = new PluginKanproCard();
             if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Card não encontrado'];
             $cardNome = trim((string)($card->fields['name'] ?? ''));
@@ -1531,14 +1404,23 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $boardNome = '';
             $b = new PluginKanproBoard();
             if ($b->getFromDB((int)($card->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
-            $listaNome = '';
+            $listaNome = ($category === 'pend_chamado') ? 'Pendência Chamado' : 'Abrir chamado';
             try {
                 $lid = $lists_id > 0 ? $lists_id : (int)($card->fields['plugin_kanpro_lists_id'] ?? 0);
                 if ($lid > 0) {
                     $l = new PluginKanproList();
-                    if ($l->getFromDB($lid)) $listaNome = trim((string)($l->fields['name'] ?? ''));
+                    if ($l->getFromDB($lid)) {
+                        $ln = trim((string)($l->fields['name'] ?? ''));
+                        if ($ln !== '') $listaNome = $ln;
+                    }
                 }
             } catch (Throwable $e) {}
+            $srcId = (int)($card->fields['chamado_source_id'] ?? 0);
+            $srcName = '';
+            if ($srcId > 0) {
+                $src = new PluginKanproCard();
+                try { if ($src->getFromDB($srcId)) $srcName = (string)($src->fields['name'] ?? ''); } catch (Throwable $e) {}
+            }
             $desc = trim(strip_tags((string)($card->fields['description'] ?? '')));
             if ($desc === '') $desc = '(sem descrição)';
             if (function_exists('mb_substr')) $desc = mb_substr($desc, 0, 500);
@@ -1552,76 +1434,148 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     if (trim($autor) === '') $autor = (string)($au->fields['name'] ?? 'desconhecido');
                 }
             } catch (Throwable $e) {}
-            $cat = trim(strtolower((string)($rule['list_category'] ?? '')));
-            $tpl = ($cat === 'pending') ? 'lista_pendente' : (($cat === 'chamados_espera') ? 'chamado_abrir' : 'card_alerta');
+            $solNome = '—';
+            $solId = (int)($card->fields['chamado_by'] ?? 0);
+            if ($solId > 0) {
+                try {
+                    $su = new User();
+                    if ($su->getFromDB($solId)) $solNome = $su->getFriendlyName();
+                    else $solNome = 'Usuário #' . $solId;
+                } catch (Throwable $e) { $solNome = 'Usuário #' . $solId; }
+            }
             $data = array_merge(self::baseData($cards_id), [
-                'card_nome' => $cardNome,
-                'descricao' => $desc,
-                'quadro'    => $boardNome,
-                'lista'     => $listaNome,
-                'ticket'    => $ticket > 0 ? (string)$ticket : '-',
-                'autor'     => $autor,
-                'data'      => date('d/m/Y H:i'),
+                'card_nome'      => $cardNome,
+                'descricao'      => $desc,
+                'quadro'         => $boardNome,
+                'lista'          => $listaNome,
+                'origem_id'      => $srcId > 0 ? (string)$srcId : '—',
+                'origem_nome'    => $srcName !== '' ? $srcName : '—',
+                'ticket'         => $ticket > 0 ? (string)$ticket : '-',
+                'autor'          => $autor,
+                'solicitado_por' => $solNome,
+                'data'           => date('d/m/Y H:i'),
             ]);
+            $tpl = ($category === 'pend_chamado') ? 'pendencia' : 'chamado_abrir';
             $txt = self::renderTxt($tpl, $data);
             if ($txt === null || trim($txt) === '') {
-                $txt = 'Card novo: #' . $cards_id . ' "' . $cardNome . '" em ' . ($listaNome !== '' ? $listaNome : $cat) . ' — ' . date('d/m/Y H:i');
+                $txt = "Card novo em {$listaNome}: #{$cards_id} \"{$cardNome}\" em " . date('d/m/Y H:i');
             }
-            $kind = ($tpl === 'card_alerta') ? 'regra_entrada' : $tpl;
-            $login = trim((string)($rule['login'] ?? ''));
-            $sent = 0; $errors = []; $skipped = [];
-            if (!empty($rule['notify_whats'])) {
-                $ms = self::recipientMilestone($base, $login);
-                if (self::alreadySent($cards_id, $ms)) { $skipped[] = $login; }
-                else {
-                    $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
-                    if ($phone === '') { $errors[] = $login . ': sem telefone'; }
-                    else {
-                        $q = self::enqueue($kind, $cards_id, $ms, $phone, $txt);
-                        if (!empty($q['ok'])) { $sent++; }
-                        elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
-                        else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
-                    }
-                }
-            }
-            if (!empty($rule['notify_mail']) && function_exists('kanpro_queue_email')) {
-                $email = '';
-                try {
-                    if (class_exists('PluginKanproNotifyRule')) {
-                        $u = PluginKanproNotifyRule::resolveUser($login);
-                        if ($u !== null) $email = trim((string)($u['email'] ?? ''));
-                    }
-                } catch (Throwable $e) {}
-                $msm = self::recipientMilestone($base . 'm', $login);
-                if ($email === '') { $errors[] = $login . ': sem e-mail'; }
-                elseif (self::alreadySent($cards_id, $msm)) { $skipped[] = $login; }
-                else {
-                    $subj = 'KanPro: card novo em ' . ($listaNome !== '' ? $listaNome : $cat);
-                    $bodyMail = $txt;
-                    try {
-                        if (class_exists('PluginKanproMaintenanceMail')) {
-                            $mh = PluginKanproMaintenanceMail::render('notify_entry', $data);
-                            if (is_string($mh) && trim($mh) !== '') {
-                                $bodyMail = $mh;
-                                $subj = PluginKanproMaintenanceMail::subject('notify_entry', $data);
-                            }
-                        }
-                    } catch (Throwable $e) {}
-                    $ent = 0;
-                    try { $ent = (int)($card->fields['entities_id'] ?? 0); } catch (Throwable $e) {}
-                    $mq = kanpro_queue_email($email, $subj, $bodyMail, $ent, ['items_id' => $cards_id]);
-                    if (!empty($mq['ok'])) { $sent++; self::markSent($cards_id, $msm, $email, true, ''); }
-                    else { $errors[] = $login . ': ' . ($mq['error'] ?? 'falha no e-mail'); }
-                }
+            $sent = 0; $errors = []; $phones = []; $skipped = [];
+            foreach (self::grupoBRecipients() as $login) {
+                $ms = self::recipientMilestone('grupo_b', (string)$login);
+                if (self::alreadySent($cards_id, $ms)) { $skipped[] = $login; continue; }
+                $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
+                if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
+                $q = self::enqueue($tpl, $cards_id, $ms, $phone, $txt);
+                if (!empty($q['ok'])) { $sent++; $phones[] = $phone; }
+                elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
+                else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
             }
             self::logCard($cards_id, $sent > 0
-                ? "WhatsApp/e-mail regra #{$ruleId} na fila ({$sent})"
-                : "Regra #{$ruleId} FALHOU: " . implode('; ', $errors));
+                ? "WhatsApp grupo B na fila para " . implode(',', $phones) . " ({$sent})"
+                : "WhatsApp grupo B FALHOU: " . implode('; ', $errors));
             if ($sent <= 0) {
                 if (!empty($skipped) && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
-                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem canal'];
+                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
             }
-            return ['ok' => true];
+            return ['ok' => true, 'phones' => $phones];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Resumo dos grupos fixos (cron 8/10/13/15h): conta cards não arquivados
+     * nas listas de cada grupo e avisa os destinatários se > 0.
+     * Grupo A = Chamados Espera + Pendente; Grupo B = Pendência Chamados + Abrir chamado.
+     * Só em dias úteis salvo force. Anti-duplicado por dia+turno+grupo+destinatário.
+     * Nunca joga exceção.
+     */
+    static function sendGruposDigest(int $slot, bool $force = false): array {
+        global $DB;
+        try {
+            if (!in_array($slot, [8, 10, 13, 15], true)) return ['ok' => false, 'error' => 'turno inválido'];
+            if (!$force) {
+                $ov = self::lembreteDayOverride(date('Y-m-d'));
+                if ($ov === 'skip') return ['ok' => false, 'error' => 'dia tirado do envio'];
+                if ($ov !== 'force' && empty(self::lembreteBusinessCheck()['business'])) return ['ok' => false, 'error' => 'dia não útil'];
+            }
+            $lock = 'kanpro_grupos_digest_' . date('Y-m-d') . '_' . $slot;
+            $gotLock = false;
+            try { $gotLock = (bool)$DB->getLock($lock, 0); } catch (Throwable $e) { $gotLock = true; }
+            if (!$gotLock) return ['ok' => false, 'error' => 'envio em andamento'];
+            $groups = [
+                ['cats' => ['chamados_espera', 'pending'], 'label' => 'Chamados Espera + Pendente', 'recips' => self::grupoARecipients(), 'base' => 'ga'],
+                ['cats' => ['pend_chamado', 'abrir_chamado'], 'label' => 'Pendência Chamados + Abrir Chamado', 'recips' => self::grupoBRecipients(), 'base' => 'gb'],
+            ];
+            $milestone = date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
+            $sent = 0; $errors = []; $skipped = [];
+            foreach ($groups as $g) {
+                if (empty($g['recips'])) continue;
+                $lids = []; $lnames = []; $bids = [];
+                try {
+                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['is_archived' => 0]]) as $l) {
+                        $lt = trim(strtolower((string)($l['list_type'] ?? '')));
+                        if (($lt === '' || $lt === 'none') && function_exists('kanpro_list_matches_category')) {
+                            foreach ($g['cats'] as $c) {
+                                if (kanpro_list_matches_category($l, $c)) { $lt = $c; break; }
+                            }
+                        }
+                        if (!in_array($lt, $g['cats'], true)) continue;
+                        $x = (int)$l['id'];
+                        $lids[] = $x;
+                        $ln = trim((string)($l['name'] ?? ''));
+                        $lnames[$x] = $ln !== '' ? $ln : ('Lista #' . $x);
+                        $bids[$x] = (int)($l['plugin_kanpro_boards_id'] ?? 0);
+                    }
+                } catch (Throwable $e) {}
+                $counts = []; $total = 0;
+                foreach ($lids as $x) {
+                    $n = 0;
+                    try {
+                        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $x, 'is_archived' => 0]]) as $c) $n++;
+                    } catch (Throwable $e) {}
+                    if ($n > 0) { $counts[$x] = $n; $total += $n; }
+                }
+                if ($total <= 0) continue;
+                $bnames = [];
+                try {
+                    if (isset($DB) && $DB->tableExists('glpi_plugin_kanpro_boards')) {
+                        foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_plugin_kanpro_boards']) as $b) {
+                            $bn = trim((string)($b['name'] ?? ''));
+                            $bnames[(int)$b['id']] = $bn !== '' ? $bn : ('Quadro #' . (int)$b['id']);
+                        }
+                    }
+                } catch (Throwable $e) {}
+                $wlines = [];
+                foreach ($counts as $x => $n) {
+                    $wlines[] = '• ' . ($bnames[$bids[$x]] ?? ('Quadro #' . $bids[$x])) . ' — ' . $lnames[$x] . ': ' . $n . ' card(s)';
+                }
+                $txt = self::renderTxt('resumo_grupos', [
+                    'grupo' => $g['label'], 'total' => (string)$total,
+                    'detalhes' => implode("\n", $wlines), 'data' => date('d/m/Y H:i'),
+                ]);
+                if ($txt === null || trim($txt) === '') {
+                    $txt = "Resumo {$g['label']}: {$total} card(s) em " . date('d/m/Y H:i') . "\n" . implode("\n", $wlines);
+                }
+                foreach ($g['recips'] as $login) {
+                    $ms = self::recipientMilestone($g['base'] . $milestone, (string)$login);
+                    if (!$force && self::alreadySent(0, $ms)) { $skipped[] = $login; continue; }
+                    if (self::hasQueued(0, $ms)) { $skipped[] = $login; continue; }
+                    $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
+                    if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
+                    $q = self::enqueue('digest_grupos', 0, $ms, $phone, $txt, false, $force);
+                    if (!empty($q['ok'])) { $sent++; }
+                    elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
+                    else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
+                }
+            }
+            if ($sent <= 0) {
+                if (!empty($skipped) && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
+                if (empty($errors)) return ['ok' => false, 'error' => 'nada pendente'];
+                return ['ok' => false, 'error' => implode('; ', $errors)];
+            }
+            return ['ok' => true, 'sent' => $sent];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
@@ -1780,33 +1734,6 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Rede de segurança do lembrete 8h/10h/13h: chamada no polling do kanban
-     * (get_board_stamp) para o envio não depender só do cron do GLPI
-     * (que só roda com visita na janela ou cron do SO configurado).
-     * Só age dentro das janelas 8h, 10h e 13h, uma vez por dia+turno (milestone),
-     * e nunca quebra o request (tudo em try/catch).
-     */
-    static function maybeSendLembreteFallback(): void {
-        try {
-            $ovToday = self::lembreteDayOverride(date('Y-m-d'));
-            if ($ovToday === 'skip') return;
-            if ($ovToday !== 'force' && !self::isLembreteBusinessDay()) return;
-            $h = (int)date('G');
-            $slot = ($h === 8) ? 8 : (($h === 10) ? 10 : (($h === 13) ? 13 : 0));
-            if ($slot <= 0) return;
-            global $DB;
-            if (!$DB->tableExists('glpi_plugin_kanpro_maintenance_zaplog')) return;
-            $milestone = 'lembrete_' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT);
-            $allSent = true;
-            foreach (self::lembreteRecipients() as $rcp) {
-                if (!self::alreadySent(0, self::lembreteMilestone($milestone, (string)$rcp))) { $allSent = false; break; }
-            }
-            if ($allSent) return;
-            self::sendLembrete($slot);
-        } catch (Throwable $e) {}
-    }
-
-    /**
      * Diagnóstico sem enviar: listas encontradas, contagens, telefone (mascarado),
      * Evolution configurada?, template ok?, milestones de hoje. P/ o teste manual.
      * Nunca envia nada, nunca grava zaplog.
@@ -1902,46 +1829,6 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             } catch (Throwable $e) {}
         } catch (Throwable $e) { $out['error'] = $e->getMessage(); }
         return $out;
-    }
-
-    public static function cronZaplembrete8($task = null): int {
-        try {
-            $r = self::sendLembrete(8);
-            if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 8h p/ ' . implode(',', self::lembreteRecipients()) . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
-            }
-        } catch (Throwable $e) { return 1; }
-        return 1;
-    }
-
-    public static function cronZaplembrete10($task = null): int {
-        try {
-            $r = self::sendLembrete(10);
-            if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 10h p/ ' . implode(',', self::lembreteRecipients()) . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
-            }
-        } catch (Throwable $e) { return 1; }
-        return 1;
-    }
-
-    /** @deprecated turno das 9h foi substituído por 8h/10h (mantido p/ não quebrar tarefa antiga residual) */
-    public static function cronZaplembrete9($task = null): int {
-        try {
-            if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 9h desativado (substituído por 8h/10h)');
-            }
-        } catch (Throwable $e) {}
-        return 1;
-    }
-
-    public static function cronZaplembrete13($task = null): int {
-        try {
-            $r = self::sendLembrete(13);
-            if (is_object($task) && method_exists($task, 'log')) {
-                $task->log('KanPro lembrete 13h p/ ' . implode(',', self::lembreteRecipients()) . ': ' . (!empty($r['ok']) ? ('enviado (total ' . ($r['total'] ?? '?') . ' p/ ' . ($r['phone'] ?? '?') . ')') : ('não enviado: ' . ($r['error'] ?? ''))));
-            }
-        } catch (Throwable $e) { return 1; }
-        return 1;
     }
 
     // ---------- CRON diário: atraso a cada 5 dias em Retirada ----------
@@ -2043,140 +1930,10 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     /**
-     * Resumo de regra do quadro (cron 8/10/13/15h): quantos cards há nas listas
-     * do quadro na categoria da regra. Só envia se > 0. Só em dias úteis salvo
-     * force. Anti-duplicado por dia+turno+regra+canal. Nunca joga exceção.
-     */
-    static function sendRuleDigest(array $rule, int $slot, bool $force = false): array {
-        global $DB;
-        try {
-            $ruleId = (int)($rule['id'] ?? 0);
-            $bid = (int)($rule['plugin_kanpro_boards_id'] ?? 0);
-            $cat = trim(strtolower((string)($rule['list_category'] ?? '')));
-            if ($ruleId <= 0 || $bid <= 0 || $cat === '') return ['ok' => false, 'error' => 'Regra inválida'];
-            if (empty($rule['is_active']) || empty($rule['notify_digest'])) return ['ok' => false, 'error' => 'regra inativa'];
-            if (!in_array($slot, [8, 10, 13, 15], true)) return ['ok' => false, 'error' => 'turno inválido'];
-            if (!$force) {
-                $ov = self::lembreteDayOverride(date('Y-m-d'));
-                if ($ov === 'skip') return ['ok' => false, 'error' => 'dia tirado do envio'];
-                if ($ov !== 'force' && empty(self::lembreteBusinessCheck()['business'])) return ['ok' => false, 'error' => 'dia não útil'];
-            }
-            $milestone = 'nbd' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT) . 'r' . $ruleId;
-            $login = trim((string)($rule['login'] ?? ''));
-            $lock = 'kanpro_digest_' . date('Y-m-d') . '_' . $slot . '_r' . $ruleId;
-            $gotLock = false;
-            try { $gotLock = (bool)$DB->getLock($lock, 0); } catch (Throwable $e) { $gotLock = true; }
-            if (!$gotLock) return ['ok' => false, 'error' => 'envio em andamento'];
-            // listas do quadro na categoria (vale dedução legada pelo nome)
-            $lids = []; $lnames = [];
-            try {
-                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'is_archived' => 0]]) as $l) {
-                    $match = function_exists('kanpro_list_matches_category')
-                        ? kanpro_list_matches_category($l, $cat)
-                        : (trim(strtolower((string)($l['list_type'] ?? ''))) === $cat);
-                    if ($match) {
-                        $x = (int)$l['id'];
-                        $lids[] = $x;
-                        $ln = trim((string)($l['name'] ?? ''));
-                        $lnames[$x] = $ln !== '' ? $ln : ('Lista #' . $x);
-                    }
-                }
-            } catch (Throwable $e) {}
-            // contagem por lista (1 query por lista: vale no FakeDB e no GLPI)
-            $counts = []; $total = 0;
-            foreach ($lids as $x) {
-                $n = 0;
-                try {
-                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $x, 'is_archived' => 0]]) as $c) $n++;
-                } catch (Throwable $e) {}
-                if ($n > 0) { $counts[$x] = $n; $total += $n; }
-            }
-            if ($total <= 0) return ['ok' => false, 'error' => 'nada pendente'];
-            $boardNome = 'Quadro #' . $bid;
-            try {
-                $brow = $DB->request(['SELECT' => ['name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['id' => $bid], 'LIMIT' => 1])->current();
-                if ($brow && trim((string)($brow['name'] ?? '')) !== '') $boardNome = (string)$brow['name'];
-            } catch (Throwable $e) {}
-            $label = function_exists('kanpro_list_type_label') ? kanpro_list_type_label($cat) : $cat;
-            if ($label === '') $label = $cat;
-            $wlines = []; $hlines = [];
-            foreach ($counts as $x => $n) {
-                $wlines[] = '• ' . $lnames[$x] . ': ' . $n . ' card(s)';
-                $hlines[] = '<li>' . htmlspecialchars($lnames[$x], ENT_QUOTES, 'UTF-8') . ' — ' . $n . ' card(s)</li>';
-            }
-            $data = [
-                'quadro' => $boardNome, 'lista' => $label, 'total' => (string)$total,
-                'quantidade' => (string)$total,
-                'detalhes' => implode("\n", $wlines),
-                'data' => date('d/m/Y H:i'),
-            ];
-            $txt = self::renderTxt('digest_resumo', $data);
-            if ($txt === null || trim($txt) === '') {
-                $txt = "Resumo {$label}: {$boardNome} tem {$total} card(s) em " . date('d/m/Y H:i') . "\n" . implode("\n", $wlines);
-            }
-            $sent = 0; $errors = []; $skipped = [];
-            if (!empty($rule['notify_whats'])) {
-                $ms = self::recipientMilestone($milestone, $login);
-                if (!$force && self::alreadySent(0, $ms)) { $skipped[] = $login; }
-                elseif (self::hasQueued(0, $ms)) { $skipped[] = $login; }
-                else {
-                    $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
-                    if ($phone === '') { $errors[] = $login . ': sem telefone'; }
-                    else {
-                        $q = self::enqueue('digest_resumo', 0, $ms, $phone, $txt, false, $force);
-                        if (!empty($q['ok'])) { $sent++; }
-                        elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
-                        else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
-                    }
-                }
-            }
-            if (!empty($rule['notify_mail']) && function_exists('kanpro_queue_email')) {
-                $email = '';
-                try {
-                    if (class_exists('PluginKanproNotifyRule')) {
-                        $u = PluginKanproNotifyRule::resolveUser($login);
-                        if ($u !== null) $email = trim((string)($u['email'] ?? ''));
-                    }
-                } catch (Throwable $e) {}
-                $msm = self::recipientMilestone($milestone . 'm', $login);
-                if ($email === '') { $errors[] = $login . ': sem e-mail'; }
-                elseif (!$force && self::alreadySent(0, $msm)) { $skipped[] = $login; }
-                else {
-                    $mdata = $data;
-                    $mdata['detalhes'] = '<ul>' . implode('', $hlines) . '</ul>';
-                    $bodyMail = null;
-                    $subj = 'KanPro: resumo ' . $label . ' — ' . $total . ' card(s)';
-                    try {
-                        if (class_exists('PluginKanproMaintenanceMail')) {
-                            $mh = PluginKanproMaintenanceMail::render('notify_digest', $mdata);
-                            if (is_string($mh) && trim($mh) !== '') {
-                                $bodyMail = $mh;
-                                $subj = PluginKanproMaintenanceMail::subject('notify_digest', $mdata);
-                            }
-                        }
-                    } catch (Throwable $e) {}
-                    if ($bodyMail === null) $bodyMail = $txt;
-                    $mq = kanpro_queue_email($email, $subj, $bodyMail);
-                    if (!empty($mq['ok'])) { $sent++; self::markSent(0, $msm, $email, true, ''); }
-                    else { $errors[] = $login . ': ' . ($mq['error'] ?? 'falha no e-mail'); }
-                }
-            }
-            if ($sent <= 0) {
-                if (!empty($skipped) && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
-                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem canal'];
-            }
-            return ['ok' => true, 'total' => $total];
-        } catch (Throwable $e) {
-            return ['ok' => false, 'error' => $e->getMessage()];
-        }
-    }
-
-    /**
-     * Cron do resumo por regra (turno vem no param: 8, 10, 13 ou 15).
-     * Varre quadros com regras de resumo ativas. Nunca joga exceção.
+     * Cron do resumo dos grupos fixos (turno vem no param: 8, 10, 13 ou 15).
+     * Nunca joga exceção.
      */
     public static function cronZapdigest($task = null): int {
-        global $DB;
         $slot = 8;
         try {
             if (is_object($task) && isset($task->fields['param'])) $slot = (int)$task->fields['param'];
@@ -2184,19 +1941,9 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 $h = (int)date('H');
                 $slot = ($h < 9) ? 8 : (($h < 12) ? 10 : (($h < 14) ? 13 : 15));
             }
-            $done = 0; $sent = 0;
-            if (isset($DB) && $DB->tableExists('glpi_plugin_kanpro_boards') && class_exists('PluginKanproNotifyRule')) {
-                foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['is_archived' => 0]]) as $b) {
-                    foreach (PluginKanproNotifyRule::getRulesForBoard((int)$b['id']) as $rule) {
-                        if (empty($rule['notify_digest'])) continue;
-                        $done++;
-                        $r = self::sendRuleDigest($rule, $slot);
-                        if (!empty($r['ok'])) $sent++;
-                    }
-                }
-            }
+            $r = self::sendGruposDigest($slot);
             if (is_object($task) && method_exists($task, 'log')) {
-                $task->log("KanPro digest {$slot}h: {$done} regras, {$sent} enviadas");
+                $task->log('KanPro digest ' . $slot . 'h: ' . (!empty($r['ok']) ? (($r['sent'] ?? 0) . ' enviada(s)') : ('nada: ' . ($r['error'] ?? ''))));
             }
         } catch (Throwable $e) { return 1; }
         return 1;
@@ -2233,29 +1980,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 'hourmax'       => 24,
                 'comment'       => 'KanPro: WhatsApp de atraso (lembrete a cada 5 dias em Retirada)',
             ]);
-            // lembretes 8h, 10h e 13h: Aguardando aprovação + Pendente + Em Andamento (só envia se > 0)
-            // frequency 1800 (30min): permite nova tentativa ainda na mesma hora.
-            // ATENÇÃO: hourmax é EXCLUSIVO no GLPI (roda se hourmin <= H < hourmax).
-            // Com hourmin==hourmax a tarefa NUNCA entra na janela e jamais executa. Janela de 1h.
-            // mode EXTERNO: dispara via cron do SO (php front/cron.php) — garante o envio
-            // mesmo sem ninguém usando o sistema. O fallback do polling continua como rede extra.
-            foreach ([['zaplembrete8', 8, 9, 'KanPro: WhatsApp lembrete 8h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete10', 10, 11, 'KanPro: WhatsApp lembrete 10h (Aguard.aprovação + Pendente + Andamento)'], ['zaplembrete13', 13, 14, 'KanPro: WhatsApp lembrete 13h (Aguard.aprovação + Pendente + Andamento)']] as [$cname, $chour, $hmax, $cmt]) {
-                $upsert($cname, [
-                    'frequency'     => 1800,
-                    'param'         => $chour,
-                    'state'         => 1,
-                    'mode'          => 2, // MODE_EXTERNAL: exige cron do SO — ver README do plugin
-                    'allowmode'     => 3,
-                    'logs_lifetime' => 30,
-                    'hourmin'       => $chour,
-                    'hourmax'       => $hmax,
-                    'comment'       => $cmt,
-                ]);
-            }
-            // resumo por regra 8h, 10h, 13h e 15h: conta cards por (quadro, categoria) e
-            // envia por regra com resumo ativo (só se > 0). Mesmo padrão dos lembretes:
+            // lembrete automático 8h/10h/13h aposentado (digest dos grupos assumiu;
+            // o manual segue no botão Lembretes).
+            // resumo dos grupos 8h, 10h, 13h e 15h (só envia se > 0):
             // frequency 1800 (30min), janela de 1h (hourmax é exclusivo no GLPI).
-            foreach ([['zapdigest8', 8, 9, 'KanPro: resumo por regra 8h'], ['zapdigest10', 10, 11, 'KanPro: resumo por regra 10h'], ['zapdigest13', 13, 14, 'KanPro: resumo por regra 13h'], ['zapdigest15', 15, 16, 'KanPro: resumo por regra 15h']] as [$cname, $chour, $hmax, $cmt]) {
+            foreach ([['zapdigest8', 8, 9, 'KanPro: resumo dos grupos 8h'], ['zapdigest10', 10, 11, 'KanPro: resumo dos grupos 10h'], ['zapdigest13', 13, 14, 'KanPro: resumo dos grupos 13h'], ['zapdigest15', 15, 16, 'KanPro: resumo dos grupos 15h']] as [$cname, $chour, $hmax, $cmt]) {
                 $upsert($cname, [
                     'frequency'     => 1800,
                     'param'         => $chour,
@@ -2270,7 +1999,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             }
             // limpa tarefa antiga do turno das 9h (substituído por 8h/10h)
             try {
-                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zaplembrete9']);
+                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zaplembrete8', 'zaplembrete9', 'zaplembrete10', 'zaplembrete13']]);
             } catch (Throwable $e) {}
             // consumidor da fila de envios: roda via cron do SO (modo externo),
             // a cada 1min, em lotes (param). Entrega os enfileirados com retry.

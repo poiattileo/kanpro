@@ -1153,9 +1153,7 @@ function kanpro_create_pendencia_chamado(int $boards_id, int $src_cards_id, arra
         kanpro_touch_card($pendId);
         PluginKanproBoard::logActivity($boards_id, $pendId, $targetLid, 'chamado_created', "Pendência Chamado criada via {$origin_label} de #{$src_cards_id} (" . count($mids) . " máquina(s))");
         $zapOk = false; $zapErr = '';
-        try { if (class_exists('PluginKanproMaintenanceZap')) { $zr = PluginKanproMaintenanceZap::sendPendencia($pendId); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
-        // regras do quadro/categoria (central de notificações) — vale p/ todos os fluxos que criam pendência
-        try { if (function_exists('kanpro_notify_board_entry')) kanpro_notify_board_entry($boards_id, $pendId, $targetLid); } catch (Throwable $e) {}
+        try { if (function_exists('kanpro_notify_entry')) { $zr = kanpro_notify_entry($boards_id, $pendId, $targetLid); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
         return ['pendencia_id'=>$pendId,'locked'=>count($mids),'zap_ok'=>$zapOk,'zap_error'=>$zapErr];
     } catch (Throwable $e) {
         return $fail('Erro: ' . $e->getMessage());
@@ -1226,24 +1224,24 @@ function kanpro_need_list_allows_card(int $lists_id): string {
     return $cat;
 }
 
-// Aviso de entrada em lista: mantém o global da Pendente e soma as regras
-// do quadro/categoria (central de notificações). 1x por card por regra/canal,
-// via fila — nunca trava o fluxo principal, nunca joga exceção.
-function kanpro_notify_board_entry(int $bid, int $cid, int $lists_id): void {
+// Aviso de entrada em lista (grupos fixos): Chamados Espera/Pendente vão para
+// o Grupo A; Pendência Chamados/Abrir chamado vão para o Grupo B. 1x por card
+// por pessoa, via fila — nunca trava o fluxo principal, nunca joga exceção.
+// Devolve o resultado do envio (p/ zap_ok das respostas).
+function kanpro_notify_entry(int $bid, int $cid, int $lists_id): array {
     try {
-        if ($bid <= 0 || $cid <= 0 || $lists_id <= 0) return;
-        if (!function_exists('kanpro_list_category')) return;
+        if ($bid <= 0 || $cid <= 0 || $lists_id <= 0) return ['ok' => false];
+        if (!function_exists('kanpro_list_category')) return ['ok' => false];
+        if (!class_exists('PluginKanproMaintenanceZap')) return ['ok' => false];
         $cat = kanpro_list_category($lists_id);
-        if ($cat === '') return;
-        if ($cat === 'pending' && class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::sendListaPendente($cid, $lists_id);
-        if (class_exists('PluginKanproNotifyRule') && class_exists('PluginKanproMaintenanceZap')) {
-            foreach (PluginKanproNotifyRule::getRulesForBoard($bid) as $rule) {
-                if (empty($rule['notify_entry'])) continue;
-                if (trim(strtolower((string)($rule['list_category'] ?? ''))) !== $cat) continue;
-                PluginKanproMaintenanceZap::sendRuleEntry($rule, $cid, $lists_id);
-            }
+        if (in_array($cat, ['chamados_espera', 'pending'], true)) {
+            return PluginKanproMaintenanceZap::sendGrupoA($cid, $lists_id, $cat);
+        }
+        if (in_array($cat, ['pend_chamado', 'abrir_chamado'], true)) {
+            return PluginKanproMaintenanceZap::sendGrupoB($cid, $lists_id, $cat);
         }
     } catch (Throwable $e) {}
+    return ['ok' => false];
 }
 
 // Guard: card de manutenção "com dono" só pode ser alterado por quem está vinculado
@@ -3100,9 +3098,6 @@ switch ($action) {
         if (!$boards_id) jexit(['success' => false]);
         $board_chk = new PluginKanproBoard();
         if (!$board_chk->getFromDB($boards_id)) jexit(['success' => false]);
-        // rede do lembrete 8h/10h/13h: garante o envio mesmo se o cron do GLPI não rodar na janela
-        // (fora da janela custa só um date(); dentro, 1 lookup indexado até enviar)
-        try { if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::maybeSendLembreteFallback(); } catch (Throwable $e) {}
         try {
             // aproveita o selo p/ heartbeat (1 request leve faz os dois — antes eram 2 a cada 2s)
             $uid0 = (int)Session::getLoginUserID();
@@ -3789,7 +3784,7 @@ switch ($action) {
         // 1 activity só: kanpro_finish_maintenance já registra a criação + gera o chamado
         $extra = kanpro_finish_maintenance($id, $newName, $entities_id, true);
         kanpro_touch_card($id);
-        if (function_exists('kanpro_notify_board_entry')) kanpro_notify_board_entry($bid, (int)$id, (int)$lists_id);
+        if (function_exists('kanpro_notify_entry')) kanpro_notify_entry($bid, (int)$id, (int)$lists_id);
         $fresh = new PluginKanproCard();
         $fresh->getFromDB($id);
         jexit(['success'=>true,'id'=>(int)$id,'card'=>$fresh->fields,'is_maintenance'=>1,'new_name'=>$newName,
@@ -4045,7 +4040,7 @@ switch ($action) {
         // Butler-like: entrou na lista de verdade (sem pendência) -> roda automações do quadro
         if ($from_list && $target_list && $from_list !== $target_list && !$pending && function_exists('kanpro_run_rules')) {
             kanpro_run_rules((int)$bid0, (int)$cid, (int)$target_list);
-            if (function_exists('kanpro_notify_board_entry')) kanpro_notify_board_entry((int)$bid0, (int)$cid, (int)$target_list);
+            if (function_exists('kanpro_notify_entry')) kanpro_notify_entry((int)$bid0, (int)$cid, (int)$target_list);
         }
         // devolve a linha fresca p/ o JS reconciliar (lista+rank reais do banco)
         $fresh = new PluginKanproCard();
@@ -4135,93 +4130,9 @@ switch ($action) {
         // Butler-like: aprovação confirma a entrada na lista -> roda automações
         if (function_exists('kanpro_run_rules')) {
             kanpro_run_rules((int)$c->fields['plugin_kanpro_boards_id'], (int)$cid, (int)$c->fields['plugin_kanpro_lists_id']);
-            if (function_exists('kanpro_notify_board_entry')) kanpro_notify_board_entry((int)$c->fields['plugin_kanpro_boards_id'], (int)$cid, (int)$c->fields['plugin_kanpro_lists_id']);
+            if (function_exists('kanpro_notify_entry')) kanpro_notify_entry((int)$c->fields['plugin_kanpro_boards_id'], (int)$cid, (int)$c->fields['plugin_kanpro_lists_id']);
         }
         jexit(['success'=>true]);
-
-    case 'notify_rule_add':
-        // Central de notificações: adiciona regra (quadro + categoria + usuário + canais).
-        needEdit();
-        $nrp = function_exists('kanpro_notify_rule_parse') ? kanpro_notify_rule_parse($_POST) : ['ok' => false, 'error' => 'indisponível'];
-        if (empty($nrp['ok'])) jexit(['success'=>false,'msg'=>(string)($nrp['error'] ?? 'dados inválidos')]);
-        kanpro_require_board_edit((int)$nrp['bid']);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members((int)$nrp['bid'])) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
-        $nrres = PluginKanproNotifyRule::addRule((int)$nrp['bid'], (string)$nrp['category'], (string)$nrp['login'], !empty($nrp['whats']), !empty($nrp['mail']));
-        if (empty($nrres['ok'])) jexit(['success'=>false,'msg'=>(string)($nrres['error'] ?? 'falha')]);
-        jexit(['success'=>true,'id'=>(int)($nrres['id'] ?? 0),'warnings'=>$nrres['warnings'] ?? []]);
-
-    case 'notify_rule_del':
-        needEdit();
-        $nrBid = (int)($_POST['boards_id'] ?? 0);
-        $nrId = (int)($_POST['id'] ?? 0);
-        kanpro_require_board_edit($nrBid);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($nrBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
-        $nrdel = PluginKanproNotifyRule::deleteRule($nrId, $nrBid);
-        if (empty($nrdel['ok'])) jexit(['success'=>false,'msg'=>(string)($nrdel['error'] ?? 'falha')]);
-        jexit(['success'=>true]);
-
-    case 'notify_rule_toggle':
-        needEdit();
-        $nrBid = (int)($_POST['boards_id'] ?? 0);
-        $nrId = (int)($_POST['id'] ?? 0);
-        kanpro_require_board_edit($nrBid);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($nrBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
-        $nrtg = PluginKanproNotifyRule::setActive($nrId, $nrBid, !empty($_POST['on']));
-        if (empty($nrtg['ok'])) jexit(['success'=>false,'msg'=>(string)($nrtg['error'] ?? 'falha')]);
-        jexit(['success'=>true]);
-
-    case 'notify_rule_update':
-        // Central de notificações: edita regra (categoria, usuário, canais).
-        needEdit();
-        $nruBid = (int)($_POST['boards_id'] ?? 0);
-        kanpro_require_board_edit($nruBid);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($nruBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
-        $nru = PluginKanproNotifyRule::updateRule((int)($_POST['id'] ?? 0), $nruBid, (string)($_POST['category'] ?? ''), (string)($_POST['login'] ?? ''), !empty($_POST['whats']), !empty($_POST['mail']));
-        if (empty($nru['ok'])) jexit(['success'=>false,'msg'=>(string)($nru['error'] ?? 'falha')]);
-        jexit(['success'=>true,'warnings'=>$nru['warnings'] ?? []]);
-
-    case 'notify_global_add':
-        // Central de notificações: adiciona login à lista global.
-        needEdit();
-        $ggBid = (int)($_POST['boards_id'] ?? 0);
-        kanpro_require_board_edit($ggBid);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($ggBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!function_exists('kanpro_notify_global_add')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
-        $gga = kanpro_notify_global_add((string)($_POST['key'] ?? ''), (string)($_POST['login'] ?? ''));
-        if (empty($gga['ok'])) jexit(['success'=>false,'msg'=>(string)($gga['error'] ?? 'falha')]);
-        jexit(['success'=>true]);
-
-    case 'notify_global_del':
-        needEdit();
-        $ggBid = (int)($_POST['boards_id'] ?? 0);
-        kanpro_require_board_edit($ggBid);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($ggBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!function_exists('kanpro_notify_global_del')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
-        $ggd = kanpro_notify_global_del((string)($_POST['key'] ?? ''), (string)($_POST['login'] ?? ''));
-        if (empty($ggd['ok'])) jexit(['success'=>false,'msg'=>(string)($ggd['error'] ?? 'falha')]);
-        jexit(['success'=>true]);
-
-    case 'notify_global_approver':
-        needEdit();
-        $ggBid = (int)($_POST['boards_id'] ?? 0);
-        kanpro_require_board_edit($ggBid);
-        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($ggBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
-        if (!function_exists('kanpro_notify_global_approver')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
-        $ggp = kanpro_notify_global_approver((string)($_POST['login'] ?? ''));
-        if (empty($ggp['ok'])) jexit(['success'=>false,'msg'=>(string)($ggp['error'] ?? 'falha')]);
-        jexit(['success'=>true]);
-
-    case 'notify_users':
-        // Autocomplete de logins (só leitura; exige ver o quadro).
-        $sgBid = (int)($_POST['boards_id'] ?? 0);
-        if ($sgBid <= 0) jexit(['success'=>false,'msg'=>'Quadro inválido']);
-        kanpro_require_board_view($sgBid);
-        if (!function_exists('kanpro_notify_user_suggest')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
-        jexit(['success'=>true,'users'=>kanpro_notify_user_suggest((string)($_POST['q'] ?? ''))]);
 
     case 'devolve_card':
         $cid = (int)($_POST['cards_id'] ?? 0);
@@ -4338,10 +4249,10 @@ switch ($action) {
             kanpro_run_rules($bid, $cloneId, (int)$abrir['id']);
         }
         PluginKanproBoard::logActivity($bid, $origId, (int)$andam['id'], 'chamado_created', "Chamado #{$tickets_id} criado ({$originLabel}): clone #{$cloneId} em Abrir chamado, original em Em Andamento");
-        // zap p/ os responsáveis (não trava o fluxo se falhar)
+        // zap grupo B (Abrir chamado) — não trava o fluxo se falhar
         $zapRes = ['ok' => false];
         try {
-            if (class_exists('PluginKanproMaintenanceZap')) $zapRes = PluginKanproMaintenanceZap::sendChamadoAbrir($cloneId);
+            if (function_exists('kanpro_notify_entry')) $zapRes = kanpro_notify_entry($bid, $cloneId, (int)$abrir['id']);
         } catch (Throwable $e) { $zapRes = ['ok' => false, 'error' => $e->getMessage()]; }
         jexit(['success'=>true,'id'=>$origId,'clone_id'=>$cloneId,'tickets_id'=>$tickets_id,'zap_ok'=>!empty($zapRes['ok']),'attachments_ok'=>$attOk,'attachments_fail'=>$attFail]);
 
@@ -4425,6 +4336,8 @@ switch ($action) {
         } catch (Throwable $e) { $rank = 1024; }
         $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>(int)$espera['id'],'rank'=>$rank,'chamado_status'=>'pendente','date_mod'=>$now], ['id'=>$origId]);
         if (function_exists('kanpro_touch_card')) kanpro_touch_card($origId);
+        if (function_exists('kanpro_notify_entry')) kanpro_notify_entry($bid, $origId, (int)$espera['id']);
+        if (function_exists('kanpro_notify_entry')) kanpro_notify_entry($bid, $origId, (int)$espera['id']);
         // cópia p/ Abrir chamado (botão de abrir libera a origem na Pendente)
         $clone = new PluginKanproCard();
         $cloneId = (int)$clone->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>(int)$abrir['id'],
@@ -4437,6 +4350,7 @@ switch ($action) {
         }
         try { $DB->insert('glpi_plugin_kanpro_cards_members', ['plugin_kanpro_cards_id'=>$cloneId,'users_id'=>$actor]); } catch (Throwable $e) {}
         if (function_exists('kanpro_touch_card')) kanpro_touch_card($cloneId);
+        if (function_exists('kanpro_notify_entry')) kanpro_notify_entry($bid, $cloneId, (int)$abrir['id']);
         // Butler: entrada por fluxo também dispara automações das listas
         if (function_exists('kanpro_run_rules')) {
             kanpro_run_rules($bid, $origId, (int)$espera['id']);
@@ -7453,9 +7367,9 @@ switch ($action) {
         kanpro_touch_card($newId);
         PluginKanproBoard::logActivity($bid, $srcId, (int)$src->fields['plugin_kanpro_lists_id'], 'chamado_request', "Solicitado chamado p/ " . count($mids) . " máquina(s) → card #{$newId}");
         PluginKanproBoard::logActivity($bid, $newId, $targetLid, 'chamado_created', "Pendência Chamado criada a partir de #{$srcId} (" . count($mids) . " máquina(s))");
-        // WhatsApp p/ o aprovador: 1 msg por card novo (nunca quebra o fluxo)
+        // WhatsApp grupo B: 1 msg por card novo (nunca quebra o fluxo)
         $zapOk = false; $zapErr = '';
-        try { if (class_exists('PluginKanproMaintenanceZap')) { $zr = PluginKanproMaintenanceZap::sendPendencia((int)$newId); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
+        try { if (function_exists('kanpro_notify_entry')) { $zr = kanpro_notify_entry($bid, (int)$newId, $targetLid); $zapOk = !empty($zr['ok']); $zapErr = (string)($zr['error'] ?? ''); } } catch (Throwable $e) { $zapErr = $e->getMessage(); }
         jexit(['success'=>true,'pendencia_id'=>$newId,'target_lists_id'=>$targetLid,'locked'=>count($mids),'zap_ok'=>$zapOk,'zap_error'=>$zapErr]);
 
     case 'confirm_chamado_created':
@@ -8094,9 +8008,9 @@ switch ($action) {
                 $lockedN = count($midsAll);
                 kanpro_touch_card($pendId);
                 PluginKanproBoard::logActivity($bid, $pendId, $pendLid, 'chamado_created', "Pendência Chamado criada via Pegar de #{$cid} ({$lockedN} máquina(s))");
-                // WhatsApp p/ o aprovador: 1 msg por card novo (nunca quebra o fluxo)
+                // WhatsApp grupo B: 1 msg por card novo (nunca quebra o fluxo)
                 $zapOk2 = false; $zapErr2 = '';
-                try { if (class_exists('PluginKanproMaintenanceZap')) { $zr2 = PluginKanproMaintenanceZap::sendPendencia((int)$pendId); $zapOk2 = !empty($zr2['ok']); $zapErr2 = (string)($zr2['error'] ?? ''); } } catch (Throwable $e) { $zapErr2 = $e->getMessage(); }
+                try { if (function_exists('kanpro_notify_entry')) { $zr2 = kanpro_notify_entry($bid, (int)$pendId, $pendLid); $zapOk2 = !empty($zr2['ok']); $zapErr2 = (string)($zr2['error'] ?? ''); } } catch (Throwable $e) { $zapErr2 = $e->getMessage(); }
             }
         }
         kanpro_touch_card($cid);

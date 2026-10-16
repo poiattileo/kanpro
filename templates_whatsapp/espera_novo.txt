@@ -1,0 +1,19 @@
+# KanPro • WhatsApp de ENTRADA EM CHAMADOS ESPERA (texto puro, sem HTML)
+# Gatilho: card entra em lista de categoria Chamados Espera
+# Destinatários: config 'zap_chamado_recipients' (Grupo A)
+# Placeholders: {card_id} {card_nome} {escola} {quadro} {lista} {ticket} {quantidade} {maquinas} {data}
+
+🔔 *CARD NOVO EM CHAMADOS ESPERA*
+
+Apareceu *1 novo card* na lista *{lista}*.
+
+📋 Card *#{card_id} "{card_nome}"*
+🏫 Escola: *{escola}*
+🖥️ Quadro: *{quadro}*
+🎫 Ticket GLPI: *#{ticket}*
+🕐 Em: *{data}*
+
+📦 *{quantidade} máquina(s):*
+{maquinas}
+
+_Manutenção de TI - URE Jales_

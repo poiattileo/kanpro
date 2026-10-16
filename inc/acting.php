@@ -234,23 +234,6 @@ if (!function_exists('kanpro_list_type_label')) {
     }
 }
 
-if (!function_exists('kanpro_notify_rule_parse')) {
-    // Valida/normaliza o POST do mini-form de regras (puro, testável).
-    // Devolve ['ok'=>true,'bid','category','login','whats','mail'] ou ['ok'=>false,'error'].
-    function kanpro_notify_rule_parse(array $in): array {
-        $bid = (int)($in['boards_id'] ?? $in['bid'] ?? 0);
-        $cat = function_exists('kanpro_valid_list_type') ? kanpro_valid_list_type((string)($in['category'] ?? '')) : trim(strtolower((string)($in['category'] ?? '')));
-        $login = trim((string)($in['login'] ?? ''));
-        $whats = !empty($in['whats']);
-        $mail = !empty($in['mail']);
-        if ($bid <= 0) return ['ok' => false, 'error' => 'Quadro inválido'];
-        if ($cat === '' || $cat === 'none') return ['ok' => false, 'error' => 'Categoria inválida'];
-        if ($login === '') return ['ok' => false, 'error' => 'Informe o login do usuário'];
-        if (!$whats && !$mail) return ['ok' => false, 'error' => 'Escolha ao menos um canal'];
-        return ['ok' => true, 'bid' => $bid, 'category' => $cat, 'login' => $login, 'whats' => $whats, 'mail' => $mail];
-    }
-}
-
 if (!function_exists('kanpro_list_matches_category')) {
     // A lista (linha) é da categoria? list_type direto, senão dedução legada pelo nome.
     // Versão pura (sem DB/classes) da regra de kanpro_list_category — vale em cron e testes.
@@ -274,30 +257,6 @@ if (!function_exists('kanpro_list_matches_category')) {
             elseif ($nm === 'chamado finalizado' || $nm === 'chamados finalizados') $lt = 'chamado_finalizado';
         }
         return $lt === $cat;
-    }
-}
-
-if (!function_exists('kanpro_notify_global_summary')) {
-    // Resumo somente-leitura dos avisos globais (p/ a central do quadro). Puro.
-    function kanpro_notify_global_summary(): array {
-        $recips = function (string $key): array {
-            if (!function_exists('kanpro_config_get')) return [];
-            $dec = json_decode((string)kanpro_config_get($key, ''), true);
-            if (!is_array($dec)) return [];
-            $out = [];
-            foreach ($dec as $v) {
-                $v = trim((string)$v);
-                if ($v !== '') $out[] = $v;
-            }
-            return array_values(array_unique($out));
-        };
-        $approver = function_exists('kanpro_config_get') ? trim((string)kanpro_config_get('zap_approver', '')) : '';
-        return [
-            'chamado_recipients' => $recips('zap_chamado_recipients'),
-            'approver' => $approver,
-            'lembrete_recipients' => $recips('zap_reminder_recipients'),
-            'lembrete_slots' => [8, 10, 13],
-        ];
     }
 }
 
@@ -382,190 +341,14 @@ if (!function_exists('kanpro_migrate_chamado_recipients_to_rules')) {
     }
 }
 
-if (!function_exists('kanpro_notify_global_keys')) {
-    // Chaves de config editáveis na central (listas de destinatários).
-    function kanpro_notify_global_keys(): array {
-        return ['zap_chamado_recipients', 'zap_reminder_recipients'];
-    }
-}
 
-if (!function_exists('kanpro_notify_global_add')) {
-    // Anexa login à lista global (sem duplicar). Mesma validação da tela de Config.
-    function kanpro_notify_global_add(string $key, string $login): array {
-        try {
-            if (!in_array($key, kanpro_notify_global_keys(), true)) return ['ok' => false, 'error' => 'lista inválida'];
-            $login = trim($login);
-            if ($login === '' || strpos($login, ' ') !== false || strpos($login, "\n") !== false) return ['ok' => false, 'error' => 'login inválido'];
-            if (!function_exists('kanpro_config_get') || !function_exists('kanpro_config_set')) return ['ok' => false, 'error' => 'indisponível'];
-            $cur = [];
-            $dec = json_decode((string)kanpro_config_get($key, ''), true);
-            if (is_array($dec)) {
-                foreach ($dec as $v) {
-                    $v = trim((string)$v);
-                    if ($v !== '') $cur[] = $v;
-                }
-            }
-            if (!in_array($login, $cur, true)) {
-                $cur[] = $login;
-                if (!kanpro_config_set($key, (string)json_encode(array_values($cur), JSON_UNESCAPED_UNICODE))) return ['ok' => false, 'error' => 'falha ao salvar'];
-            }
             return ['ok' => true];
         } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
     }
 }
 
-if (!function_exists('kanpro_notify_global_del')) {
-    // Remove login da lista global. Falha se não existir.
-    function kanpro_notify_global_del(string $key, string $login): array {
-        try {
-            if (!in_array($key, kanpro_notify_global_keys(), true)) return ['ok' => false, 'error' => 'lista inválida'];
-            $login = trim($login);
-            if ($login === '') return ['ok' => false, 'error' => 'login inválido'];
-            if (!function_exists('kanpro_config_get') || !function_exists('kanpro_config_set')) return ['ok' => false, 'error' => 'indisponível'];
-            $cur = [];
-            $dec = json_decode((string)kanpro_config_get($key, ''), true);
-            if (is_array($dec)) {
-                foreach ($dec as $v) {
-                    $v = trim((string)$v);
-                    if ($v !== '') $cur[] = $v;
-                }
-            }
-            if (!in_array($login, $cur, true)) return ['ok' => false, 'error' => 'não encontrado'];
-            $cur = array_values(array_diff($cur, [$login]));
-            if (!kanpro_config_set($key, (string)json_encode($cur, JSON_UNESCAPED_UNICODE))) return ['ok' => false, 'error' => 'falha ao salvar'];
-            return ['ok' => true];
-        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
-    }
-}
 
-if (!function_exists('kanpro_notify_global_approver')) {
-    // Define o aprovador global (vazio desliga). Mesma validação da tela de Config.
-    function kanpro_notify_global_approver(string $login): array {
-        try {
-            $login = trim($login);
-            if ($login !== '' && (strpos($login, ' ') !== false || strpos($login, "\n") !== false)) return ['ok' => false, 'error' => 'login inválido'];
-            if (!function_exists('kanpro_config_set')) return ['ok' => false, 'error' => 'indisponível'];
-            if (!kanpro_config_set('zap_approver', $login)) return ['ok' => false, 'error' => 'falha ao salvar'];
-            return ['ok' => true];
-        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
-    }
-}
 
-if (!function_exists('kanpro_notify_user_suggest')) {
-    // Sugestão de usuários do GLPI p/ autocomplete (login + nome).
-    // Filtra em PHP (vale no FakeDB e no GLPI); ignora deletados.
-    // Devolve [['login'=>,'name'=>]...] até $limit. Nunca joga exceção.
-    function kanpro_notify_user_suggest(string $q, int $limit = 50): array {
-        global $DB;
-        $out = [];
-        try {
-            if ($limit <= 0) $limit = 50;
-            if (!isset($DB) || !$DB->tableExists('glpi_users')) return $out;
-            $low = function ($s) {
-                $s = function_exists('mb_strtolower') ? mb_strtolower(trim((string)$s), 'UTF-8') : strtolower(trim((string)$s));
-                return $s;
-            };
-            $q = $low($q);
-            $rows = [];
-            foreach ($DB->request(['SELECT' => ['name', 'realname', 'firstname'], 'FROM' => 'glpi_users', 'WHERE' => ['is_deleted' => 0]]) as $r) $rows[] = $r;
-            if (count($rows) > 200) $rows = array_slice($rows, 0, 200);
-            foreach ($rows as $r) {
-                $login = trim((string)($r['name'] ?? ''));
-                if ($login === '') continue;
-                $display = trim(trim((string)($r['firstname'] ?? '')) . ' ' . trim((string)($r['realname'] ?? '')));
-                if ($display === '') $display = $login;
-                if ($q !== '' && strpos($low($login . ' ' . $display), $q) === false) continue;
-                $out[] = ['login' => $login, 'name' => $display];
-                if (count($out) >= $limit) break;
-            }
-        } catch (Throwable $e) {}
-        return $out;
-    }
-}
-
-if (!function_exists('kanpro_user_login_issue')) {
-    // Diagnóstico p/ mensagem de erro: por que o login não resolve?
-    // Devolve 'não encontrado' | 'inativo' | 'excluído'. Puro p/ testes.
-    function kanpro_user_login_issue(string $login): string {
-        global $DB;
-        try {
-            $login = trim($login);
-            if ($login === '' || !isset($DB) || !$DB->tableExists('glpi_users')) return 'não encontrado';
-            $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['name' => $login], 'LIMIT' => 1])->current();
-            if (!$row && $DB->tableExists('glpi_useremails')) {
-                $em = $DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_useremails', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current();
-                if ($em && (int)($em['users_id'] ?? 0) > 0) {
-                    $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['id' => (int)$em['users_id']], 'LIMIT' => 1])->current();
-                }
-            }
-            if (!$row) {
-                try {
-                    $row = $DB->request(['SELECT' => ['is_deleted', 'is_active'], 'FROM' => 'glpi_users', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current() ?: null;
-                } catch (Throwable $e) { $row = null; }
-            }
-            if (!$row) return 'não encontrado';
-            if (!empty($row['is_deleted'])) return 'excluído';
-            if (array_key_exists('is_active', $row) && $row['is_active'] !== null && !(int)$row['is_active']) return 'inativo';
-            return 'não encontrado';
-        } catch (Throwable $e) { return 'não encontrado'; }
-    }
-}
-
-if (!function_exists('kanpro_resolve_user_by_login')) {
-    function kanpro_resolve_user_by_login(string $login): int {
-        global $DB;
-        $login = trim($login);
-        if ($login === '') return 0;
-        try {
-            $row = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_users', 'WHERE' => ['name' => $login, 'is_deleted' => 0], 'LIMIT' => 1])->current();
-            if ($row) {
-                $u = new User();
-                if ($u->getFromDB((int)$row['id']) && ($u->fields['is_active'] ?? 1)) return (int)$row['id'];
-            }
-            // fallback: e-mail cadastrado
-            if ($DB->tableExists('glpi_useremails')) {
-                $em = $DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_useremails', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current();
-                if ($em) {
-                    $u = new User();
-                    if ($u->getFromDB((int)$em['users_id']) && empty($u->fields['is_deleted']) && ($u->fields['is_active'] ?? 1)) {
-                        return (int)$em['users_id'];
-                    }
-                }
-            }
-        } catch (Throwable $e) {}
-        return 0;
-    }
-}
-
-if (!function_exists('kanpro_migrate_shared_login')) {
-    // Migra registros históricos do login compartilhado para a pessoa real (mapa acima).
-    // Idempotente: roda a cada carga e só mexe no que ainda está no login antigo.
-    // NÃO mexe em boards.users_id (dono gravado na sessão) nem presence (transitório).
-    function kanpro_migrate_shared_login(): array {
-        global $DB;
-        $done = [];
-        try {
-            $map = kanpro_acting_map();
-            foreach ($map as $srcLogin => $dstLogin) {
-                $src = kanpro_resolve_user_by_login((string)$srcLogin);
-                $dst = kanpro_resolve_user_by_login((string)$dstLogin);
-                if ($src <= 0 || $dst <= 0 || $src === $dst) continue;
-                $simple = [
-                    ['glpi_plugin_kanpro_activities', 'users_id'],
-                    ['glpi_plugin_kanpro_cards', 'users_id'],
-                    ['glpi_plugin_kanpro_cards', 'maintenance_by'],
-                    ['glpi_plugin_kanpro_comments', 'users_id'],
-                    ['glpi_plugin_kanpro_attachments', 'users_id'],
-                    ['glpi_plugin_kanpro_maintenance_machines', 'users_id'],
-                    ['glpi_plugin_kanpro_maintenance_notes', 'users_id'],
-                    ['glpi_plugin_kanpro_checklist_items', 'users_id'],
-                    ['glpi_plugin_kanpro_trash', 'users_id'],
-                    ['glpi_plugin_kanpro_templates', 'users_id'],
-                ];
-                foreach ($simple as [$table, $col]) {
-                    if (!$DB->tableExists($table) || !$DB->fieldExists($table, $col)) continue;
-                    $DB->update($table, [$col => $dst], [$col => $src]);
-                }
                 // tabelas com UNIQUE (board,user) e (card,user): transfere ou apaga duplicado
                 foreach ([
                     ['glpi_plugin_kanpro_boards_members', 'plugin_kanpro_boards_id'],
