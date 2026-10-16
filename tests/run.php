@@ -806,4 +806,40 @@ kanpro_test('suggest sem termo lista ativos e respeita limite', function () {
     assert_same(1, count(kanpro_notify_user_suggest('', 1)), 'limite 1 deveria cortar');
 });
 
+kanpro_test('updaterule edita categoria e canais', function () {
+    kanpro_notify_reset();
+    $a = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
+    assert_true(!empty($a['ok']), 'criação deveria passar');
+    $idA = (int)($a['id'] ?? 0);
+    $u = PluginKanproNotifyRule::updateRule($idA, 3, 'andamento', 'ze.regra', false, true);
+    assert_true(!empty($u['ok']), 'update deveria passar: ' . ($u['error'] ?? ''));
+    $rules = PluginKanproNotifyRule::getRulesForBoard(3);
+    assert_same(1, count($rules));
+    assert_same('andamento', $rules[0]['list_category'] ?? null);
+    assert_same(0, (int)($rules[0]['notify_whats'] ?? 1));
+    assert_same(1, (int)($rules[0]['notify_mail'] ?? 0));
+});
+
+kanpro_test('updaterule para combinação duplicada falha', function () {
+    global $DB;
+    kanpro_notify_reset();
+    $a = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, true);
+    assert_true(!empty($a['ok']), 'criação deveria passar');
+    $DB->insert('glpi_users', ['name' => 'outro.user', 'realname' => 'User', 'firstname' => 'Outro', 'phone' => '1133334444', 'mobile' => '', 'email' => 'outro@exemplo.com', 'is_deleted' => 0, 'is_active' => 1]);
+    $b = PluginKanproNotifyRule::addRule(3, 'andamento', 'outro.user', true, true);
+    assert_true(!empty($b['ok']), 'criação deveria passar');
+    $u = PluginKanproNotifyRule::updateRule((int)($b['id'] ?? 0), 3, 'pending', 'ze.regra', true, true);
+    assert_true(empty($u['ok']), 'duplicado deveria falhar');
+});
+
+kanpro_test('updaterule inválido falha', function () {
+    kanpro_notify_reset();
+    assert_true(empty(PluginKanproNotifyRule::updateRule(0, 3, 'pending', 'ze.regra', true, false)['ok']), 'id zero deveria falhar');
+    assert_true(empty(PluginKanproNotifyRule::updateRule(999, 3, 'banana', 'ze.regra', true, false)['ok']), 'categoria ruim deveria falhar');
+    $a = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
+    assert_true(!empty($a['ok']), 'criação deveria passar');
+    assert_true(empty(PluginKanproNotifyRule::updateRule((int)($a['id'] ?? 0), 3, 'pending', 'ninguem', true, false)['ok']), 'usuário inexistente deveria falhar');
+    assert_true(empty(PluginKanproNotifyRule::updateRule((int)($a['id'] ?? 0), 3, 'pending', 'ze.regra', false, false)['ok']), 'sem canal deveria falhar');
+});
+
 exit(kanpro_summary());

@@ -122,6 +122,41 @@ class PluginKanproNotifyRule extends CommonDBTM {
         } catch (Throwable $e) { return $fail($e->getMessage()); }
     }
 
+    /**
+     * Edita regra (categoria, usuário, canais). Colisão com outra regra
+     * (mesmo quadro/categoria/usuário) falha limpo. Mantém entry/digest/ativa.
+     * @return array{ok:bool,warnings?:array<int,string>,error?:string}
+     */
+    static function updateRule(int $id, int $bid, string $category, string $login, bool $whats, bool $mail): array {
+        global $DB;
+        $fail = function (string $e) { return ['ok' => false, 'error' => $e]; };
+        try {
+            if ($id <= 0 || $bid <= 0) return $fail('Regra inválida');
+            $cat = function_exists('kanpro_valid_list_type') ? kanpro_valid_list_type($category) : trim(strtolower($category));
+            if ($cat === '' || $cat === 'none') return $fail('Categoria inválida');
+            if (!$whats && !$mail) return $fail('Escolha ao menos um canal (WhatsApp ou e-mail)');
+            if (!isset($DB) || !$DB->tableExists(self::TABLE)) return $fail('Tabela indisponível');
+            $cur = $DB->request(['FROM' => self::TABLE, 'WHERE' => ['id' => $id, 'plugin_kanpro_boards_id' => $bid], 'LIMIT' => 1])->current();
+            if (!$cur) return $fail('Regra não encontrada');
+            $u = self::resolveUser($login);
+            if ($u === null) return $fail('Usuário GLPI não encontrado');
+            $clash = $DB->request(['SELECT' => ['id'], 'FROM' => self::TABLE, 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'list_category' => $cat, 'users_id' => $u['users_id']], 'LIMIT' => 1])->current();
+            if ($clash && (int)($clash['id'] ?? 0) !== $id) return $fail('Já existe regra igual (mesmo quadro, categoria e usuário)');
+            $warnings = [];
+            if ($whats && trim($u['phone']) === '') $warnings[] = 'sem telefone';
+            if ($mail && trim($u['email']) === '') $warnings[] = 'sem e-mail';
+            $DB->update(self::TABLE, [
+                'list_category' => $cat,
+                'users_id' => $u['users_id'],
+                'login' => $u['login'],
+                'notify_whats' => $whats ? 1 : 0,
+                'notify_mail' => $mail ? 1 : 0,
+                'date_mod' => date('Y-m-d H:i:s'),
+            ], ['id' => $id]);
+            return ['ok' => true, 'warnings' => $warnings];
+        } catch (Throwable $e) { return $fail($e->getMessage()); }
+    }
+
     static function deleteRule(int $id, int $bid): array {
         global $DB;
         try {

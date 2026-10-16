@@ -661,7 +661,8 @@ class PluginKanproBoard extends CommonDBTM {
                 echo "<table style='width:100%;border-collapse:collapse;font-size:13px'>";
                 foreach ($nrules as $nr) {
                     $rid = (int)($nr['id'] ?? 0);
-                    $rcat = function_exists('kanpro_list_type_label') ? kanpro_list_type_label((string)($nr['list_category'] ?? '')) : (string)($nr['list_category'] ?? '');
+                    $rcatRaw = (string)($nr['list_category'] ?? '');
+                    $rcat = function_exists('kanpro_list_type_label') ? kanpro_list_type_label($rcatRaw) : $rcatRaw;
                     if ($rcat === '') $rcat = (string)($nr['list_category'] ?? '');
                     $rlogin = htmlspecialchars((string)($nr['login'] ?? ''), ENT_QUOTES);
                     $chn = [];
@@ -672,6 +673,7 @@ class PluginKanproBoard extends CommonDBTM {
                     echo "<td style='padding:6px 4px'><strong>" . htmlspecialchars($rcat, ENT_QUOTES) . "</strong><br><small style='color:#5e6c84'>" . $rlogin . "</small></td>";
                     echo "<td style='padding:6px 4px'>" . htmlspecialchars(implode(' + ', $chn), ENT_QUOTES) . "<br><small style='color:" . ($on ? '#067647' : '#97460c') . "'>" . ($on ? 'ativa' : 'pausada') . "</small></td>";
                     echo "<td style='padding:6px 4px;text-align:right;white-space:nowrap'>";
+                    echo "<button type='button' data-nredit='" . $rid . "' data-nrcat='" . htmlspecialchars($rcatRaw, ENT_QUOTES) . "' data-nrlogin='" . $rlogin . "' data-nrwhats='" . (!empty($nr['notify_whats']) ? '1' : '0') . "' data-nrmail='" . (!empty($nr['notify_mail']) ? '1' : '0') . "' class='btn btn-sm'>Editar</button> ";
                     echo "<button type='button' data-nr-toggle='" . $rid . "' data-nr-on='" . ($on ? '0' : '1') . "' class='btn btn-sm'>" . ($on ? 'Pausar' : 'Ativar') . "</button> ";
                     echo "<button type='button' data-nr-del='" . $rid . "' class='btn btn-sm btn-danger'>Excluir</button>";
                     echo "</td></tr>";
@@ -691,6 +693,12 @@ class PluginKanproBoard extends CommonDBTM {
             echo "<label style='display:flex;align-items:center;gap:4px'><input type='checkbox' id='kanpro-nr-mail'> ✉️</label>";
             echo "<button type='button' id='kanpro-nr-add' class='btn btn-primary'>Adicionar</button>";
             echo "</div><small style='color:#5e6c84'>Aviso imediato + resumo nos canais marcados. Sem telefone/e-mail no GLPI, o canal é pulado.</small>";
+            echo "<select id='kanpro-nr-cats-all' style='display:none'>";
+            foreach ($ncats as $nc) {
+                $nl = function_exists('kanpro_list_type_label') ? kanpro_list_type_label($nc) : $nc;
+                echo "<option value='" . $nc . "'>" . htmlspecialchars($nl, ENT_QUOTES) . "</option>";
+            }
+            echo "</select>";
             echo "<script>(function(){";
             echo "function kptok(){var el=document.querySelector('input[name=\"_glpi_csrf_token\"]');return el?el.value:'';}";
             echo "function kppost(action,params){var fd=new FormData();fd.append('action',action);for(var k in params)fd.append(k,params[k]);var t=kptok();if(t)fd.append('_glpi_csrf_token',t);";
@@ -704,6 +712,31 @@ class PluginKanproBoard extends CommonDBTM {
             echo 'function kgload(q){var fd=new FormData();fd.append("action","notify_users");fd.append("boards_id",bid);fd.append("q",q);var el=document.querySelector("input[name=\"_glpi_csrf_token\"]");var t=el?el.value:"";if(t)fd.append("_glpi_csrf_token",t);fetch("ajax.php",{method:"POST",body:fd,credentials:"same-origin"}).then(function(r){return r.json();}).then(function(j){if(j&&j.success)kgrender(j.users||[]);}).catch(function(){});}';
             echo 'inp.addEventListener("focus",function(){kgload("");});inp.addEventListener("input",function(){var v=inp.value;if(timer)clearTimeout(timer);timer=setTimeout(function(){kgload(v);},200);});document.addEventListener("click",function(e){if(box&&!box.contains(e.target)&&e.target!==inp)kgclose();});}';
             echo 'kgac("kanpro-nr-login","' . (int)$ID . '");';
+            echo "document.querySelectorAll('[data-nredit]').forEach(function(b){b.addEventListener('click',function(){kpRuleModal(b);});});";
+            echo "function kpRuleModal(btn){";
+            echo "var rid=btn.getAttribute('data-nredit'),rcat=btn.getAttribute('data-nrcat'),rlogin=btn.getAttribute('data-nrlogin'),rw=btn.getAttribute('data-nrwhats')==='1',rm=btn.getAttribute('data-nrmail')==='1';";
+            echo "var old=document.getElementById('kp-rule-overlay');if(old)old.remove();";
+            echo "var ov=document.createElement('div');ov.id='kp-rule-overlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';";
+            echo "var box=document.createElement('div');box.style.cssText='background:#fff;border-radius:10px;padding:18px;width:380px;max-width:92vw;box-shadow:0 8px 30px rgba(0,0,0,.3)';";
+            echo "var h=document.createElement('div');h.textContent='Editar regra';h.style.cssText='font-weight:700;font-size:15px;margin-bottom:12px';box.appendChild(h);";
+            echo "function kpRow(label){var r=document.createElement('div');r.style.cssText='margin-bottom:10px';var l=document.createElement('div');l.textContent=label;l.style.cssText='font-size:12px;color:#5e6c84;margin-bottom:4px';r.appendChild(l);return r;}";
+            echo "var r1=kpRow('Categoria'),sel=document.createElement('select');sel.style.cssText='width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box';sel.innerHTML=document.getElementById('kanpro-nr-cats-all').innerHTML;sel.value=rcat;r1.appendChild(sel);box.appendChild(r1);";
+            echo "var r2=kpRow('Usuário (login)'),lin=document.createElement('input');lin.id='kp-rule-login';lin.value=rlogin||'';lin.placeholder='login do usuário';lin.style.cssText='width:100%;padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;box-sizing:border-box';r2.appendChild(lin);box.appendChild(r2);";
+            echo "var r3=document.createElement('div');r3.style.cssText='display:flex;gap:12px;margin-bottom:14px;font-size:13px';";
+            echo "var lw=document.createElement('label');lw.style.cssText='display:flex;align-items:center;gap:4px';var cw=document.createElement('input');cw.type='checkbox';cw.checked=rw;lw.appendChild(cw);lw.appendChild(document.createTextNode('📲 WhatsApp'));";
+            echo "var lm=document.createElement('label');lm.style.cssText='display:flex;align-items:center;gap:4px';var cm=document.createElement('input');cm.type='checkbox';cm.checked=rm;lm.appendChild(cm);lm.appendChild(document.createTextNode('✉️ E-mail'));";
+            echo "r3.appendChild(lw);r3.appendChild(lm);box.appendChild(r3);";
+            echo "var r4=document.createElement('div');r4.style.cssText='display:flex;gap:8px;justify-content:flex-end';";
+            echo "var bc=document.createElement('button');bc.type='button';bc.textContent='Cancelar';bc.className='btn';bc.addEventListener('click',kpRuleClose);";
+            echo "var bs=document.createElement('button');bs.type='button';bs.textContent='Salvar';bs.className='btn btn-primary';bs.addEventListener('click',function(){kppost('notify_rule_update',{boards_id:'" . (int)$ID . "',id:rid,category:sel.value,login:lin.value,whats:cw.checked?'1':'',mail:cm.checked?'1':''});});";
+            echo "r4.appendChild(bc);r4.appendChild(bs);box.appendChild(r4);";
+            echo "ov.appendChild(box);document.body.appendChild(ov);";
+            echo "ov.addEventListener('click',function(e){if(e.target===ov)kpRuleClose();});";
+            echo "document.addEventListener('keydown',kpRuleEsc);";
+            echo "kgac('kp-rule-login','" . (int)$ID . "');";
+            echo "}";
+            echo "function kpRuleClose(){var o=document.getElementById('kp-rule-overlay');if(o)o.remove();document.removeEventListener('keydown',kpRuleEsc);}";
+            echo "function kpRuleEsc(e){if(e.key==='Escape')kpRuleClose();}";
             echo "})();</script>";
             echo "</td></tr>";
         }

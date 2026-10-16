@@ -4173,6 +4173,17 @@ switch ($action) {
         if (empty($nrtg['ok'])) jexit(['success'=>false,'msg'=>(string)($nrtg['error'] ?? 'falha')]);
         jexit(['success'=>true]);
 
+    case 'notify_rule_update':
+        // Central de notificações: edita regra (categoria, usuário, canais).
+        needEdit();
+        $nruBid = (int)($_POST['boards_id'] ?? 0);
+        kanpro_require_board_edit($nruBid);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($nruBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
+        $nru = PluginKanproNotifyRule::updateRule((int)($_POST['id'] ?? 0), $nruBid, (string)($_POST['category'] ?? ''), (string)($_POST['login'] ?? ''), !empty($_POST['whats']), !empty($_POST['mail']));
+        if (empty($nru['ok'])) jexit(['success'=>false,'msg'=>(string)($nru['error'] ?? 'falha')]);
+        jexit(['success'=>true,'warnings'=>$nru['warnings'] ?? []]);
+
     case 'notify_global_add':
         // Central de notificações: adiciona login à lista global.
         needEdit();
