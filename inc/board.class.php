@@ -703,17 +703,40 @@ class PluginKanproBoard extends CommonDBTM {
             echo "</td></tr>";
         }
 
-        // Avisos globais (somente leitura — gerencia em KanPro > Configurações)
+        // Avisos globais (editável aqui — vale p/ todos os quadros)
         if (!$is_new && function_exists('kanpro_notify_global_summary')) {
             $gsum = kanpro_notify_global_summary();
+            $glabels = ['zap_chamado_recipients' => 'Chamado/Pendente', 'zap_reminder_recipients' => 'Lembrete 8/10/13h'];
             echo "<tr class='tab_bg_1'>";
             echo "<td>📢 Avisos globais<br><small style='color:#6b778c'>Valem p/ todos os quadros</small></td><td colspan='3'>";
-            echo "<small style='color:#5e6c84'>";
-            echo "Chamado/Pendente: <strong>" . count($gsum['chamado_recipients']) . "</strong> destinatário(s)";
-            if (trim((string)($gsum['approver'] ?? '')) !== '') echo " • Aprovador: <strong>" . htmlspecialchars((string)$gsum['approver'], ENT_QUOTES) . "</strong>";
-            echo " • Lembrete " . htmlspecialchars(implode('/', $gsum['lembrete_slots']), ENT_QUOTES) . "h: <strong>" . count($gsum['lembrete_recipients']) . "</strong> destinatário(s)";
-            echo " — <a href='config.form.php'>ajustar em Configurações</a>. Convivem com as regras acima.";
-            echo "</small>";
+            foreach ($glabels as $gkey => $glabel) {
+                $glist = $gsum[($gkey === 'zap_chamado_recipients') ? 'chamado_recipients' : 'lembrete_recipients'] ?? [];
+                if (!is_array($glist)) $glist = [];
+                echo "<div style='margin-bottom:8px'><strong style='font-size:13px'>" . $glabel . "</strong> ";
+                if (empty($glist)) echo "<small style='color:#5e6c84'>— ninguém</small> ";
+                foreach ($glist as $gm) {
+                    $gmh = htmlspecialchars((string)$gm, ENT_QUOTES);
+                    echo "<span style='display:inline-block;background:#eef1f5;border-radius:10px;padding:2px 4px 2px 8px;margin:2px;font-size:12px'>" . $gmh . " ";
+                    echo "<button type='button' data-gedit='" . $gkey . "' data-glogin='" . $gmh . "' title='Editar' style='border:0;background:none;cursor:pointer'>✏️</button>";
+                    echo "<button type='button' data-gdel='" . $gkey . "' data-glogin='" . $gmh . "' title='Remover' style='border:0;background:none;cursor:pointer'>×</button></span> ";
+                }
+                echo "<br><input id='kanpro-g-in-" . $gkey . "' placeholder='login' style='padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px'> ";
+                echo "<button type='button' data-gadd='" . $gkey . "' class='btn btn-sm'>Adicionar</button></div>";
+            }
+            $gappr = trim((string)($gsum['approver'] ?? ''));
+            echo "<div style='margin-bottom:4px'><strong style='font-size:13px'>Aprovador</strong> ";
+            echo "<input id='kanpro-g-approver' value='" . htmlspecialchars($gappr, ENT_QUOTES) . "' placeholder='login ou e-mail (vazio desliga)' style='padding:4px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;width:260px;max-width:100%'> ";
+            echo "<button type='button' id='kanpro-g-approver-save' class='btn btn-sm'>Salvar</button></div>";
+            echo "<small style='color:#5e6c84'>Convivem com as regras acima. Também editável em <a href='config.form.php'>Configurações</a>.</small>";
+            echo "<script>(function(){";
+            echo "var BID='" . (int)$ID . "';";
+            echo "function kgpost(action,params,done){var fd=new FormData();fd.append('action',action);for(var k in params)fd.append(k,params[k]);var el=document.querySelector('input[name=\"_glpi_csrf_token\"]');var t=el?el.value:'';if(t)fd.append('_glpi_csrf_token',t);";
+            echo "fetch('ajax.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){if(done){done(j);}else if(j&&j.success){location.reload();}else{alert((j&&j.msg)||'Falha');}}).catch(function(){alert('Falha de rede');});}";
+            echo "document.querySelectorAll('[data-gadd]').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-gadd');var inp=document.getElementById('kanpro-g-in-'+k);kgpost('notify_global_add',{boards_id:BID,key:k,login:inp?inp.value:''});});});";
+            echo "document.querySelectorAll('[data-gdel]').forEach(function(b){b.addEventListener('click',function(){if(confirm('Remover '+b.getAttribute('data-glogin')+'?'))kgpost('notify_global_del',{boards_id:BID,key:b.getAttribute('data-gdel'),login:b.getAttribute('data-glogin')});});});";
+            echo "document.querySelectorAll('[data-gedit]').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-gedit');var old=b.getAttribute('data-glogin');var nw=prompt('Novo login:',old);if(nw===null)return;nw=nw.trim();if(nw===''||nw===old)return;kgpost('notify_global_add',{boards_id:BID,key:k,login:nw},function(j){if(j&&j.success){kgpost('notify_global_del',{boards_id:BID,key:k,login:old});}else{alert((j&&j.msg)||'Falha');}});});});";
+            echo "var asv=document.getElementById('kanpro-g-approver-save');if(asv)asv.addEventListener('click',function(){var inp=document.getElementById('kanpro-g-approver');kgpost('notify_global_approver',{boards_id:BID,login:inp?inp.value:''});});";
+            echo "})();</script>";
             echo "</td></tr>";
         }
 

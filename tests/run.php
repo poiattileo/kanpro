@@ -738,4 +738,46 @@ kanpro_test('migracao é idempotente', function () {
     assert_same([], $r2['moved'] ?? null, 'segunda rodada não deveria mover ninguém');
 });
 
+function kanpro_greset(): void {
+    global $DB;
+    $DB->createTable('glpi_plugin_kanpro_configs');
+    $DB->delete('glpi_plugin_kanpro_configs', []);
+}
+
+kanpro_test('global add anexa sem duplicar', function () {
+    kanpro_greset();
+    $a = kanpro_notify_global_add('zap_chamado_recipients', 'ze.regra');
+    assert_true(!empty($a['ok']), 'add deveria passar');
+    $b = kanpro_notify_global_add('zap_chamado_recipients', 'ze.regra');
+    assert_true(!empty($b['ok']), 're-add deveria passar');
+    assert_same(['ze.regra'], json_decode(kanpro_config_get('zap_chamado_recipients', ''), true), 'não deveria duplicar');
+});
+
+kanpro_test('global add rejeita inválido e chave estranha', function () {
+    kanpro_greset();
+    assert_true(empty(kanpro_notify_global_add('zap_chamado_recipients', 'nome com espaco')['ok']), 'com espaço deveria falhar');
+    assert_true(empty(kanpro_notify_global_add('zap_chamado_recipients', '')['ok']), 'vazio deveria falhar');
+    assert_true(empty(kanpro_notify_global_add('chave_qualquer', 'ze.regra')['ok']), 'chave estranha deveria falhar');
+});
+
+kanpro_test('global del remove e ausente falha', function () {
+    kanpro_greset();
+    kanpro_notify_global_add('zap_reminder_recipients', 'ze.regra');
+    $d = kanpro_notify_global_del('zap_reminder_recipients', 'ze.regra');
+    assert_true(!empty($d['ok']), 'del deveria passar');
+    assert_same([], json_decode(kanpro_config_get('zap_reminder_recipients', ''), true), 'deveria esvaziar');
+    assert_true(empty(kanpro_notify_global_del('zap_reminder_recipients', 'ze.regra')['ok']), 'del repetido deveria falhar');
+});
+
+kanpro_test('global approver salva e limpa', function () {
+    kanpro_greset();
+    $s = kanpro_notify_global_approver('chefia@exemplo.com');
+    assert_true(!empty($s['ok']), 'save deveria passar');
+    assert_same('chefia@exemplo.com', kanpro_config_get('zap_approver', ''));
+    assert_true(empty(kanpro_notify_global_approver('nome com espaco')['ok']), 'com espaço deveria falhar');
+    $c = kanpro_notify_global_approver('');
+    assert_true(!empty($c['ok']), 'limpar deveria passar');
+    assert_same('', kanpro_config_get('zap_approver', ''));
+});
+
 exit(kanpro_summary());

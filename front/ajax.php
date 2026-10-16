@@ -4171,6 +4171,37 @@ switch ($action) {
         if (empty($nrtg['ok'])) jexit(['success'=>false,'msg'=>(string)($nrtg['error'] ?? 'falha')]);
         jexit(['success'=>true]);
 
+    case 'notify_global_add':
+        // Central de notificações: adiciona login à lista global.
+        needEdit();
+        $ggBid = (int)($_POST['boards_id'] ?? 0);
+        kanpro_require_board_edit($ggBid);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($ggBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!function_exists('kanpro_notify_global_add')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
+        $gga = kanpro_notify_global_add((string)($_POST['key'] ?? ''), (string)($_POST['login'] ?? ''));
+        if (empty($gga['ok'])) jexit(['success'=>false,'msg'=>(string)($gga['error'] ?? 'falha')]);
+        jexit(['success'=>true]);
+
+    case 'notify_global_del':
+        needEdit();
+        $ggBid = (int)($_POST['boards_id'] ?? 0);
+        kanpro_require_board_edit($ggBid);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($ggBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!function_exists('kanpro_notify_global_del')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
+        $ggd = kanpro_notify_global_del((string)($_POST['key'] ?? ''), (string)($_POST['login'] ?? ''));
+        if (empty($ggd['ok'])) jexit(['success'=>false,'msg'=>(string)($ggd['error'] ?? 'falha')]);
+        jexit(['success'=>true]);
+
+    case 'notify_global_approver':
+        needEdit();
+        $ggBid = (int)($_POST['boards_id'] ?? 0);
+        kanpro_require_board_edit($ggBid);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($ggBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!function_exists('kanpro_notify_global_approver')) jexit(['success'=>false,'msg'=>'Recurso indisponível']);
+        $ggp = kanpro_notify_global_approver((string)($_POST['login'] ?? ''));
+        if (empty($ggp['ok'])) jexit(['success'=>false,'msg'=>(string)($ggp['error'] ?? 'falha')]);
+        jexit(['success'=>true]);
+
     case 'devolve_card':
         $cid = (int)($_POST['cards_id'] ?? 0);
         $c = new PluginKanproCard();

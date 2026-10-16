@@ -382,6 +382,75 @@ if (!function_exists('kanpro_migrate_chamado_recipients_to_rules')) {
     }
 }
 
+if (!function_exists('kanpro_notify_global_keys')) {
+    // Chaves de config editáveis na central (listas de destinatários).
+    function kanpro_notify_global_keys(): array {
+        return ['zap_chamado_recipients', 'zap_reminder_recipients'];
+    }
+}
+
+if (!function_exists('kanpro_notify_global_add')) {
+    // Anexa login à lista global (sem duplicar). Mesma validação da tela de Config.
+    function kanpro_notify_global_add(string $key, string $login): array {
+        try {
+            if (!in_array($key, kanpro_notify_global_keys(), true)) return ['ok' => false, 'error' => 'lista inválida'];
+            $login = trim($login);
+            if ($login === '' || strpos($login, ' ') !== false || strpos($login, "\n") !== false) return ['ok' => false, 'error' => 'login inválido'];
+            if (!function_exists('kanpro_config_get') || !function_exists('kanpro_config_set')) return ['ok' => false, 'error' => 'indisponível'];
+            $cur = [];
+            $dec = json_decode((string)kanpro_config_get($key, ''), true);
+            if (is_array($dec)) {
+                foreach ($dec as $v) {
+                    $v = trim((string)$v);
+                    if ($v !== '') $cur[] = $v;
+                }
+            }
+            if (!in_array($login, $cur, true)) {
+                $cur[] = $login;
+                if (!kanpro_config_set($key, (string)json_encode(array_values($cur), JSON_UNESCAPED_UNICODE))) return ['ok' => false, 'error' => 'falha ao salvar'];
+            }
+            return ['ok' => true];
+        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
+    }
+}
+
+if (!function_exists('kanpro_notify_global_del')) {
+    // Remove login da lista global. Falha se não existir.
+    function kanpro_notify_global_del(string $key, string $login): array {
+        try {
+            if (!in_array($key, kanpro_notify_global_keys(), true)) return ['ok' => false, 'error' => 'lista inválida'];
+            $login = trim($login);
+            if ($login === '') return ['ok' => false, 'error' => 'login inválido'];
+            if (!function_exists('kanpro_config_get') || !function_exists('kanpro_config_set')) return ['ok' => false, 'error' => 'indisponível'];
+            $cur = [];
+            $dec = json_decode((string)kanpro_config_get($key, ''), true);
+            if (is_array($dec)) {
+                foreach ($dec as $v) {
+                    $v = trim((string)$v);
+                    if ($v !== '') $cur[] = $v;
+                }
+            }
+            if (!in_array($login, $cur, true)) return ['ok' => false, 'error' => 'não encontrado'];
+            $cur = array_values(array_diff($cur, [$login]));
+            if (!kanpro_config_set($key, (string)json_encode($cur, JSON_UNESCAPED_UNICODE))) return ['ok' => false, 'error' => 'falha ao salvar'];
+            return ['ok' => true];
+        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
+    }
+}
+
+if (!function_exists('kanpro_notify_global_approver')) {
+    // Define o aprovador global (vazio desliga). Mesma validação da tela de Config.
+    function kanpro_notify_global_approver(string $login): array {
+        try {
+            $login = trim($login);
+            if ($login !== '' && (strpos($login, ' ') !== false || strpos($login, "\n") !== false)) return ['ok' => false, 'error' => 'login inválido'];
+            if (!function_exists('kanpro_config_set')) return ['ok' => false, 'error' => 'indisponível'];
+            if (!kanpro_config_set('zap_approver', $login)) return ['ok' => false, 'error' => 'falha ao salvar'];
+            return ['ok' => true];
+        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;
