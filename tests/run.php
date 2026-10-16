@@ -544,4 +544,40 @@ kanpro_test('notifyrule addRule duplicado reativa o mesmo id', function () {
     assert_same(1, (int)$rules[0]['is_active'], 'deveria reativar');
 });
 
+kanpro_test('notifyrule addRule login vazio falha', function () {
+    kanpro_notify_reset();
+    $r = PluginKanproNotifyRule::addRule(3, 'pending', '   ', true, false);
+    assert_true(empty($r['ok']), 'login vazio deveria falhar');
+});
+
+kanpro_test('notifyrule addRule sem telefone avisa mas salva', function () {
+    global $DB;
+    kanpro_notify_reset();
+    $DB->insert('glpi_users', ['name' => 'sem.fone', 'realname' => 'Fone', 'firstname' => 'Sem', 'phone' => '', 'mobile' => '', 'email' => 'sem.fone@exemplo.com', 'is_deleted' => 0, 'is_active' => 1]);
+    $r = PluginKanproNotifyRule::addRule(3, 'pending', 'sem.fone', true, false);
+    assert_true(!empty($r['ok']), 'deveria salvar com aviso');
+    assert_true(in_array('sem telefone', $r['warnings'] ?? [], true), 'deveria avisar sem telefone');
+});
+
+kanpro_test('notify_rule_parse login vazio falha', function () {
+    $r = kanpro_notify_rule_parse(['boards_id' => 3, 'category' => 'pending', 'login' => '  ', 'whats' => '1']);
+    assert_true(empty($r['ok']), 'login vazio deveria falhar');
+});
+
+kanpro_test('notify_rule_parse normaliza categoria e canais', function () {
+    $r = kanpro_notify_rule_parse(['boards_id' => '3', 'category' => 'PENDING', 'login' => ' ze.regra ', 'whats' => '1']);
+    assert_true(!empty($r['ok']), 'parse válido deveria passar');
+    assert_same(3, $r['bid']);
+    assert_same('pending', $r['category']);
+    assert_same('ze.regra', $r['login']);
+    assert_same(true, $r['whats']);
+    assert_same(false, $r['mail']);
+});
+
+kanpro_test('list_type_label cobre pending e rejeita desconhecido', function () {
+    assert_same('Pendente', kanpro_list_type_label('pending'));
+    assert_same('Chamados Espera', kanpro_list_type_label('chamados_espera'));
+    assert_same('', kanpro_list_type_label('banana'));
+});
+
 exit(kanpro_summary());

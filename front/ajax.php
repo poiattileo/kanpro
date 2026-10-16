@@ -4128,6 +4128,40 @@ switch ($action) {
         }
         jexit(['success'=>true]);
 
+    case 'notify_rule_add':
+        // Central de notificações: adiciona regra (quadro + categoria + usuário + canais).
+        needEdit();
+        $nrp = function_exists('kanpro_notify_rule_parse') ? kanpro_notify_rule_parse($_POST) : ['ok' => false, 'error' => 'indisponível'];
+        if (empty($nrp['ok'])) jexit(['success'=>false,'msg'=>(string)($nrp['error'] ?? 'dados inválidos')]);
+        kanpro_require_board_edit((int)$nrp['bid']);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members((int)$nrp['bid'])) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
+        $nrres = PluginKanproNotifyRule::addRule((int)$nrp['bid'], (string)$nrp['category'], (string)$nrp['login'], !empty($nrp['whats']), !empty($nrp['mail']));
+        if (empty($nrres['ok'])) jexit(['success'=>false,'msg'=>(string)($nrres['error'] ?? 'falha')]);
+        jexit(['success'=>true,'id'=>(int)($nrres['id'] ?? 0),'warnings'=>$nrres['warnings'] ?? []]);
+
+    case 'notify_rule_del':
+        needEdit();
+        $nrBid = (int)($_POST['boards_id'] ?? 0);
+        $nrId = (int)($_POST['id'] ?? 0);
+        kanpro_require_board_edit($nrBid);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($nrBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
+        $nrdel = PluginKanproNotifyRule::deleteRule($nrId, $nrBid);
+        if (empty($nrdel['ok'])) jexit(['success'=>false,'msg'=>(string)($nrdel['error'] ?? 'falha')]);
+        jexit(['success'=>true]);
+
+    case 'notify_rule_toggle':
+        needEdit();
+        $nrBid = (int)($_POST['boards_id'] ?? 0);
+        $nrId = (int)($_POST['id'] ?? 0);
+        kanpro_require_board_edit($nrBid);
+        if (function_exists('kanpro_can_manage_members') && !kanpro_can_manage_members($nrBid)) jexit(['success'=>false,'msg'=>'Só quem gerencia o quadro mexe nas notificações.']);
+        if (!class_exists('PluginKanproNotifyRule')) jexit(['success'=>false,'msg'=>'Regras indisponíveis']);
+        $nrtg = PluginKanproNotifyRule::setActive($nrId, $nrBid, !empty($_POST['on']));
+        if (empty($nrtg['ok'])) jexit(['success'=>false,'msg'=>(string)($nrtg['error'] ?? 'falha')]);
+        jexit(['success'=>true]);
+
     case 'devolve_card':
         $cid = (int)($_POST['cards_id'] ?? 0);
         $c = new PluginKanproCard();

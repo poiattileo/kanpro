@@ -218,6 +218,39 @@ if (!function_exists('kanpro_valid_list_type')) {
     }
 }
 
+if (!function_exists('kanpro_list_type_label')) {
+    // Rótulo PT-BR da categoria de lista (p/ selects e tabelas). '' = desconhecida.
+    function kanpro_list_type_label(string $t): string {
+        $t = function_exists('kanpro_valid_list_type') ? kanpro_valid_list_type($t) : trim(strtolower($t));
+        $map = [
+            'backlog' => 'Pautas futuras', 'todo' => 'A Fazer', 'doing' => 'Em Progresso',
+            'done' => 'Concluído', 'awaiting' => 'Aguardando Chegada', 'pending' => 'Pendente',
+            'andamento' => 'Em Andamento', 'retirada' => 'Retirada',
+            'pend_chamado' => 'Pendência Chamado', 'chamados_pendencia' => 'Chamados Pendencia',
+            'chamados_espera' => 'Chamados Espera', 'abrir_chamado' => 'Abrir chamado',
+            'andamento_chamado' => 'Em Andamento Chamado', 'chamado_finalizado' => 'Chamado finalizado',
+        ];
+        return $map[$t] ?? '';
+    }
+}
+
+if (!function_exists('kanpro_notify_rule_parse')) {
+    // Valida/normaliza o POST do mini-form de regras (puro, testável).
+    // Devolve ['ok'=>true,'bid','category','login','whats','mail'] ou ['ok'=>false,'error'].
+    function kanpro_notify_rule_parse(array $in): array {
+        $bid = (int)($in['boards_id'] ?? $in['bid'] ?? 0);
+        $cat = function_exists('kanpro_valid_list_type') ? kanpro_valid_list_type((string)($in['category'] ?? '')) : trim(strtolower((string)($in['category'] ?? '')));
+        $login = trim((string)($in['login'] ?? ''));
+        $whats = !empty($in['whats']);
+        $mail = !empty($in['mail']);
+        if ($bid <= 0) return ['ok' => false, 'error' => 'Quadro inválido'];
+        if ($cat === '' || $cat === 'none') return ['ok' => false, 'error' => 'Categoria inválida'];
+        if ($login === '') return ['ok' => false, 'error' => 'Informe o login do usuário'];
+        if (!$whats && !$mail) return ['ok' => false, 'error' => 'Escolha ao menos um canal'];
+        return ['ok' => true, 'bid' => $bid, 'category' => $cat, 'login' => $login, 'whats' => $whats, 'mail' => $mail];
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;

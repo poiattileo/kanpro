@@ -648,6 +648,61 @@ class PluginKanproBoard extends CommonDBTM {
         echo "<small style='color:#5e6c84'>Quando ligada, Membro ou Admin vê botão no topo do quadro que envia WhatsApp{$apprBoardTxt}: \"No quadro (NOME) tem alterações realizadas para voce verificar\".</small>";
         echo "</td></tr>";
 
+        // Central de notificações por categoria (regras: quem avisar e por onde)
+        if (!$is_new && class_exists('PluginKanproNotifyRule')) {
+            $nrules = PluginKanproNotifyRule::getRulesForBoard((int)$ID);
+            $ncats = ['backlog','todo','doing','done','awaiting','pending','andamento','retirada','pend_chamado','chamados_pendencia','chamados_espera','abrir_chamado','andamento_chamado','chamado_finalizado'];
+            echo "<tr class='tab_bg_1'>";
+            echo "<td>🔔 Notificações<br><small style='color:#6b778c'>Por categoria: card novo avisa na hora + resumo 8/10/13/15h</small></td><td colspan='3'>";
+            echo "<div id='kanpro-notify-list'>";
+            if (empty($nrules)) {
+                echo "<small style='color:#5e6c84'>Nenhuma regra — adicione abaixo quem avisar por categoria.</small>";
+            } else {
+                echo "<table style='width:100%;border-collapse:collapse;font-size:13px'>";
+                foreach ($nrules as $nr) {
+                    $rid = (int)($nr['id'] ?? 0);
+                    $rcat = function_exists('kanpro_list_type_label') ? kanpro_list_type_label((string)($nr['list_category'] ?? '')) : (string)($nr['list_category'] ?? '');
+                    if ($rcat === '') $rcat = (string)($nr['list_category'] ?? '');
+                    $rlogin = htmlspecialchars((string)($nr['login'] ?? ''), ENT_QUOTES);
+                    $chn = [];
+                    if (!empty($nr['notify_whats'])) $chn[] = '📲 Whats';
+                    if (!empty($nr['notify_mail'])) $chn[] = '✉️ E-mail';
+                    $on = !empty($nr['is_active']);
+                    echo "<tr style='border-top:1px solid #dfe1e6'>";
+                    echo "<td style='padding:6px 4px'><strong>" . htmlspecialchars($rcat, ENT_QUOTES) . "</strong><br><small style='color:#5e6c84'>" . $rlogin . "</small></td>";
+                    echo "<td style='padding:6px 4px'>" . htmlspecialchars(implode(' + ', $chn), ENT_QUOTES) . "<br><small style='color:" . ($on ? '#067647' : '#97460c') . "'>" . ($on ? 'ativa' : 'pausada') . "</small></td>";
+                    echo "<td style='padding:6px 4px;text-align:right;white-space:nowrap'>";
+                    echo "<button type='button' data-nr-toggle='" . $rid . "' data-nr-on='" . ($on ? '0' : '1') . "' class='btn btn-sm'>" . ($on ? 'Pausar' : 'Ativar') . "</button> ";
+                    echo "<button type='button' data-nr-del='" . $rid . "' class='btn btn-sm btn-danger'>Excluir</button>";
+                    echo "</td></tr>";
+                }
+                echo "</table>";
+            }
+            echo "</div>";
+            echo "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center'>";
+            echo "<select id='kanpro-nr-cat' style='padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px'>";
+            foreach ($ncats as $nc) {
+                $nl = function_exists('kanpro_list_type_label') ? kanpro_list_type_label($nc) : $nc;
+                echo "<option value='" . $nc . "'>" . htmlspecialchars($nl, ENT_QUOTES) . "</option>";
+            }
+            echo "</select>";
+            echo "<input id='kanpro-nr-login' placeholder='login do usuário' style='padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px'>";
+            echo "<label style='display:flex;align-items:center;gap:4px'><input type='checkbox' id='kanpro-nr-whats' checked> 📲</label>";
+            echo "<label style='display:flex;align-items:center;gap:4px'><input type='checkbox' id='kanpro-nr-mail'> ✉️</label>";
+            echo "<button type='button' id='kanpro-nr-add' class='btn btn-primary'>Adicionar</button>";
+            echo "</div><small style='color:#5e6c84'>Aviso imediato + resumo nos canais marcados. Sem telefone/e-mail no GLPI, o canal é pulado.</small>";
+            echo "<script>(function(){";
+            echo "function kptok(){var el=document.querySelector('input[name=\"_glpi_csrf_token\"]');return el?el.value:'';}";
+            echo "function kppost(action,params){var fd=new FormData();fd.append('action',action);for(var k in params)fd.append(k,params[k]);var t=kptok();if(t)fd.append('_glpi_csrf_token',t);";
+            echo "fetch('ajax.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(j){if(j&&j.success){location.reload();}else{alert((j&&j.msg)||'Falha');}}).catch(function(){alert('Falha de rede');});}";
+            echo "var add=document.getElementById('kanpro-nr-add');";
+            echo "if(add)add.addEventListener('click',function(){kppost('notify_rule_add',{boards_id:'" . (int)$ID . "',category:document.getElementById('kanpro-nr-cat').value,login:document.getElementById('kanpro-nr-login').value,whats:document.getElementById('kanpro-nr-whats').checked?'1':'',mail:document.getElementById('kanpro-nr-mail').checked?'1':''});});";
+            echo "document.querySelectorAll('[data-nr-toggle]').forEach(function(b){b.addEventListener('click',function(){kppost('notify_rule_toggle',{boards_id:'" . (int)$ID . "',id:b.getAttribute('data-nr-toggle'),on:b.getAttribute('data-nr-on')});});});";
+            echo "document.querySelectorAll('[data-nr-del]').forEach(function(b){b.addEventListener('click',function(){if(confirm('Excluir esta regra?'))kppost('notify_rule_del',{boards_id:'" . (int)$ID . "',id:b.getAttribute('data-nr-del')});});});";
+            echo "})();</script>";
+            echo "</td></tr>";
+        }
+
         echo "<tr class='tab_bg_1'>";
         echo "<td>Descrição</td><td colspan='3'>";
         echo "<textarea name='comment' rows='3' style='width:100%'>" . htmlspecialchars($this->fields['comment'] ?? '') . "</textarea>";
