@@ -1,0 +1,136 @@
+<!-- ============================================================================
+  KanPro • E-mail de CARD NOVO (central de notificações por quadro)
+  Gatilho : card entra em lista de categoria com regra ativa (criar/mover/aprovar)
+  Envia   : avisa o card novo na categoria, com quadro/lista e máquinas
+  Placeholders:
+    {card_id}     nº do card (#123)
+    {card_nome}   nome do card
+    {escola}      nome da escola (entidade)
+    {quadro}      nome do quadro
+    {lista}       nome da lista
+    {descricao}   descrição do card (texto puro)
+    {ticket}      nº do ticket GLPI ('-' se não houver)
+    {autor}       quem criou o card
+    {quantidade}  nº de máquinas (ex: 10)
+    {maquinas}    HTML pronto (<li>#seq — modelo (status)</li>...)
+    {data}        dd/mm/aaaa hh:mm da entrada
+============================================================================= -->
+<table style="width:100%; margin:0; padding:0; background:#eef1f5; border-collapse:collapse;" cellpadding="0" cellspacing="0">
+<tbody>
+<tr>
+<td align="center" style="padding:30px 10px;">
+
+<table style="width:640px; max-width:100%; background:#ffffff; border-radius:12px; overflow:hidden; border-collapse:collapse; box-shadow:0 2px 8px rgba(0,0,0,0.08);" cellpadding="0" cellspacing="0">
+
+<!-- CABEÇALHO -->
+<tr>
+<td style="background:#232d37; padding:28px 30px; text-align:center;">
+    <div style="font-family:Arial,sans-serif; color:#ffffff; font-size:23px; font-weight:bold;">
+        Unidade Regional de Ensino - Jales
+    </div>
+    <div style="font-family:Arial,sans-serif; color:#cbd2d8; font-size:14px; margin-top:6px; letter-spacing:1px;">
+        SEINTEC &bull; KANPRO
+    </div>
+</td>
+</tr>
+
+<!-- INDICADOR -->
+<tr>
+<td style="padding:26px 35px 0 35px;">
+    <div style="font-family:Arial,sans-serif; font-size:13px; color:#e67e22; font-weight:bold; text-transform:uppercase; letter-spacing:1px;">
+        &#128276; Card novo
+    </div>
+    <div style="font-family:Arial,sans-serif; font-size:24px; color:#232d37; font-weight:bold; margin-top:8px;">
+        Card novo em {lista}
+    </div>
+</td>
+</tr>
+
+<!-- CONTEÚDO -->
+<tr>
+<td style="padding:10px 35px 30px 35px; font-family:Arial,sans-serif; color:#5d5d5d; font-size:15px; line-height:1.7;">
+
+<p>Ol&aacute;,</p>
+
+<p>
+Apareceu <strong style="color:#232d37;">1 novo card</strong> na lista
+<strong style="color:#232d37;">&ldquo;{lista}&rdquo;</strong>.
+</p>
+
+<!-- CARD -->
+<table style="width:100%; background:#fef6ee; border-left:4px solid #e67e22; border-radius:6px; margin:22px 0; border-collapse:collapse;" cellpadding="0" cellspacing="0">
+<tr>
+<td style="padding:18px 20px;">
+
+<div style="font-size:14px; color:#6b747c; margin-bottom:10px;">
+<strong style="color:#232d37;">Card:</strong><br>
+#{card_id} &ldquo;{card_nome}&rdquo;
+</div>
+
+<div style="font-size:14px; color:#6b747c; margin-bottom:10px;">
+<strong style="color:#232d37;">Escola:</strong><br>
+{escola}
+</div>
+
+<div style="font-size:14px; color:#6b747c; margin-bottom:10px;">
+<strong style="color:#232d37;">Quadro:</strong><br>
+{quadro}
+</div>
+
+<div style="font-size:14px; color:#6b747c; margin-bottom:10px;">
+<strong style="color:#232d37;">Descri&ccedil;&atilde;o:</strong><br>
+{descricao}
+</div>
+
+<div style="font-size:14px; color:#6b747c; margin-bottom:10px;">
+<strong style="color:#232d37;">Ticket GLPI:</strong> #{ticket} &nbsp;•&nbsp;
+<strong style="color:#232d37;">Criado por:</strong> {autor}
+</div>
+
+<div style="font-size:14px; color:#6b747c; margin-bottom:10px;">
+<strong style="color:#232d37;">M&aacute;quinas ({quantidade}):</strong><br>
+{maquinas}
+</div>
+
+<div style="font-size:14px; color:#6b747c;">
+<strong style="color:#232d37;">Em:</strong><br>
+{data}
+</div>
+
+</td>
+</tr>
+</table>
+
+<p style="text-align:center; color:#6f767d; margin-top:28px;">
+Manuten&ccedil;&atilde;o de TI - URE Jales
+</p>
+
+</td>
+</tr>
+
+<!-- RODAPÉ -->
+<tr>
+<td style="background:#454d55; padding:22px 30px; font-family:Arial,sans-serif; color:#ecf0f1;">
+<strong style="font-size:15px;">Unidade Regional de Ensino</strong><br>
+<span style="font-size:12px; line-height:1.7;">
+<a href="https://maps.app.goo.gl/8ow1FPdgv7MahtU49" style="color:#ffffff; text-decoration:none;">
+R. Oito, 2315 - Centro, Jales - SP, 15700-066
+</a>
+<br>
+<a href="https://www.educacao.sp.gov.br/urejales" style="color:#ffffff; text-decoration:none;">
+Pol&iacute;tica de Privacidade
+</a>
+</span>
+</td>
+</tr>
+
+</table>
+
+<p style="font-family:Arial,sans-serif; font-size:11px; color:#828f9d;">
+&copy; 2026 <a href="https://www.educacao.sp.gov.br/urejales" style="color:#828f9d;">SEINTEC Jales</a>
+</p>
+
+</td>
+</tr>
+</tbody>
+</table>

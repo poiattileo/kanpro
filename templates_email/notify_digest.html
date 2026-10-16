@@ -1,0 +1,91 @@
+<!-- ============================================================================
+  KanPro • E-mail de RESUMO (central de notificações por quadro)
+  Gatilho : cron 8h/10h/13h/15h — regra com resumo ativo e cards na categoria
+  Envia   : quantidade de cards na categoria, com detalhe por lista
+  Placeholders:
+    {quadro}      nome do quadro
+    {lista}       nome da categoria (rótulo)
+    {quantidade}  nº de cards (ex: 10)
+    {detalhes}    HTML pronto (<li>Lista — N cards</li>...)
+    {data}        dd/mm/aaaa hh:mm do resumo
+============================================================================= -->
+<table style="width:100%; margin:0; padding:0; background:#eef1f5; border-collapse:collapse;" cellpadding="0" cellspacing="0">
+<tbody>
+<tr>
+<td align="center" style="padding:30px 10px;">
+
+<table style="width:640px; max-width:100%; background:#ffffff; border-radius:12px; overflow:hidden; border-collapse:collapse; box-shadow:0 2px 8px rgba(0,0,0,0.08);" cellpadding="0" cellspacing="0">
+
+<!-- CABEÇALHO -->
+<tr>
+<td style="background:#232d37; padding:28px 30px; text-align:center;">
+    <div style="font-family:Arial,sans-serif; color:#ffffff; font-size:23px; font-weight:bold;">
+        Unidade Regional de Ensino - Jales
+    </div>
+    <div style="font-family:Arial,sans-serif; color:#cbd2d8; font-size:14px; margin-top:6px; letter-spacing:1px;">
+        SEINTEC &bull; KANPRO
+    </div>
+</td>
+</tr>
+
+<!-- INDICADOR -->
+<tr>
+<td style="padding:26px 35px 0 35px;">
+    <div style="font-family:Arial,sans-serif; font-size:13px; color:#2470a3; font-weight:bold; text-transform:uppercase; letter-spacing:1px;">
+        &#128202; Resumo
+    </div>
+    <div style="font-family:Arial,sans-serif; font-size:24px; color:#232d37; font-weight:bold; margin-top:8px;">
+        {quantidade} card(s) em {lista}
+    </div>
+</td>
+</tr>
+
+<!-- CONTEÚDO -->
+<tr>
+<td style="padding:10px 35px 30px 35px; font-family:Arial,sans-serif; color:#5d5d5d; font-size:15px; line-height:1.7;">
+
+<p>Ol&aacute;,</p>
+
+<p>
+O quadro <strong style="color:#232d37;">&ldquo;{quadro}&rdquo;</strong> tem
+<strong style="color:#232d37;">{quantidade} card(s)</strong> na categoria
+<strong style="color:#232d37;">&ldquo;{lista}&rdquo;</strong> em {data}:
+</p>
+
+<ul style="margin:6px 0;padding-left:20px;">
+{detalhes}
+</ul>
+
+<p style="text-align:center; color:#6f767d; margin-top:28px;">
+Manuten&ccedil;&atilde;o de TI - URE Jales
+</p>
+
+</td>
+</tr>
+
+<!-- RODAPÉ -->
+<tr>
+<td style="background:#454d55; padding:22px 30px; font-family:Arial,sans-serif; color:#ecf0f1;">
+<strong style="font-size:15px;">Unidade Regional de Ensino</strong><br>
+<span style="font-size:12px; line-height:1.7;">
+<a href="https://maps.app.goo.gl/8ow1FPdgv7MahtU49" style="color:#ffffff; text-decoration:none;">
+R. Oito, 2315 - Centro, Jales - SP, 15700-066
+</a>
+<br>
+<a href="https://www.educacao.sp.gov.br/urejales" style="color:#ffffff; text-decoration:none;">
+Pol&iacute;tica de Privacidade
+</a>
+</span>
+</td>
+</tr>
+
+</table>
+
+<p style="font-family:Arial,sans-serif; font-size:11px; color:#828f9d;">
+&copy; 2026 <a href="https://www.educacao.sp.gov.br/urejales" style="color:#828f9d;">SEINTEC Jales</a>
+</p>
+
+</td>
+</tr>
+</tbody>
+</table>

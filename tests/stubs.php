@@ -122,3 +122,12 @@ if (!function_exists('countElementsInTable')) {
         return $n;
     }
 }
+
+if (!class_exists('Plugin')) {
+    // Aponta templateDir p/ o plugin real: testes de render exercem os .txt/.html de verdade.
+    class Plugin {
+        public static function getPhpDir(string $name): string {
+            return dirname(__DIR__);
+        }
+    }
+}

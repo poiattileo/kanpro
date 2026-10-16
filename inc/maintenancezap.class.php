@@ -1575,7 +1575,20 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 if ($email === '') { $errors[] = $login . ': sem e-mail'; }
                 elseif (self::alreadySent($cards_id, $msm)) { $skipped[] = $login; }
                 else {
-                    $mq = kanpro_queue_email($email, 'KanPro: card novo em ' . ($listaNome !== '' ? $listaNome : $cat), $txt);
+                    $subj = 'KanPro: card novo em ' . ($listaNome !== '' ? $listaNome : $cat);
+                    $bodyMail = $txt;
+                    try {
+                        if (class_exists('PluginKanproMaintenanceMail')) {
+                            $mh = PluginKanproMaintenanceMail::render('notify_entry', $data);
+                            if (is_string($mh) && trim($mh) !== '') {
+                                $bodyMail = $mh;
+                                $subj = PluginKanproMaintenanceMail::subject('notify_entry', $data);
+                            }
+                        }
+                    } catch (Throwable $e) {}
+                    $ent = 0;
+                    try { $ent = (int)($card->fields['entities_id'] ?? 0); } catch (Throwable $e) {}
+                    $mq = kanpro_queue_email($email, $subj, $bodyMail, $ent, ['items_id' => $cards_id]);
                     if (!empty($mq['ok'])) { $sent++; self::markSent($cards_id, $msm, $email, true, ''); }
                     else { $errors[] = $login . ': ' . ($mq['error'] ?? 'falha no e-mail'); }
                 }

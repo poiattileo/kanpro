@@ -614,4 +614,33 @@ kanpro_test('sendRuleEntry sem telefone pula sem excepcionar', function () {
     assert_true(str_contains((string)($r['error'] ?? ''), 'sem telefone'), 'erro deveria citar sem telefone');
 });
 
+kanpro_test('mail render notify_entry contém card e lista', function () {
+    $html = PluginKanproMaintenanceMail::render('notify_entry', [
+        'card_id' => '55', 'card_nome' => 'Escola Teste XYZ', 'escola' => 'Escola Teste XYZ',
+        'quadro' => 'Quadro Q', 'lista' => 'Pendente', 'descricao' => 'd', 'ticket' => '-',
+        'autor' => 'a', 'quantidade' => '0', 'maquinas' => '<ul></ul>', 'data' => 'x',
+    ]);
+    assert_true(is_string($html) && str_contains($html, 'Escola Teste XYZ') && str_contains($html, 'Pendente'), 'template deveria trazer card e lista');
+});
+
+kanpro_test('mail render tipo desconhecido devolve null', function () {
+    assert_same(null, PluginKanproMaintenanceMail::render('banana', []));
+});
+
+kanpro_test('mail subject notify_entry cita card novo', function () {
+    $s = PluginKanproMaintenanceMail::subject('notify_entry', ['card_id' => '55', 'card_nome' => 'Escola X', 'lista' => 'Pendente']);
+    assert_true(str_contains($s, 'Card novo') && str_contains($s, '#55'), 'assunto deveria citar card novo: ' . $s);
+});
+
+kanpro_test('queue_email e-mail inválido falha sem excepcionar', function () {
+    $r = kanpro_queue_email('nao-email', 'assunto', '<p>oi</p>');
+    assert_true(empty($r['ok']), 'e-mail inválido deveria falhar');
+});
+
+kanpro_test('queue_email sem fila do GLPI falha limpo', function () {
+    $r = kanpro_queue_email('a@exemplo.com', 'assunto', '<p>oi</p>');
+    assert_true(empty($r['ok']), 'sem QueuedNotification deveria falhar');
+    assert_true(str_contains((string)($r['error'] ?? ''), 'fila'), 'erro deveria citar a fila');
+});
+
 exit(kanpro_summary());

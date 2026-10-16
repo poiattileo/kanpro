@@ -42,6 +42,8 @@ $DB = new FakeKanproDB();
 
 require_once dirname(__DIR__) . '/inc/maintenancezap.class.php';
 require_once dirname(__DIR__) . '/inc/notifyrule.class.php';
+require_once dirname(__DIR__) . '/inc/maintenancemail.class.php';
+require_once dirname(__DIR__) . '/inc/compat.php';
 
 $failures = 0;
 $passes = 0;

@@ -34,7 +34,7 @@ class PluginKanproMaintenanceMail extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'notify_entry', 'notify_digest'];
     }
 
     static function templateDir(): ?string {
@@ -135,6 +135,8 @@ class PluginKanproMaintenanceMail extends CommonDBTM {
             case 'retirada':  return "[KanPro] Máquinas prontas para retirada — {$esc} (card #{$cid})";
             case 'atraso':    return "[KanPro] Há " . ($data['dias'] ?? '?') . " dias aguardando retirada — {$esc} (card #{$cid})";
             case 'cancelado': return "[KanPro] DESCONSIDERE o recebimento — {$esc} (card #{$cid})";
+            case 'notify_entry':  return "[KanPro] Card novo em " . ($data['lista'] ?? '?') . " — " . ($data['card_nome'] ?? '') . " (#{$cid})";
+            case 'notify_digest': return "[KanPro] Resumo " . ($data['lista'] ?? '?') . " — " . ($data['quantidade'] ?? '0') . " card(s)";
             default:          return "[KanPro] Manutenção — {$esc} (card #{$cid})";
         }
     }
@@ -148,7 +150,7 @@ class PluginKanproMaintenanceMail extends CommonDBTM {
         if (!is_file($file)) return null;
         $html = file_get_contents($file);
         if ($html === false) return null;
-        $rawKeys = ['maquinas']; // HTML pré-montado pelo helper
+        $rawKeys = ['maquinas', 'detalhes']; // HTML pré-montado pelos helpers
         foreach ($data as $k => $v) {
             $k = preg_replace('/[^a-z_]/', '', (string)$k);
             if ($k === '') continue;
