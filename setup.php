@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/inc/compat.php';
 
-define('PLUGIN_KANPRO_VERSION', '1.6.0');
+define('PLUGIN_KANPRO_VERSION', '1.7.0');
 define('PLUGIN_KANPRO_MIN_GLPI', '11.0.0');
 define('PLUGIN_KANPRO_MAX_GLPI', '12.0.99');
 

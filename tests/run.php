@@ -691,4 +691,51 @@ kanpro_test('notify_global_summary tem estrutura', function () {
     assert_same([8, 10, 13], $s['lembrete_slots']);
 });
 
+function kanpro_mig_reset(): void {
+    global $DB;
+    foreach (['glpi_plugin_kanpro_configs', 'glpi_plugin_kanpro_boards', 'glpi_plugin_kanpro_lists', 'glpi_plugin_kanpro_notify_rules', 'glpi_users', 'glpi_useremails'] as $t) {
+        $DB->createTable($t);
+        $DB->delete($t, []);
+    }
+    $DB->insert('glpi_users', ['name' => 'ana.migra', 'realname' => 'Migra', 'firstname' => 'Ana', 'phone' => '', 'mobile' => '11977776666', 'email' => 'ana.migra@exemplo.com', 'is_deleted' => 0, 'is_active' => 1]);
+}
+
+kanpro_test('migracao move quem ganha regra e mantém o resto', function () {
+    global $DB;
+    kanpro_mig_reset();
+    $json = json_encode(['ana.migra', 'fantasma']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_chamado_recipients', $json);
+    $bA = (int)$DB->insert('glpi_plugin_kanpro_boards', ['name' => 'Quadro A', 'is_archived' => 0]);
+    $bB = (int)$DB->insert('glpi_plugin_kanpro_boards', ['name' => 'Quadro B', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => $bA, 'name' => 'Pendente', 'list_type' => 'pending', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => $bA, 'name' => 'Chamados Espera', 'list_type' => '', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => $bB, 'name' => 'Backlog', 'list_type' => '', 'is_archived' => 0]);
+    $r = kanpro_migrate_chamado_recipients_to_rules();
+    assert_same(['ana.migra'], $r['moved'] ?? [], 'ana deveria migrar');
+    assert_true(array_key_exists('fantasma', $r['kept'] ?? []), 'fantasma deveria ficar');
+    assert_same(2, $r['rules'] ?? -1, 'ana deveria ganhar 2 regras no quadro A');
+    assert_same(['fantasma'], json_decode(kanpro_config_get('zap_chamado_recipients', ''), true), 'global deveria ficar só com fantasma');
+    assert_same(2, countElementsInTable('glpi_plugin_kanpro_notify_rules', []), 'deveria existir 2 regras');
+});
+
+kanpro_test('migracao é idempotente', function () {
+    global $DB;
+    kanpro_mig_reset();
+    $json = json_encode(['ana.migra']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_chamado_recipients', $json);
+    $bA = (int)$DB->insert('glpi_plugin_kanpro_boards', ['name' => 'Quadro A', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => $bA, 'name' => 'Pendente', 'list_type' => 'pending', 'is_archived' => 0]);
+    kanpro_migrate_chamado_recipients_to_rules();
+    $r2 = kanpro_migrate_chamado_recipients_to_rules();
+    assert_same([], json_decode(kanpro_config_get('zap_chamado_recipients', ''), true), 'global deveria esvaziar');
+    assert_same(1, countElementsInTable('glpi_plugin_kanpro_notify_rules', []), 'segunda rodada não deveria duplicar');
+    assert_same([], $r2['moved'] ?? null, 'segunda rodada não deveria mover ninguém');
+});
+
 exit(kanpro_summary());

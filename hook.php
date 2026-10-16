@@ -778,6 +778,12 @@ function plugin_kanpro_install(): bool {
         }
     } catch (Throwable $e) {}
     unset($__kp_chamado_default, $__kp_want, $__kp_cur, $__kp_row, $__kp_dec, $__kp_v, $__kp_merged);
+    // Migra destinatários globais do chamado p/ regras por quadro (1.7.0).
+    // Idempotente e conservador (só sai do global quem ganhou regra).
+    try {
+        require_once __DIR__ . '/inc/acting.php';
+        if (function_exists('kanpro_migrate_chamado_recipients_to_rules')) kanpro_migrate_chamado_recipients_to_rules();
+    } catch (Throwable $e) {}
 
     // --- ZAPQUEUE (fila de envios WhatsApp: produtor enfileira, cron zapqueue consome) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_zapqueue')) {

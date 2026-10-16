@@ -112,3 +112,13 @@ envia.
 3. E-mail pela fila oficial do GLPI (exige SMTP + cron `queuednotification`
    ativos no ambiente). ✅ Sim.
 4. Imediato vale para criar + mover + aprovar. ✅ Sim.
+
+## Migração 1.7.0 (adendo, aprovado pelo dono)
+
+- `PLUGIN_KANPRO_VERSION` 1.6.0 → 1.7.0 — sem bump o GLPI não oferece
+  Atualizar e as migrations (tabela, crons, merge) não rodam.
+- No update, `kanpro_migrate_chamado_recipients_to_rules()` move
+  `zap_chamado_recipients` para regras WhatsApp (Chamados Espera + Pendente)
+  nos quadros que têm essas listas; só sai do global quem ganhar ≥1 regra
+  (sem duplicar, sem perder ninguém); idempotente. Aprovador e lembrete
+  seguem globais.

@@ -301,6 +301,87 @@ if (!function_exists('kanpro_notify_global_summary')) {
     }
 }
 
+if (!function_exists('kanpro_migrate_chamado_recipients_to_rules')) {
+    // Move destinatários globais do chamado (zap_chamado_recipients) p/ regras
+    // por quadro (WhatsApp). Por login: resolve; cria regras whats nos quadros
+    // com listas Chamados Espera/Pendente; remove do global SÓ quem ganhou ≥1
+    // regra. Idempotente. Nunca joga exceção.
+    // Devolve ['moved'=>[logins],'kept'=>[login=>motivo],'rules'=>int].
+    function kanpro_migrate_chamado_recipients_to_rules(): array {
+        global $DB;
+        $out = ['moved' => [], 'kept' => [], 'rules' => 0];
+        try {
+            if (!isset($DB) || !function_exists('kanpro_config_get')) return $out;
+            if (!$DB->tableExists('glpi_plugin_kanpro_configs')) return $out;
+            $raw = trim((string)kanpro_config_get('zap_chamado_recipients', ''));
+            if ($raw === '') return $out;
+            $dec = json_decode($raw, true);
+            if (!is_array($dec)) return $out;
+            $logins = [];
+            foreach ($dec as $v) {
+                $v = trim((string)$v);
+                if ($v !== '' && strpos($v, ' ') === false) $logins[] = $v;
+            }
+            $logins = array_values(array_unique($logins));
+            if (empty($logins)) return $out;
+            if (!class_exists('PluginKanproNotifyRule')) {
+                foreach ($logins as $l) $out['kept'][$l] = 'regras indisponíveis';
+                return $out;
+            }
+            $cats = ['chamados_espera', 'pending'];
+            $bids = [];
+            try {
+                if ($DB->tableExists('glpi_plugin_kanpro_boards')) {
+                    foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['is_archived' => 0]]) as $b) {
+                        $bid = (int)($b['id'] ?? 0);
+                        if ($bid > 0) $bids[] = $bid;
+                    }
+                }
+            } catch (Throwable $e) {}
+            // categorias presentes por quadro (evita regra que nunca dispara)
+            $boardCats = [];
+            if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
+                foreach ($bids as $b) {
+                    try {
+                        foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $b, 'is_archived' => 0]]) as $l) {
+                            foreach ($cats as $c) {
+                                $ok = function_exists('kanpro_list_matches_category')
+                                    ? kanpro_list_matches_category($l, $c)
+                                    : (trim(strtolower((string)($l['list_type'] ?? ''))) === $c);
+                                if ($ok) $boardCats[$b][$c] = true;
+                            }
+                        }
+                    } catch (Throwable $e) {}
+                }
+            }
+            $kept = [];
+            foreach ($logins as $login) {
+                $n = 0; $err = '';
+                foreach ($bids as $b) {
+                    foreach ($cats as $c) {
+                        if (empty($boardCats[$b][$c])) continue;
+                        try {
+                            $r = PluginKanproNotifyRule::addRule($b, $c, $login, true, false);
+                            if (!empty($r['ok'])) $n++;
+                            elseif ($err === '') $err = (string)($r['error'] ?? 'falha');
+                        } catch (Throwable $e) { if ($err === '') $err = $e->getMessage(); }
+                    }
+                }
+                if ($n > 0) { $out['moved'][] = $login; $out['rules'] += $n; }
+                else $kept[$login] = $err !== '' ? $err : 'sem listas compatíveis';
+            }
+            $out['kept'] = $kept;
+            if (!empty($out['moved']) && count($kept) !== count($logins)) {
+                $rest = array_values(array_diff($logins, $out['moved']));
+                try {
+                    if (function_exists('kanpro_config_set')) kanpro_config_set('zap_chamado_recipients', (string)json_encode($rest, JSON_UNESCAPED_UNICODE));
+                } catch (Throwable $e) {}
+            }
+        } catch (Throwable $e) {}
+        return $out;
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;
