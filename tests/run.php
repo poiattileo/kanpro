@@ -496,4 +496,52 @@ kanpro_test('split_sibling: fora de split ou irmão arquivado devolve 0', functi
     assert_same(0, kanpro_split_sibling(301));
 });
 
+// ---------------------------------------------------------------------------
+// Regras de notificação por quadro (PluginKanproNotifyRule)
+// ---------------------------------------------------------------------------
+function kanpro_notify_reset(): void {
+    global $DB;
+    $DB->createTable('glpi_plugin_kanpro_notify_rules');
+    $DB->createTable('glpi_users');
+    $DB->createTable('glpi_useremails');
+    $DB->delete('glpi_plugin_kanpro_notify_rules', []);
+    $DB->delete('glpi_users', []);
+    $DB->delete('glpi_useremails', []);
+    $DB->insert('glpi_users', ['name' => 'ze.regra', 'realname' => 'Regra', 'firstname' => 'Zé', 'phone' => '', 'mobile' => '11988887777', 'email' => 'ze.regra@exemplo.com', 'is_deleted' => 0, 'is_active' => 1]);
+    $uid2 = (int)$DB->insert('glpi_users', ['name' => 'sem.email.direto', 'realname' => 'Direto', 'firstname' => 'Sem', 'phone' => '1133334444', 'mobile' => '', 'is_deleted' => 0, 'is_active' => 1]);
+    $DB->insert('glpi_useremails', ['users_id' => $uid2, 'email' => 'indireto@exemplo.com']);
+}
+
+kanpro_test('notifyrule resolveUser com login inexistente devolve null', function () {
+    kanpro_notify_reset();
+    assert_same(null, PluginKanproNotifyRule::resolveUser('nao.existe'));
+});
+
+kanpro_test('notifyrule addRule com categoria inválida falha', function () {
+    kanpro_notify_reset();
+    $r = PluginKanproNotifyRule::addRule(3, 'banana', 'ze.regra', true, false);
+    assert_true(empty($r['ok']), 'categoria banana deveria falhar');
+});
+
+kanpro_test('notifyrule addRule sem canal falha', function () {
+    kanpro_notify_reset();
+    $r = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', false, false);
+    assert_true(empty($r['ok']), 'sem canal deveria falhar');
+});
+
+kanpro_test('notifyrule addRule duplicado reativa o mesmo id', function () {
+    global $DB;
+    kanpro_notify_reset();
+    $a = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, true);
+    assert_true(!empty($a['ok']), 'primeira criação deveria passar');
+    PluginKanproNotifyRule::setActive((int)$a['id'], 3, false);
+    $b = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
+    assert_true(!empty($b['ok']), 'recriação deveria passar');
+    assert_same((int)$a['id'], (int)$b['id'], 'deveria reaproveitar o id');
+    assert_same(1, countElementsInTable('glpi_plugin_kanpro_notify_rules', ['plugin_kanpro_boards_id' => 3]), 'deveria existir 1 linha');
+    $rules = PluginKanproNotifyRule::getRulesForBoard(3);
+    assert_same(1, count($rules));
+    assert_same(1, (int)$rules[0]['is_active'], 'deveria reativar');
+});
+
 exit(kanpro_summary());

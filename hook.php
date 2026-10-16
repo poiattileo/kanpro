@@ -637,6 +637,30 @@ function plugin_kanpro_install(): bool {
         ") or die($DB->error());
     }
 
+    // --- NOTIFY RULES (central de notificações: quadro + categoria + usuário + canais) ---
+    if (!$DB->tableExists('glpi_plugin_kanpro_notify_rules')) {
+        $DB->doQuery("
+            CREATE TABLE `glpi_plugin_kanpro_notify_rules` (
+                `id`                          INT {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_kanpro_boards_id`     INT {$sign} NOT NULL DEFAULT '0',
+                `list_category`               VARCHAR(30)  NOT NULL DEFAULT '',
+                `users_id`                    INT {$sign} NOT NULL DEFAULT '0' COMMENT 'glpi_users.id',
+                `login`                       VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'login desnormalizado p/ exibir',
+                `notify_whats`                 TINYINT(1)   NOT NULL DEFAULT '0',
+                `notify_mail`                 TINYINT(1)   NOT NULL DEFAULT '0',
+                `notify_entry`                TINYINT(1)   NOT NULL DEFAULT '1' COMMENT '1=avisa card novo na categoria',
+                `notify_digest`               TINYINT(1)   NOT NULL DEFAULT '1' COMMENT '1=entra no resumo 8/10/13/15h',
+                `is_active`                   TINYINT(1)   NOT NULL DEFAULT '1',
+                `users_id_creator`            INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem criou a regra',
+                `date_creation`               DATETIME     DEFAULT NULL,
+                `date_mod`                    DATETIME     DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_board_cat_user` (`plugin_kanpro_boards_id`, `list_category`, `users_id`),
+                KEY `plugin_kanpro_boards_id` (`plugin_kanpro_boards_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}
+        ") or die($DB->error());
+    }
+
     // --- BOARD GROUPS (grupos pessoais: cada usuário organiza seus quadros do seu jeito) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_board_groups')) {
         $DB->doQuery("

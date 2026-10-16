@@ -205,6 +205,19 @@ if (!function_exists('kanpro_acting_map')) {
     }
 }
 
+if (!function_exists('kanpro_valid_list_type')) {
+    // Categorias de lista (listas de ajuste): backlog=Pautas futuras, todo=A Fazer,
+    // doing=Em Progresso, done=Concluído, awaiting=Aguardando Chegada, pending=Pendente,
+    // andamento=Em Andamento, retirada=Retirada, pend_chamado=Pendência Chamado,
+    // chamados_pendencia=Chamados Pendencia, chamados_espera=Chamados Espera.
+    // '' = inválida; 'none' = normal explícito.
+    // Mora aqui (não no ajax) p/ valer em testes, cron e quadros.
+    function kanpro_valid_list_type(string $t): string {
+        $t = trim(strtolower($t));
+        return in_array($t, ['backlog', 'todo', 'doing', 'done', 'awaiting', 'pending', 'andamento', 'retirada', 'pend_chamado', 'chamados_pendencia', 'chamados_espera', 'abrir_chamado', 'andamento_chamado', 'chamado_finalizado', 'none'], true) ? $t : '';
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;
