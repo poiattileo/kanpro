@@ -1235,6 +1235,17 @@ function kanpro_need_list_allows_card(int $lists_id): string {
     return $cat;
 }
 
+// Aviso WhatsApp de entrada em Pendente: card criado/movido/aprovado para lista
+// de categoria 'pending' avisa os destinatários do chamado (1x por card, via
+// fila do cron — nunca trava o fluxo principal, nunca joga exceção).
+function kanpro_notify_pending_entry(int $bid, int $cid, int $lists_id): void {
+    try {
+        if ($bid <= 0 || $cid <= 0 || $lists_id <= 0) return;
+        if (!function_exists('kanpro_list_category') || kanpro_list_category($lists_id) !== 'pending') return;
+        if (class_exists('PluginKanproMaintenanceZap')) PluginKanproMaintenanceZap::sendListaPendente($cid, $lists_id);
+    } catch (Throwable $e) {}
+}
+
 // Guard: card de manutenção "com dono" só pode ser alterado por quem está vinculado
 // (quem pegou) ou pelo Gerente/criador do quadro. Não-manutenção e card sem membros
 // passam direto (kanpro_can_edit_linked_card já trata). Usado nos handlers de escrita.
@@ -3778,6 +3789,7 @@ switch ($action) {
         // 1 activity só: kanpro_finish_maintenance já registra a criação + gera o chamado
         $extra = kanpro_finish_maintenance($id, $newName, $entities_id, true);
         kanpro_touch_card($id);
+        if (function_exists('kanpro_notify_pending_entry')) kanpro_notify_pending_entry($bid, (int)$id, (int)$lists_id);
         $fresh = new PluginKanproCard();
         $fresh->getFromDB($id);
         jexit(['success'=>true,'id'=>(int)$id,'card'=>$fresh->fields,'is_maintenance'=>1,'new_name'=>$newName,
@@ -4033,6 +4045,7 @@ switch ($action) {
         // Butler-like: entrou na lista de verdade (sem pendência) -> roda automações do quadro
         if ($from_list && $target_list && $from_list !== $target_list && !$pending && function_exists('kanpro_run_rules')) {
             kanpro_run_rules((int)$bid0, (int)$cid, (int)$target_list);
+            if (function_exists('kanpro_notify_pending_entry')) kanpro_notify_pending_entry((int)$bid0, (int)$cid, (int)$target_list);
         }
         // devolve a linha fresca p/ o JS reconciliar (lista+rank reais do banco)
         $fresh = new PluginKanproCard();
@@ -4122,6 +4135,7 @@ switch ($action) {
         // Butler-like: aprovação confirma a entrada na lista -> roda automações
         if (function_exists('kanpro_run_rules')) {
             kanpro_run_rules((int)$c->fields['plugin_kanpro_boards_id'], (int)$cid, (int)$c->fields['plugin_kanpro_lists_id']);
+            if (function_exists('kanpro_notify_pending_entry')) kanpro_notify_pending_entry((int)$c->fields['plugin_kanpro_boards_id'], (int)$cid, (int)$c->fields['plugin_kanpro_lists_id']);
         }
         jexit(['success'=>true]);
 

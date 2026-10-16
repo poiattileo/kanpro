@@ -64,7 +64,7 @@ echo "<tr class='tab_bg_1'><td><strong>Destinatários do lembrete</strong><br><s
 echo "<textarea name='zap_reminder_recipients' rows='4' style='width:100%' placeholder='um por linha'>" . htmlspecialchars($reminderLines, ENT_QUOTES) . "</textarea>";
 echo "</td></tr>";
 
-echo "<tr class='tab_bg_1'><td><strong>Destinatários do chamado</strong><br><small>Um por linha. Recebem o aviso de novo chamado em Abrir Chamado.</small></td><td>";
+echo "<tr class='tab_bg_1'><td><strong>Destinatários do chamado</strong><br><small>Um por linha (login ou e-mail). Recebem o aviso de novo chamado (Chamados Espera) e de card novo em Pendente.</small></td><td>";
 echo "<textarea name='zap_chamado_recipients' rows='4' style='width:100%' placeholder='um por linha'>" . htmlspecialchars($chamadoLines, ENT_QUOTES) . "</textarea>";
 echo "</td></tr>";
 

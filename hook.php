@@ -718,12 +718,14 @@ function plugin_kanpro_install(): bool {
     }
     // Seeds = comportamento anterior (só insere o que falta — nunca sobrescreve
     // ajuste do admin no update). Edição em Configurações do KanPro.
+    // Destinatários padrão do aviso de chamado/Pendente (logins da equipe).
+    $__kp_chamado_default = ['leonardo.facao@apoiofde.sp.gov.br', 'marco.masson@apoiofde.sp.gov.br', 'aryan.ferrari@apoiofde.sp.gov.br', 'gabriel.siqueira@apoiofde.sp.gov.br', 'wellington.paiva']; // LEGACY-SEED-ALLOW
     $__kp_seeds = [
         // LEGACY-SEED-ALLOW abaixo: migração do comportamento anterior (nunca sobrescreve ajuste do admin)
         'acting_map'              => json_encode(['glpi' => 'leonardo.facao@apoiofde.sp.gov.br'], JSON_UNESCAPED_UNICODE), // LEGACY-SEED-ALLOW
         'zap_approver'            => 'cristian.sawata@educacao.sp.gov.br', // LEGACY-SEED-ALLOW
         'zap_reminder_recipients' => json_encode(['cristian.sawata@educacao.sp.gov.br', 'leonardo.facao@apoiofde.sp.gov.br'], JSON_UNESCAPED_UNICODE), // LEGACY-SEED-ALLOW
-        'zap_chamado_recipients'  => json_encode(['leonardo.facao@apoiofde.sp.gov.br', 'cristian.sawata@educacao.sp.gov.br'], JSON_UNESCAPED_UNICODE), // LEGACY-SEED-ALLOW
+        'zap_chamado_recipients'  => json_encode($__kp_chamado_default, JSON_UNESCAPED_UNICODE),
     ];
     foreach ($__kp_seeds as $__kp_name => $__kp_value) {
         $exists = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_configs', 'WHERE' => ['name' => $__kp_name], 'LIMIT' => 1])->current();
@@ -732,6 +734,26 @@ function plugin_kanpro_install(): bool {
         }
     }
     unset($__kp_seeds, $__kp_name, $__kp_value, $exists);
+    // Destinatários do aviso de chamado/Pendente: garante os 5 logins da equipe
+    // (só ADICIONA os que faltam — nunca remove ajuste feito pelo admin na tela).
+    // Vale p/ installs já existentes, onde o seed acima não reaplica.
+    try {
+        $__kp_want = $__kp_chamado_default;
+        $__kp_cur = [];
+        $__kp_row = $DB->request(['SELECT' => ['value'], 'FROM' => 'glpi_plugin_kanpro_configs', 'WHERE' => ['name' => 'zap_chamado_recipients'], 'LIMIT' => 1])->current();
+        $__kp_dec = json_decode((string)($__kp_row['value'] ?? ''), true);
+        if (is_array($__kp_dec)) {
+            foreach ($__kp_dec as $__kp_v) {
+                $__kp_v = trim((string)$__kp_v);
+                if ($__kp_v !== '') $__kp_cur[] = $__kp_v;
+            }
+        }
+        $__kp_merged = array_values(array_unique(array_merge($__kp_cur, $__kp_want)));
+        if ($__kp_merged !== $__kp_cur) {
+            $DB->update('glpi_plugin_kanpro_configs', ['value' => json_encode($__kp_merged, JSON_UNESCAPED_UNICODE), 'date_mod' => date('Y-m-d H:i:s')], ['name' => 'zap_chamado_recipients']);
+        }
+    } catch (Throwable $e) {}
+    unset($__kp_chamado_default, $__kp_want, $__kp_cur, $__kp_row, $__kp_dec, $__kp_v, $__kp_merged);
 
     // --- ZAPQUEUE (fila de envios WhatsApp: produtor enfileira, cron zapqueue consome) ---
     if (!$DB->tableExists('glpi_plugin_kanpro_zapqueue')) {

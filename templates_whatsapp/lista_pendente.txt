@@ -1,0 +1,18 @@
+# KanPro • WhatsApp de ENTRADA EM PENDENTE (texto puro, sem HTML)
+# Gatilho: card criado/movido/aprovado para lista de categoria Pendente
+# Destinatários: config 'zap_chamado_recipients' (KanPro > Configurações)
+# Placeholders: {card_id} {card_nome} {escola} {quadro} {lista} {quantidade} {maquinas} {data}
+
+🔔 *CARD NOVO EM PENDENTE*
+
+Apareceu *1 novo card* na lista *{lista}*.
+
+📋 Card *#{card_id} "{card_nome}"*
+🏫 Escola: *{escola}*
+🖥️ Quadro: *{quadro}*
+🕐 Em: *{data}*
+
+📦 *{quantidade} máquina(s):*
+{maquinas}
+
+_Manutenção de TI - URE Jales_

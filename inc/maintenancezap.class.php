@@ -38,7 +38,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente'];
     }
 
     /** Detecta se o card origem é 100% Tablet/Smartphone/Celular (fluxo Tablet). */
@@ -1421,6 +1421,69 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             self::logCard($cloneId, $sent > 0
                 ? "WhatsApp chamado_abrir na fila para " . implode(',', $phones) . " ({$sent})"
                 : "WhatsApp chamado_abrir FALHOU: " . implode('; ', $errors));
+            if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
+            return ['ok' => true, 'phones' => $phones];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Aviso de card novo em lista Pendente: 1 msg por card, com dados do card +
+     * quadro/lista, para os responsáveis configurados (config 'zap_chamado_recipients'
+     * — os mesmos do aviso de chamado). Trava de duplicado por card (milestone
+     * lista_pendente, por destinatário). Nunca joga exceção.
+     */
+    static function listaPendenteRecipients(): array {
+        return self::configRecipients('zap_chamado_recipients');
+    }
+
+    static function sendListaPendente(int $cards_id, int $lists_id = 0): array {
+        try {
+            if ($cards_id <= 0) return ['ok' => false, 'error' => 'Card inválido'];
+            if (self::alreadySent($cards_id, 'lista_pendente')) return ['ok' => false, 'error' => 'duplicate'];
+            $card = new PluginKanproCard();
+            if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Card não encontrado'];
+            $cardNome = trim((string)($card->fields['name'] ?? ''));
+            if ($cardNome === '') $cardNome = 'Card #' . $cards_id;
+            $boardNome = '';
+            $b = new PluginKanproBoard();
+            if ($b->getFromDB((int)($card->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
+            $listaNome = 'Pendente';
+            try {
+                $lid = $lists_id > 0 ? $lists_id : (int)($card->fields['plugin_kanpro_lists_id'] ?? 0);
+                if ($lid > 0) {
+                    $l = new PluginKanproList();
+                    if ($l->getFromDB($lid)) {
+                        $ln = trim((string)($l->fields['name'] ?? ''));
+                        if ($ln !== '') $listaNome = $ln;
+                    }
+                }
+            } catch (Throwable $e) {}
+            $data = array_merge(self::baseData($cards_id), [
+                'card_nome' => $cardNome,
+                'quadro'    => $boardNome,
+                'lista'     => $listaNome,
+                'data'      => date('d/m/Y H:i'),
+            ]);
+            $txt = self::renderTxt('lista_pendente', $data);
+            if ($txt === null || trim($txt) === '') {
+                $txt = "Card novo em Pendente: #{$cards_id} \"{$cardNome}\" ({$listaNome}) em " . date('d/m/Y H:i');
+            }
+            $sent = 0; $errors = []; $phones = [];
+            foreach (self::listaPendenteRecipients() as $login) {
+                $ms = self::recipientMilestone('lista_pendente', (string)$login);
+                if (self::alreadySent($cards_id, $ms)) continue;
+                $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
+                if ($phone === '') { $errors[] = $login . ': sem telefone'; continue; }
+                // fila: um job por destinatário (milestone por destinatário).
+                $q = self::enqueue('lista_pendente', $cards_id, $ms, $phone, $txt);
+                if (!empty($q['ok'])) { $sent++; $phones[] = $phone; }
+                elseif (($q['error'] ?? '') !== 'duplicate') $errors[] = $login . ': ' . ($q['error'] ?? 'falha');
+            }
+            self::logCard($cards_id, $sent > 0
+                ? "WhatsApp lista_pendente na fila para " . implode(',', $phones) . " ({$sent})"
+                : "WhatsApp lista_pendente FALHOU: " . implode('; ', $errors));
             if ($sent <= 0) return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem telefone'];
             return ['ok' => true, 'phones' => $phones];
         } catch (Throwable $e) {

@@ -136,6 +136,27 @@ kanpro_test('chamadoAbrirRecipients sem config devolve vazio', function () {
     assert_same([], PluginKanproMaintenanceZap::chamadoAbrirRecipients());
 });
 
+kanpro_test('listaPendenteRecipients lê zap_chamado_recipients do config', function () {
+    $json = json_encode(['wellington.paiva', 'marco.masson@apoiofde.sp.gov.br']);
+    if (!is_string($json)) {
+        throw new RuntimeException('json_encode falhou');
+    }
+    kanpro_config_set('zap_chamado_recipients', $json);
+    assert_same(['wellington.paiva', 'marco.masson@apoiofde.sp.gov.br'], PluginKanproMaintenanceZap::listaPendenteRecipients());
+    global $DB;
+    $DB->delete_rows_for_test('glpi_plugin_kanpro_configs', ['name' => 'zap_chamado_recipients']);
+});
+
+kanpro_test('lista_pendente é tipo permitido e enfileirável', function () {
+    assert_true(in_array('lista_pendente', PluginKanproMaintenanceZap::allowedTypes(), true));
+    assert_true(in_array('lista_pendente', PluginKanproMaintenanceZap::queueableKinds(), true));
+});
+
+kanpro_test('recipientMilestone de lista_pendente cabe em 30 chars', function () {
+    $ms = PluginKanproMaintenanceZap::recipientMilestone('lista_pendente', 'gabriel.siqueira@apoiofde.sp.gov.br');
+    assert_true(mb_strlen($ms) <= 30, 'milestone estourou 30 chars: ' . $ms);
+});
+
 // ---------------------------------------------------------------------------
 // Parser do POST de Configurações (kanpro_config_parse_post — puro, testável)
 // ---------------------------------------------------------------------------
