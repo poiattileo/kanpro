@@ -643,4 +643,41 @@ kanpro_test('queue_email sem fila do GLPI falha limpo', function () {
     assert_true(str_contains((string)($r['error'] ?? ''), 'fila'), 'erro deveria citar a fila');
 });
 
+function kanpro_digest_reset(): void {
+    global $DB;
+    kanpro_notify_reset();
+    foreach (['glpi_plugin_kanpro_lists', 'glpi_plugin_kanpro_cards', 'glpi_plugin_kanpro_maintenance_zaplog', 'glpi_plugin_kanpro_zapqueue'] as $t) {
+        $DB->createTable($t);
+        $DB->delete($t, []);
+    }
+}
+
+kanpro_test('digest sem cards falha silencioso', function () {
+    global $DB;
+    kanpro_digest_reset();
+    $DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => 3, 'name' => 'Pendente', 'list_type' => '', 'is_archived' => 0]);
+    $add = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
+    assert_true(!empty($add['ok']), 'regra deveria criar');
+    $rules = PluginKanproNotifyRule::getRulesForBoard(3);
+    $r = PluginKanproMaintenanceZap::sendRuleDigest($rules[0], 8, true);
+    assert_true(empty($r['ok']), 'sem cards não deveria enviar');
+    assert_same('nada pendente', $r['error'] ?? '');
+});
+
+kanpro_test('digest segunda chamada no turno é duplicate', function () {
+    global $DB;
+    kanpro_digest_reset();
+    $lid = (int)$DB->insert('glpi_plugin_kanpro_lists', ['plugin_kanpro_boards_id' => 3, 'name' => 'Pendente', 'list_type' => 'pending', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => $lid, 'name' => 'C1', 'is_archived' => 0]);
+    $DB->insert('glpi_plugin_kanpro_cards', ['plugin_kanpro_boards_id' => 3, 'plugin_kanpro_lists_id' => $lid, 'name' => 'C2', 'is_archived' => 0]);
+    $add = PluginKanproNotifyRule::addRule(3, 'pending', 'ze.regra', true, false);
+    assert_true(!empty($add['ok']), 'regra deveria criar');
+    $rules = PluginKanproNotifyRule::getRulesForBoard(3);
+    $r1 = PluginKanproMaintenanceZap::sendRuleDigest($rules[0], 8, true);
+    assert_true(!empty($r1['ok']), 'primeiro resumo deveria enfileirar: ' . ($r1['error'] ?? ''));
+    $r2 = PluginKanproMaintenanceZap::sendRuleDigest($rules[0], 8, true);
+    assert_true(empty($r2['ok']), 'segunda chamada não deveria enviar');
+    assert_same('duplicate', $r2['error'] ?? '');
+});
+
 exit(kanpro_summary());

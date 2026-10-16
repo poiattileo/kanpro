@@ -38,7 +38,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
     }
 
     static function allowedTypes(): array {
-        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente', 'regra_entrada'];
+        return ['entrada', 'retirada', 'atraso', 'cancelado', 'pendencia', 'liberado', 'tablet_liberado', 'lembrete', 'card_alerta', 'quadro_alerta', 'chamado_abrir', 'lista_pendente', 'regra_entrada', 'digest_resumo'];
     }
 
     /** Detecta se o card origem é 100% Tablet/Smartphone/Celular (fluxo Tablet). */
@@ -2021,6 +2021,166 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return 1;
     }
 
+    /**
+     * Resumo de regra do quadro (cron 8/10/13/15h): quantos cards há nas listas
+     * do quadro na categoria da regra. Só envia se > 0. Só em dias úteis salvo
+     * force. Anti-duplicado por dia+turno+regra+canal. Nunca joga exceção.
+     */
+    static function sendRuleDigest(array $rule, int $slot, bool $force = false): array {
+        global $DB;
+        try {
+            $ruleId = (int)($rule['id'] ?? 0);
+            $bid = (int)($rule['plugin_kanpro_boards_id'] ?? 0);
+            $cat = trim(strtolower((string)($rule['list_category'] ?? '')));
+            if ($ruleId <= 0 || $bid <= 0 || $cat === '') return ['ok' => false, 'error' => 'Regra inválida'];
+            if (empty($rule['is_active']) || empty($rule['notify_digest'])) return ['ok' => false, 'error' => 'regra inativa'];
+            if (!in_array($slot, [8, 10, 13, 15], true)) return ['ok' => false, 'error' => 'turno inválido'];
+            if (!$force) {
+                $ov = self::lembreteDayOverride(date('Y-m-d'));
+                if ($ov === 'skip') return ['ok' => false, 'error' => 'dia tirado do envio'];
+                if ($ov !== 'force' && empty(self::lembreteBusinessCheck()['business'])) return ['ok' => false, 'error' => 'dia não útil'];
+            }
+            $milestone = 'nbd' . date('Y-m-d') . '_' . str_pad((string)$slot, 2, '0', STR_PAD_LEFT) . 'r' . $ruleId;
+            $login = trim((string)($rule['login'] ?? ''));
+            $lock = 'kanpro_digest_' . date('Y-m-d') . '_' . $slot . '_r' . $ruleId;
+            $gotLock = false;
+            try { $gotLock = (bool)$DB->getLock($lock, 0); } catch (Throwable $e) { $gotLock = true; }
+            if (!$gotLock) return ['ok' => false, 'error' => 'envio em andamento'];
+            // listas do quadro na categoria (vale dedução legada pelo nome)
+            $lids = []; $lnames = [];
+            try {
+                foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $bid, 'is_archived' => 0]]) as $l) {
+                    $match = function_exists('kanpro_list_matches_category')
+                        ? kanpro_list_matches_category($l, $cat)
+                        : (trim(strtolower((string)($l['list_type'] ?? ''))) === $cat);
+                    if ($match) {
+                        $x = (int)$l['id'];
+                        $lids[] = $x;
+                        $ln = trim((string)($l['name'] ?? ''));
+                        $lnames[$x] = $ln !== '' ? $ln : ('Lista #' . $x);
+                    }
+                }
+            } catch (Throwable $e) {}
+            // contagem por lista (1 query por lista: vale no FakeDB e no GLPI)
+            $counts = []; $total = 0;
+            foreach ($lids as $x) {
+                $n = 0;
+                try {
+                    foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['plugin_kanpro_lists_id' => $x, 'is_archived' => 0]]) as $c) $n++;
+                } catch (Throwable $e) {}
+                if ($n > 0) { $counts[$x] = $n; $total += $n; }
+            }
+            if ($total <= 0) return ['ok' => false, 'error' => 'nada pendente'];
+            $boardNome = 'Quadro #' . $bid;
+            try {
+                $brow = $DB->request(['SELECT' => ['name'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['id' => $bid], 'LIMIT' => 1])->current();
+                if ($brow && trim((string)($brow['name'] ?? '')) !== '') $boardNome = (string)$brow['name'];
+            } catch (Throwable $e) {}
+            $label = function_exists('kanpro_list_type_label') ? kanpro_list_type_label($cat) : $cat;
+            if ($label === '') $label = $cat;
+            $wlines = []; $hlines = [];
+            foreach ($counts as $x => $n) {
+                $wlines[] = '• ' . $lnames[$x] . ': ' . $n . ' card(s)';
+                $hlines[] = '<li>' . htmlspecialchars($lnames[$x], ENT_QUOTES, 'UTF-8') . ' — ' . $n . ' card(s)</li>';
+            }
+            $data = [
+                'quadro' => $boardNome, 'lista' => $label, 'total' => (string)$total,
+                'quantidade' => (string)$total,
+                'detalhes' => implode("\n", $wlines),
+                'data' => date('d/m/Y H:i'),
+            ];
+            $txt = self::renderTxt('digest_resumo', $data);
+            if ($txt === null || trim($txt) === '') {
+                $txt = "Resumo {$label}: {$boardNome} tem {$total} card(s) em " . date('d/m/Y H:i') . "\n" . implode("\n", $wlines);
+            }
+            $sent = 0; $errors = []; $skipped = [];
+            if (!empty($rule['notify_whats'])) {
+                $ms = self::recipientMilestone($milestone, $login);
+                if (!$force && self::alreadySent(0, $ms)) { $skipped[] = $login; }
+                elseif (self::hasQueued(0, $ms)) { $skipped[] = $login; }
+                else {
+                    $phone = self::normalizeBRPhone((string)self::resolveApproverPhone($login));
+                    if ($phone === '') { $errors[] = $login . ': sem telefone'; }
+                    else {
+                        $q = self::enqueue('digest_resumo', 0, $ms, $phone, $txt, false, $force);
+                        if (!empty($q['ok'])) { $sent++; }
+                        elseif (($q['error'] ?? '') === 'duplicate') { $skipped[] = $login; }
+                        else { $errors[] = $login . ': ' . ($q['error'] ?? 'falha'); }
+                    }
+                }
+            }
+            if (!empty($rule['notify_mail']) && function_exists('kanpro_queue_email')) {
+                $email = '';
+                try {
+                    if (class_exists('PluginKanproNotifyRule')) {
+                        $u = PluginKanproNotifyRule::resolveUser($login);
+                        if ($u !== null) $email = trim((string)($u['email'] ?? ''));
+                    }
+                } catch (Throwable $e) {}
+                $msm = self::recipientMilestone($milestone . 'm', $login);
+                if ($email === '') { $errors[] = $login . ': sem e-mail'; }
+                elseif (!$force && self::alreadySent(0, $msm)) { $skipped[] = $login; }
+                else {
+                    $mdata = $data;
+                    $mdata['detalhes'] = '<ul>' . implode('', $hlines) . '</ul>';
+                    $bodyMail = null;
+                    $subj = 'KanPro: resumo ' . $label . ' — ' . $total . ' card(s)';
+                    try {
+                        if (class_exists('PluginKanproMaintenanceMail')) {
+                            $mh = PluginKanproMaintenanceMail::render('notify_digest', $mdata);
+                            if (is_string($mh) && trim($mh) !== '') {
+                                $bodyMail = $mh;
+                                $subj = PluginKanproMaintenanceMail::subject('notify_digest', $mdata);
+                            }
+                        }
+                    } catch (Throwable $e) {}
+                    if ($bodyMail === null) $bodyMail = $txt;
+                    $mq = kanpro_queue_email($email, $subj, $bodyMail);
+                    if (!empty($mq['ok'])) { $sent++; self::markSent(0, $msm, $email, true, ''); }
+                    else { $errors[] = $login . ': ' . ($mq['error'] ?? 'falha no e-mail'); }
+                }
+            }
+            if ($sent <= 0) {
+                if (!empty($skipped) && empty($errors)) return ['ok' => false, 'error' => 'duplicate'];
+                return ['ok' => false, 'error' => implode('; ', $errors) ?: 'sem canal'];
+            }
+            return ['ok' => true, 'total' => $total];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Cron do resumo por regra (turno vem no param: 8, 10, 13 ou 15).
+     * Varre quadros com regras de resumo ativas. Nunca joga exceção.
+     */
+    public static function cronZapdigest($task = null): int {
+        global $DB;
+        $slot = 8;
+        try {
+            if (is_object($task) && isset($task->fields['param'])) $slot = (int)$task->fields['param'];
+            if (!in_array($slot, [8, 10, 13, 15], true)) {
+                $h = (int)date('H');
+                $slot = ($h < 9) ? 8 : (($h < 12) ? 10 : (($h < 14) ? 13 : 15));
+            }
+            $done = 0; $sent = 0;
+            if (isset($DB) && $DB->tableExists('glpi_plugin_kanpro_boards') && class_exists('PluginKanproNotifyRule')) {
+                foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_boards', 'WHERE' => ['is_archived' => 0]]) as $b) {
+                    foreach (PluginKanproNotifyRule::getRulesForBoard((int)$b['id']) as $rule) {
+                        if (empty($rule['notify_digest'])) continue;
+                        $done++;
+                        $r = self::sendRuleDigest($rule, $slot);
+                        if (!empty($r['ok'])) $sent++;
+                    }
+                }
+            }
+            if (is_object($task) && method_exists($task, 'log')) {
+                $task->log("KanPro digest {$slot}h: {$done} regras, {$sent} enviadas");
+            }
+        } catch (Throwable $e) { return 1; }
+        return 1;
+    }
+
     public static function registerCron(): void {
         global $DB;
         if (!$DB->tableExists('glpi_crontasks')) return;
@@ -2071,6 +2231,22 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     'comment'       => $cmt,
                 ]);
             }
+            // resumo por regra 8h, 10h, 13h e 15h: conta cards por (quadro, categoria) e
+            // envia por regra com resumo ativo (só se > 0). Mesmo padrão dos lembretes:
+            // frequency 1800 (30min), janela de 1h (hourmax é exclusivo no GLPI).
+            foreach ([['zapdigest8', 8, 9, 'KanPro: resumo por regra 8h'], ['zapdigest10', 10, 11, 'KanPro: resumo por regra 10h'], ['zapdigest13', 13, 14, 'KanPro: resumo por regra 13h'], ['zapdigest15', 15, 16, 'KanPro: resumo por regra 15h']] as [$cname, $chour, $hmax, $cmt]) {
+                $upsert($cname, [
+                    'frequency'     => 1800,
+                    'param'         => $chour,
+                    'state'         => 1,
+                    'mode'          => 2, // MODE_EXTERNAL: exige cron do SO — igual aos lembretes
+                    'allowmode'     => 3,
+                    'logs_lifetime' => 30,
+                    'hourmin'       => $chour,
+                    'hourmax'       => $hmax,
+                    'comment'       => $cmt,
+                ]);
+            }
             // limpa tarefa antiga do turno das 9h (substituído por 8h/10h)
             try {
                 $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => 'zaplembrete9']);
@@ -2099,7 +2275,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         global $DB;
         try {
             if ($DB->tableExists('glpi_crontasks')) {
-                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete9', 'zaplembrete10', 'zaplembrete13', 'zapqueue']]);
+                $DB->delete('glpi_crontasks', ['itemtype' => 'PluginKanproMaintenanceZap', 'name' => ['zapatraso', 'zaplembrete8', 'zaplembrete9', 'zaplembrete10', 'zaplembrete13', 'zapdigest8', 'zapdigest10', 'zapdigest13', 'zapdigest15', 'zapqueue']]);
             }
         } catch (Throwable $e) {}
     }

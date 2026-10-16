@@ -126,4 +126,13 @@ class FakeKanproDB {
         ));
         return count($this->tables[$table]['rows']) < $before;
     }
+
+    /** Trava distribuída (nos testes sempre concede, processo único). */
+    public function getLock(string $name, int $timeout = 0): bool {
+        return true;
+    }
+
+    public function releaseLock(string $name): bool {
+        return true;
+    }
 }

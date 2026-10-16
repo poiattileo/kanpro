@@ -251,6 +251,32 @@ if (!function_exists('kanpro_notify_rule_parse')) {
     }
 }
 
+if (!function_exists('kanpro_list_matches_category')) {
+    // A lista (linha) é da categoria? list_type direto, senão dedução legada pelo nome.
+    // Versão pura (sem DB/classes) da regra de kanpro_list_category — vale em cron e testes.
+    function kanpro_list_matches_category(array $list, string $cat): bool {
+        $cat = function_exists('kanpro_valid_list_type') ? kanpro_valid_list_type($cat) : trim(strtolower($cat));
+        if ($cat === '' || $cat === 'none') return false;
+        $lt = trim(strtolower((string)($list['list_type'] ?? '')));
+        if ($lt === '' || $lt === 'none') {
+            $nm = function_exists('mb_strtolower') ? mb_strtolower(trim((string)($list['name'] ?? '')), 'UTF-8') : strtolower(trim((string)($list['name'] ?? '')));
+            $nm = trim(strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']));
+            if ($nm === 'pendente') $lt = 'pending';
+            elseif ($nm === 'aguardando chegada') $lt = 'awaiting';
+            elseif ($nm === 'em andamento') $lt = 'andamento';
+            elseif ($nm === 'retirada') $lt = 'retirada';
+            elseif ($nm === 'concluido' || $nm === 'concluida') $lt = 'done';
+            elseif ($nm === 'chamados pendencia') $lt = 'chamados_pendencia';
+            elseif ($nm === 'chamados espera') $lt = 'chamados_espera';
+            elseif (strpos($nm, 'pendencia') !== false && strpos($nm, 'chamado') !== false) $lt = 'pend_chamado';
+            elseif ($nm === 'abrir chamado') $lt = 'abrir_chamado';
+            elseif ($nm === 'em andamento chamado') $lt = 'andamento_chamado';
+            elseif ($nm === 'chamado finalizado' || $nm === 'chamados finalizados') $lt = 'chamado_finalizado';
+        }
+        return $lt === $cat;
+    }
+}
+
 if (!function_exists('kanpro_resolve_user_by_login')) {
     function kanpro_resolve_user_by_login(string $login): int {
         global $DB;
