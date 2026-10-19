@@ -341,37 +341,29 @@ if (!function_exists('kanpro_migrate_chamado_recipients_to_rules')) {
     }
 }
 
-
-            return ['ok' => true];
-        } catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage()]; }
-    }
-}
-
-
-
-                // tabelas com UNIQUE (board,user) e (card,user): transfere ou apaga duplicado
-                foreach ([
-                    ['glpi_plugin_kanpro_boards_members', 'plugin_kanpro_boards_id'],
-                    ['glpi_plugin_kanpro_cards_members', 'plugin_kanpro_cards_id'],
-                ] as [$table, $parentCol]) {
-                    if (!$DB->tableExists($table)) continue;
-                    $rows = $DB->request(['FROM' => $table, 'WHERE' => ['users_id' => $src]]);
-                    foreach ($rows as $r) {
-                        $parent = (int)$r[$parentCol];
-                        $exists = countElementsInTable($table, [$parentCol => $parent, 'users_id' => $dst]);
-                        if ($exists) {
-                            $DB->delete($table, ['id' => (int)$r['id']]);
-                        } else {
-                            $DB->update($table, ['users_id' => $dst], ['id' => (int)$r['id']]);
-                        }
-                        $done[$table] = ($done[$table] ?? 0) + 1;
+if (!function_exists('kanpro_resolve_user_by_login')) {
+    function kanpro_resolve_user_by_login(string $login): int {
+        global $DB;
+        $login = trim($login);
+        if ($login === '') return 0;
+        try {
+            $row = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_users', 'WHERE' => ['name' => $login, 'is_deleted' => 0], 'LIMIT' => 1])->current();
+            if ($row) {
+                $u = new User();
+                if ($u->getFromDB((int)$row['id']) && ($u->fields['is_active'] ?? 1)) return (int)$row['id'];
+            }
+            // fallback: e-mail cadastrado
+            if ($DB->tableExists('glpi_useremails')) {
+                $em = $DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_useremails', 'WHERE' => ['email' => $login], 'LIMIT' => 1])->current();
+                if ($em) {
+                    $u = new User();
+                    if ($u->getFromDB((int)$em['users_id']) && empty($u->fields['is_deleted']) && ($u->fields['is_active'] ?? 1)) {
+                        return (int)$em['users_id'];
                     }
                 }
             }
-        } catch (Throwable $e) {
-            error_log('[KanPro] ' . 'KanPro migrate_shared_login: ' . $e->getMessage());
-        }
-        return $done;
+        } catch (Throwable $e) {}
+        return 0;
     }
 }
 
