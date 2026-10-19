@@ -8,6 +8,5 @@ parameters:
     scanFiles:
         - inc/acting.php
         - inc/maintenancezap.class.php
-        - inc/notifyrule.class.php
         - inc/maintenancemail.class.php
         - inc/compat.php
