@@ -411,6 +411,15 @@
 .kp-card.kp-edicao, .kp-card[data-edicao="1"] { border-color: #8d6e63 !important; border-width: 3px !important; box-shadow: 0 0 0 3px rgba(141,110,99,.3), 0 2px 6px rgba(0,0,0,.15) !important; background: #efebe9 !important; }
 .kp-card.kp-edicao:hover, .kp-card[data-edicao="1"]:hover { box-shadow: 0 0 0 4px rgba(141,110,99,.4), 0 4px 12px rgba(0,0,0,.18) !important; }
 
+#kp-modal-box { max-width: 768px; transition: max-width .18s ease; }
+#kp-card-sidebar { display: none; width: 168px; }
+#kp-modal-box.kp-card-expanded { max-width: 1040px; }
+#kp-modal-box.kp-card-expanded #kp-card-sidebar { display: grid; }
+@media (max-width: 900px) {
+  #kp-modal-box.kp-card-expanded #kp-card-body { flex-wrap: wrap; }
+  #kp-modal-box.kp-card-expanded #kp-card-sidebar { width: 100%; }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .kp-list { width: 260px; min-width: 260px; }

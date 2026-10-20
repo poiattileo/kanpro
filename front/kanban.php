@@ -515,7 +515,8 @@ echo <<<HTML
 
 <!-- Modal do cartão (Trello style) -->
 <div id="kanpro-card-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.64);z-index:9999;overflow-y:auto;padding:40px 0">
-  <div id="kp-modal-box" style="background:#f4f5f7;max-width:768px;margin:0 auto;border-radius:8px;overflow:hidden;position:relative;min-height:400px">
+  <div id="kp-modal-box" style="background:#f4f5f7;margin:0 auto;border-radius:8px;overflow:hidden;position:relative;min-height:400px">
+    <button id="kp-sidebar-toggle" type="button" onclick="Kanpro.toggleCardSidebar()" title="Expandir ações do cartão" aria-label="Expandir ações do cartão" aria-expanded="false" style="position:absolute;top:8px;right:48px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2;display:flex;align-items:center;justify-content:center"><i class="ti ti-maximize" style="font-size:16px"></i></button>
     <button onclick="Kanpro.closeCardModal()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2"><i class="ti ti-x" style="font-size:18px"></i></button>
     <div id="kp-normal-content">
     <div id="card-modal-cover" style="height:0"></div>
@@ -526,7 +527,7 @@ echo <<<HTML
       <div id="card-modal-badges" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
       <div id="card-modal-lock" style="display:none;margin-top:10px"></div>
     </div>
-    <div style="display:flex;gap:16px;padding:0 16px 16px 16px">
+    <div id="kp-card-body" style="display:flex;gap:16px;padding:0 16px 16px 16px">
       <div style="flex:1;min-width:0">
         <!-- Membros + Etiquetas -->
         <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
@@ -604,7 +605,7 @@ echo <<<HTML
       </div>
 
       <!-- Sidebar direita (ações Trello) -->
-      <div style="width:168px;flex-shrink:0;display:grid;align-content:start;gap:16px">
+      <div id="kp-card-sidebar" style="flex-shrink:0;align-content:start;gap:16px">
         <div>
           <div style="font-size:12px;font-weight:600;color:#5e6c84;margin-bottom:8px">ADICIONAR AO CARTÃO</div>
           <div style="display:grid;gap:8px">

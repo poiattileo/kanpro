@@ -3691,6 +3691,35 @@
       });
     },
 
+    toggleCardSidebar(){
+      const box = document.getElementById('kp-modal-box');
+      if(!box) return;
+      const expanded = box.classList.toggle('kp-card-expanded');
+      const btn = document.getElementById('kp-sidebar-toggle');
+      if(btn){
+        btn.title = expanded ? 'Recolher ações do cartão' : 'Expandir ações do cartão';
+        btn.setAttribute('aria-label', btn.title);
+        btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        const ic = btn.querySelector('i');
+        if(ic) ic.className = expanded ? 'ti ti-minimize' : 'ti ti-maximize';
+      }
+    },
+    resetCardSidebar(){
+      document.getElementById('kp-modal-box')?.classList.remove('kp-card-expanded');
+      const btn = document.getElementById('kp-sidebar-toggle');
+      if(btn){
+        btn.title = 'Expandir ações do cartão';
+        btn.setAttribute('aria-label', btn.title);
+        btn.setAttribute('aria-expanded', 'false');
+        const ic = btn.querySelector('i');
+        if(ic) ic.className = 'ti ti-maximize';
+      }
+    },
+    setCardSidebarToggleVisible(visible){
+      const btn = document.getElementById('kp-sidebar-toggle');
+      if(btn) btn.style.display = visible ? 'flex' : 'none';
+    },
+
     // Modal cartão
     openCard(cardId){
       const lc = (this.cards||[]).find(c=> c.id==cardId);
@@ -3699,6 +3728,7 @@
       const modal = $('#kanpro-card-modal');
       modal.style.display='block';
       document.body.style.overflow='hidden';
+      this.resetCardSidebar();
       // reseta visões: normal de volta, pendência escondida (o render decide)
       try {
         const nc = document.getElementById('kp-normal-content');
@@ -3712,6 +3742,7 @@
           if(nc) nc.style.display = '';
           if(pc){ pc.style.display = 'none'; pc.innerHTML = '<div style="padding:40px;text-align:center;color:#5e6c84">Carregando pendência…</div>'; }
         }
+        this.setCardSidebarToggleVisible(!prePend);
       } catch(e){}
       // loading
       $('#card-modal-title').textContent='Carregando...';
@@ -3766,7 +3797,8 @@
     renderCardModal(data){
       // Pendência Chamado tem card próprio, totalmente diferente (sem sidebar/edição)
       try {
-        if(this.isPendenciaCard(data)){ this.renderPendenciaModal(data); return; }
+        if(this.isPendenciaCard(data)){ this.setCardSidebarToggleVisible(false); this.renderPendenciaModal(data); return; }
+        this.setCardSidebarToggleVisible(true);
         // card normal: garante visão normal visível
         const nc = document.getElementById('kp-normal-content');
         const pc = document.getElementById('kp-pendencia-content');
