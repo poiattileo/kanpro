@@ -2945,7 +2945,11 @@
       if(!cid) return;
       const res = await this.ajax('confirm_tablet_liberado', {cards_id: cid});
       if(!res || !res.success){ this.showAlert((res && res.msg) || 'Erro ao confirmar', 'Erro'); return; }
-      this.showToast('✨ Tablet confirmado — movido para ' + (res.list_name || 'Retirada'));
+      if(res.finalized_direct){
+        this.showToast('✨ Tablet confirmado — finalizado direto em ' + (res.list_name || 'Concluído'));
+      } else {
+        this.showToast('✨ Tablet confirmado — movido para ' + (res.list_name || 'Retirada'));
+      }
       this.closeCardModal();
       this.forceSync();
     },
@@ -6550,6 +6554,19 @@
           this.showAlert(res.msg||'Sua parte foi finalizada. Aguardando o outro técnico finalizar para juntar e gerar 1 termo só.', 'Split 1/2 — aguardando');
           this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
           try { this.forceSync(); } catch(e){}
+          return;
+        }
+        if(res.finalized_direct){
+          let msgFd = res.msg || '✅ Manutenção finalizada — direto para Concluído';
+          if(res.done_list_name) msgFd += ` • Card → ${res.done_list_name}`;
+          if(res.pending_card_id) msgFd += ` • Pendentes → card #${res.pending_card_id} (${res.pending_count})`;
+          this.showToast(msgFd);
+          try { this.forceSync(); } catch(e){}
+          this.ajax("get_card", {cards_id: cardId}).then(r=>{ if(r.success) this.renderCardModal(r.data); this.renderBoard(); });
+          if(res.pending_card_id){
+            setTimeout(()=>{ const el=document.querySelector(`.kp-card[data-card-id="${res.pending_card_id}"]`); if(el){ el.classList.add('kp-card-updated'); el.scrollIntoView({behavior:"smooth",block:"center"}); } }, 600);
+          }
+          this.closeCardModal();
           return;
         }
         let msg = "Enviado para Assinatura!";

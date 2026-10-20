@@ -246,6 +246,10 @@ function plugin_kanpro_install(): bool {
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `tablet_liberado_pending`");
         }
+        // Finalização direta (entidade 0 / URE Jales): card vai direto pra Concluído sem termo
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'finalized_direct')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `finalized_direct` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=finalizado direto em Concluido sem termo (entidade 0)' AFTER `whatsapp_notify`");
+        }
     }
 
     // --- LABELS (Etiquetas) ---

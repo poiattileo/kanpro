@@ -282,15 +282,15 @@ function kanpro_user_brief($uid) {
     }
     return ['users_id' => (int)$uid, 'name' => $name, 'login' => $login, 'initials' => $initials];
 }
-// ---------- Aba "Excluídos": todo mundo que pode ver o quadro ----------
+// ---------- Aba "Excluídos": somente criador ou Gerente do quadro ----------
 function kanpro_require_deleted_manager($bid) {
     $bid = (int)$bid;
     if ($bid > 0) kanpro_require_board_view($bid);
     $ok = false;
-    try { $ok = function_exists('kanpro_can_view_board') ? kanpro_can_view_board($bid) : false; } catch (Throwable $e) { $ok = false; }
+    try { $ok = function_exists('kanpro_can_see_all') ? kanpro_can_see_all($bid) : false; } catch (Throwable $e) { $ok = false; }
     if (!$ok) {
         http_response_code(403);
-        jexit(['success'=>false,'msg'=>'Sem acesso a este quadro.']);
+        jexit(['success'=>false,'msg'=>'Somente o criador ou Gerente do quadro pode ver os cartões excluídos.']);
     }
 }
 function kanpro_deleted_actor_name($uid) {
@@ -934,6 +934,9 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'split_finalized')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `split_finalized` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=este lado finalizou e aguarda o irmao para o merge' AFTER `split_index`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'finalized_direct')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `finalized_direct` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=finalizado direto em Concluido sem termo (entidade 0)' AFTER `split_finalized`"); } catch (Throwable $e) {}
+            }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
             if (!$DB->fieldExists('glpi_plugin_kanpro_lists', 'require_approval')) {
@@ -1355,12 +1358,17 @@ function kanpro_need_liberated_chamado(int $cards_id) {
         jexit(['success'=>false,'msg'=>'Aguarde o "Chamado aberto" em Abrir chamado para liberar este card.']);
     }
 }
-// Card finalizado = já foi para Assinatura (existe transferência KanPro).
-// Depois do Finalizar não pode mais editar/adicionar/remover máquinas — só visualizar.
+// Card finalizado = foi para Assinatura (transferência KanPro) OU finalização direta
+// (entidade 0, coluna finalized_direct — sem termo). Depois do Finalizar não pode
+// mais editar/adicionar/remover máquinas — só visualizar.
 function kanpro_card_is_finalized(int $cards_id): bool {
     global $DB;
     if ($cards_id <= 0) return false;
     try {
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'finalized_direct')) {
+            $itFd = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['id' => $cards_id, 'finalized_direct' => 1], 'LIMIT' => 1]);
+            if ($itFd->count() > 0) return true;
+        }
         if (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers')) return false;
         $like = "%[KanPro #{$cards_id}%";
         $iter = $DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_plugin_assetmgrstatus_transfers', 'WHERE' => ['reason' => ['LIKE', $like]], 'LIMIT' => 1]);
@@ -1511,10 +1519,12 @@ function kanpro_move_card_to_retirada(int $cards_id): array {
     } catch (Throwable $e) { return $noop; }
 }
 
-// Move o card para a lista de categoria "Concluído" (pós-assinatura ou pós-Liberar conclusão).
-// Só sai da Retirada ou do Em Andamento; sem lista Concluído ou já estando nela: não faz nada.
-// Nunca joga exceção. Retorna ['moved'=>bool,'lists_id'=>int,'list_name'=>string].
-function kanpro_move_card_to_done(int $cards_id): array {
+// Move o card para a lista de categoria "Concluído" (pós-assinatura, pós-Liberar conclusão
+// ou finalização direta entidade 0). Só sai da Retirada ou do Em Andamento; sem lista
+// Concluído ou já estando nela: não faz nada. Nunca joga exceção.
+// $log_verb: verbo do log de atividade ('Assinado' no fluxo normal, 'Finalizado (entidade 0)' no direto).
+// Retorna ['moved'=>bool,'lists_id'=>int,'list_name'=>string].
+function kanpro_move_card_to_done(int $cards_id, string $log_verb = 'Assinado'): array {
     global $DB;
     $noop = ['moved'=>false,'lists_id'=>0,'list_name'=>''];
     try {
@@ -1541,9 +1551,17 @@ function kanpro_move_card_to_done(int $cards_id): array {
         $rank = $last ? ((float)$last['rank'] + 1024) : 1024;
         $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$destLid,'rank'=>$rank,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cards_id]);
         kanpro_touch_card($cards_id);
-        PluginKanproBoard::logActivity($bid, $cards_id, $destLid, 'card_move', "Assinado e movido para '{$dest['name']}'");
+        PluginKanproBoard::logActivity($bid, $cards_id, $destLid, 'card_move', "{$log_verb} e movido para '{$dest['name']}'");
         return ['moved'=>true,'lists_id'=>$destLid,'list_name'=>(string)($dest['name'] ?? 'Concluído')];
     } catch (Throwable $e) { return $noop; }
+}
+
+// Card de manutenção da entidade 0 (Unidade Regional de Ensino de Jales):
+// finalização direta — sem termo de assinatura, sem zap de retirada e sem
+// lembrete de atraso; card vai direto para a lista Concluído.
+function kanpro_card_finaliza_direto(array $cardFields): bool {
+    if (empty($cardFields['is_maintenance'])) return false;
+    return (int)($cardFields['entities_id'] ?? -1) === 0;
 }
 // Usado na conversão para manutenção (automático) e no botão Chamado.
 // Se o cartão já tem chamado válido, só retorna o vínculo existente.
@@ -7035,7 +7053,8 @@ switch ($action) {
             }
         }
         // verifica se assetmgrstatus está disponível (tabelas) — só necessário se houver itens para levar
-        if ($nonCount>0 && (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers') || !$DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items'))) {
+        // (finalização direta entidade 0 não precisa do plugin de Assinatura)
+        if ($nonCount>0 && !kanpro_card_finaliza_direto($card->fields) && (!$DB->tableExists('glpi_plugin_assetmgrstatus_transfers') || !$DB->tableExists('glpi_plugin_assetmgrstatus_transfer_items'))) {
             jexit(['success'=>false,'msg'=>'Plugin Assinatura (assetmgrstatus) não encontrado. Use Gerar Termo local.','need_fallback'=>true,'progress'=>['total'=>$total,'done'=>$done,'percent'=>$percent]]);
         }
         // evita duplicidade: se já existe transferência KanPro para este card, reutiliza (só se não há pendentes a separar)
@@ -7210,6 +7229,42 @@ switch ($action) {
         $now = date('Y-m-d H:i:s');
         $uid = kanpro_acting_user_id();
         $tech_id = (int)($card->fields['maintenance_by'] ?? $uid);
+        // Card de manutenção da entidade 0 (URE Jales): finalização direta —
+        // sem termo de assinatura, sem zap de retirada e sem lembrete de atraso.
+        if (kanpro_card_finaliza_direto($card->fields)) {
+            try { $DB->update('glpi_plugin_kanpro_cards', ['finalized_direct'=>1,'date_mod'=>$now], ['id'=>$cid]); } catch (Throwable $e) {}
+            kanpro_touch_member($cid);
+            // espelha no chamado vinculado (mesmo do fluxo normal, sem termo)
+            $finTidFd = kanpro_card_ticket_id($cid);
+            if ($finTidFd) {
+                kanpro_ticket_assign($finTidFd, $uid);
+                $finNameFd = '';
+                try { $fuFd = new User(); if ($fuFd->getFromDB($uid)) $finNameFd = $fuFd->getFriendlyName(); } catch (Throwable $e) {}
+                $techNameFd = '';
+                try { $tuFd = new User(); if ($tuFd->getFromDB($tech_id)) $techNameFd = $tuFd->getFriendlyName(); } catch (Throwable $e) {}
+                $finMsgFd = "✅ [KanPro] Manutenção finalizada\n\n"
+                    . "Cartão #{$cid} '" . ($card->fields['name'] ?? '') . "'\n"
+                    . 'Quadro: ' . $board_name . "\n"
+                    . 'Lista: ' . $list_name . "\n"
+                    . ($techNameFd !== '' ? 'Técnico responsável: ' . $techNameFd . "\n" : '')
+                    . ($finNameFd !== '' ? 'Finalizado por: ' . $finNameFd . "\n" : '')
+                    . "\nResumo do atendimento: {$total} máquinas (Garantia: {$cntGarantiaTerm} | OK: {$cntOkTerm} | Inservível: {$cntInservivelTerm})\n"
+                    . ($pendingCount > 0 ? "{$pendingCount} item(ns) pendente(s) transferido(s) para o cartão #{$pendingCardId}.\n" : '')
+                    . "Sem termo de assinatura (entidade 0 — finalização direta em Concluído).";
+                $finRepFd = kanpro_card_machines_report($cid);
+                if ($finRepFd !== '') $finMsgFd .= "\n\n" . $finRepFd;
+                kanpro_ticket_followup($finTidFd, $finMsgFd);
+                kanpro_ticket_solve($finTidFd, "Manutenção concluída pelo KanPro" . ($finNameFd !== '' ? ' (finalizado por ' . $finNameFd . ')' : '') . " — {$total} máquinas verificadas (Garantia: {$cntGarantiaTerm} | OK: {$cntOkTerm} | Inservível: {$cntInservivelTerm}). Finalização direta em Concluído (entidade 0).");
+            }
+            $doneMoveFd = kanpro_move_card_to_done($cid, 'Finalizado (entidade 0)');
+            PluginKanproBoard::logActivity((int)$card->fields['plugin_kanpro_boards_id'], $cid, (int)$card->fields['plugin_kanpro_lists_id'], 'maintenance_finalize', "Manutenção finalizada — direto para Concluído (entidade 0, sem termo) ({$total} itens) pendentes→#{$pendingCardId}");
+            $respFd = ['success'=>true,'finalized_direct'=>true,'progress'=>['total'=>$total,'done'=>$doneTerm,'percent'=>$total?round($doneTerm/$total*100):0,'garantia'=>$cntGarantiaTerm,'ok'=>$cntOkTerm,'inservivel'=>$cntInservivelTerm]];
+            if (!empty($doneMoveFd['moved'])) { $respFd['moved_to_done'] = true; $respFd['done_lists_id'] = $doneMoveFd['lists_id']; $respFd['done_list_name'] = $doneMoveFd['list_name']; }
+            if ($pendingCardId) { $respFd['pending_card_id'] = $pendingCardId; $respFd['pending_count'] = $pendingCount; $respFd['msg_pending'] = "Pendentes ({$pendingCount}) movidos para novo card #{$pendingCardId}"; }
+            if (!empty($pendenciaSplit['pendencia_id'])) { $respFd['pendencia_id']=$pendenciaSplit['pendencia_id']; $respFd['pendencia_locked']=$pendenciaSplit['locked']; $respFd['zap_ok']=$pendenciaSplit['zap_ok']; $respFd['zap_error']=$pendenciaSplit['zap_error']; }
+            elseif (!empty($pendenciaSplit['warning']) && $pendingCardId && function_exists('kanpro_can_manage_members') && kanpro_can_manage_members((int)$card->fields['plugin_kanpro_boards_id'])) { $respFd['pendencia_warning']=$pendenciaSplit['warning']; }
+            jexit($respFd);
+        }
         // Nome do Recebedor fica vazio por padrão — preenchido apenas no momento da assinatura via tablet/lote
         $transfer_data = [
             'entity_dest'      => $entity_dest,
@@ -7467,6 +7522,15 @@ switch ($action) {
         $actorId = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
         if ($tabletFinalizedBy !== $actorId) jexit(['success'=>false,'msg'=>'Somente o técnico que finalizou pode confirmar']);
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
+        // Card de manutenção da entidade 0 (URE Jales): finalização direta —
+        // em vez de Retirada, vai direto pra Concluído (sem termo/zap/atraso).
+        if (kanpro_card_finaliza_direto($c->fields)) {
+            try { $DB->update('glpi_plugin_kanpro_cards', ['finalized_direct'=>1,'tablet_liberado_pending'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]); } catch (Throwable $e) {}
+            $doneMoveFdTb = kanpro_move_card_to_done($cid, 'Finalizado (entidade 0)');
+            kanpro_touch_card($cid);
+            PluginKanproBoard::logActivity($bid, $cid, (int)($doneMoveFdTb['lists_id'] ?: $c->fields['plugin_kanpro_lists_id']), 'tablet_confirmed', "Tablet confirmado pelo técnico #{$actorId} — finalização direta em Concluído (entidade 0)");
+            jexit(['success'=>true,'moved'=>!empty($doneMoveFdTb['moved']),'finalized_direct'=>true,'list_name'=>(string)($doneMoveFdTb['list_name'] ?: 'Concluído'),'lists_id'=>(int)($doneMoveFdTb['lists_id'] ?? 0)]);
+        }
         // Move pra Retirada
         $retMove = kanpro_move_card_to_retirada($cid);
         if (!$retMove['moved']) jexit(['success'=>false,'msg'=>'Falha ao mover para Retirada (lista não existe ou já está lá)']);

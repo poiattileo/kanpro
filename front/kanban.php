@@ -43,10 +43,10 @@ if (!$__histAdmin) {
 }
 if (!$__histAdmin && in_array(kanpro_board_profile_role($boards_id), ['admin', 'gerente'], true)) $__histAdmin = true;
 
-// Excluídos: todo mundo que pode ver o quadro.
+// Excluídos: somente criador ou Gerente do quadro.
 $__canSeeDeleted = false;
 try {
-    $__canSeeDeleted = function_exists('kanpro_can_view_board') ? kanpro_can_view_board($boards_id) : false;
+    $__canSeeDeleted = function_exists('kanpro_can_see_all') ? kanpro_can_see_all($boards_id) : false;
 } catch (Throwable $e) { $__canSeeDeleted = false; }
 
 // Migra registros do login compartilhado para a pessoa real (idempotente — ver inc/acting.php)
