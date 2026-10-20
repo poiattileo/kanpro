@@ -29,7 +29,7 @@ if ($src === false) {
 // Inicialização esperada (bloco do card origem).
 $init = strpos($src, '$srcLid = 0');
 // Uso que disparava o warning (request do primeiro rank da lista).
-$use = strpos($src, "'plugin_kanpro_lists_id' => $srcLid");
+$use = strpos($src, "'plugin_kanpro_lists_id' => \$srcLid");
 
 if ($init === false) {
     echo "NOT OK - inicializacao '\$srcLid = 0' nao encontrada em front/ajax.php\n";
