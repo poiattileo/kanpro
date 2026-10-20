@@ -515,16 +515,20 @@ echo <<<HTML
 
 <!-- Modal do cartão (Trello style) -->
 <div id="kanpro-card-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.64);z-index:9999;overflow-y:auto;padding:40px 0">
-  <div id="kp-modal-box" style="background:#f4f5f7;margin:0 auto;border-radius:8px;overflow:hidden;position:relative;min-height:400px">
-    <button id="kp-sidebar-toggle" type="button" onclick="Kanpro.toggleCardSidebar()" title="Expandir ações do cartão" aria-label="Expandir ações do cartão" aria-expanded="false" style="position:absolute;top:8px;right:48px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2;display:flex;align-items:center;justify-content:center"><i class="ti ti-maximize" style="font-size:16px"></i></button>
-    <button onclick="Kanpro.closeCardModal()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2"><i class="ti ti-x" style="font-size:18px"></i></button>
+  <div id="kp-modal-box" style="background:#f4f5f7;margin:0 auto;border-radius:8px;position:relative;min-height:400px">
+    <div id="kp-modal-controls" style="position:sticky;top:0;height:0;z-index:4">
+      <button id="kp-sidebar-toggle" type="button" onclick="Kanpro.toggleCardSidebar()" title="Expandir ações do cartão" aria-label="Expandir ações do cartão" aria-expanded="false" style="position:absolute;top:8px;right:48px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2;display:flex;align-items:center;justify-content:center"><i class="ti ti-maximize" style="font-size:16px"></i></button>
+      <button onclick="Kanpro.closeCardModal()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.08);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;z-index:2"><i class="ti ti-x" style="font-size:18px"></i></button>
+    </div>
     <div id="kp-normal-content">
     <div id="card-modal-cover" style="height:0"></div>
-    <div style="padding:16px 16px 16px 56px;position:relative">
+    <div id="kp-card-sticky-head" style="padding:16px 16px 8px 56px;position:sticky;top:0;z-index:3;background:#f4f5f7">
       <i class="ti ti-credit-card" style="position:absolute;left:16px;top:18px;font-size:22px;color:#172b4d"></i>
       <div id="card-modal-title" style="font-size:20px;font-weight:700;color:#172b4d;cursor:pointer" onclick="Kanpro.editCardTitle()"></div>
       <div style="font-size:14px;color:#6b778c;margin-top:4px">na lista <span id="card-modal-listname" style="text-decoration:underline"></span><span id="card-modal-created" style="font-size:12px;color:#97a0af"></span></div>
-      <div id="card-modal-badges" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
+    </div>
+    <div style="padding:0 16px 12px">
+      <div id="card-modal-badges" style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap"></div>
       <div id="card-modal-lock" style="display:none;margin-top:10px"></div>
     </div>
     <div id="kp-card-body" style="display:flex;gap:16px;padding:0 16px 16px 16px">

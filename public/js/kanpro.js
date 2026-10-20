@@ -3729,6 +3729,8 @@
       modal.style.display='block';
       document.body.style.overflow='hidden';
       this.resetCardSidebar();
+      const kpBox = document.getElementById('kp-modal-box');
+      if(kpBox) kpBox.scrollTop = 0;
       // reseta visões: normal de volta, pendência escondida (o render decide)
       try {
         const nc = document.getElementById('kp-normal-content');
