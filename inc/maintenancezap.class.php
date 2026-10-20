@@ -1949,6 +1949,27 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         return 1;
     }
 
+    // Wrappers: registerCron() cria 4 tasks (zapdigest8/10/13/15) e o GLPI
+    // dispatcha por `cron` + nome da task (zapdigest15 → cronZapdigest15).
+    // Sem estes métodos o runner loga "Função indefinida
+    // PluginKanproMaintenanceZap::cronzapdigestN (para cron)" a cada execução.
+    // O slot continua vindo de task->fields['param'], tratado por cronZapdigest().
+    public static function cronZapdigest8($task = null): int {
+        return self::cronZapdigest($task);
+    }
+
+    public static function cronZapdigest10($task = null): int {
+        return self::cronZapdigest($task);
+    }
+
+    public static function cronZapdigest13($task = null): int {
+        return self::cronZapdigest($task);
+    }
+
+    public static function cronZapdigest15($task = null): int {
+        return self::cronZapdigest($task);
+    }
+
     public static function registerCron(): void {
         global $DB;
         if (!$DB->tableExists('glpi_crontasks')) return;
