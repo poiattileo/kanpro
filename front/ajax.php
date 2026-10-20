@@ -1097,7 +1097,8 @@ function kanpro_find_list_by_type(int $boards_id, string $type): ?array {
         foreach ($DB->request(['FROM' => 'glpi_plugin_kanpro_lists', 'WHERE' => ['plugin_kanpro_boards_id' => $boards_id, 'is_archived' => 0], 'ORDER' => 'rank ASC']) as $l) {
             $lt = trim(strtolower($l['list_type'] ?? ''));
             if ($lt === $type) return $l;
-            if ($lt === '' || $lt === 'none') {
+            if ($lt === 'none') continue; // normal explícito: não deduz pelo nome
+            if ($lt === '') {
                 $nm = function_exists('mb_strtolower') ? mb_strtolower(trim($l['name'] ?? ''), 'UTF-8') : strtolower(trim($l['name'] ?? ''));
                 $nm = strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
                 if ($type === 'pending' && $nm === 'pendente') return $l;
@@ -1185,7 +1186,8 @@ function kanpro_list_category(int $lists_id): string {
     $l = new PluginKanproList();
     if (!$l->getFromDB($lists_id)) return '';
     $t = trim(strtolower((string)($l->fields['list_type'] ?? '')));
-    if ($t !== '' && $t !== 'none') return $t;
+    if ($t === 'none') return ''; // normal explícito: o nome não reaplica categoria
+    if ($t !== '') return $t;
     $nm = function_exists('mb_strtolower') ? mb_strtolower(trim((string)($l->fields['name'] ?? '')), 'UTF-8') : strtolower(trim((string)($l->fields['name'] ?? '')));
     $nm = trim(strtr($nm, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']));
     if ($nm === 'pendente') return 'pending';
@@ -2996,8 +2998,11 @@ switch ($action) {
         $bid = (int)($_POST['boards_id'] ?? 0);
         $name = trim($_POST['name'] ?? 'Nova Lista');
         if (!$name) $name = 'Nova Lista';
+        // Sem categoria explícita, nasce normal ('none'): o nome não vira categoria.
+        $lt = kanpro_valid_list_type((string)($_POST['list_type'] ?? ''));
+        if ($lt === '') $lt = 'none';
         $list = new PluginKanproList();
-        $id = $list->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$name,'list_type'=>kanpro_valid_list_type((string)($_POST['list_type'] ?? '')),'users_id'=>kanpro_acting_user_id()]);
+        $id = $list->add(['plugin_kanpro_boards_id'=>$bid,'name'=>$name,'list_type'=>$lt,'users_id'=>kanpro_acting_user_id()]);
         PluginKanproBoard::logActivity($bid, null, $id, 'list_create', "Lista '{$name}' criada");
         jexit(['success'=>true,'id'=>$id]);
 

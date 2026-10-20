@@ -979,22 +979,6 @@
           <button class="kp-add-list-btn" onclick="Kanpro.showAddList()"><i class="ti ti-plus"></i> Adicionar outra lista</button>
           <div class="kp-list-composer" style="display:none">
             <input type="text" placeholder="Digite o título da lista..." maxlength="100">
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5e6c84;margin-top:8px;cursor:pointer">
-              <input type="checkbox" class="kp-list-type-check" onchange="Kanpro.toggleListTypePicker(this)"> É lista de ajuste?
-            </label>
-            <select class="kp-list-type-select" style="display:none;width:100%;margin-top:6px;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;background:#fff">
-              <option value="backlog">🟣 Pautas futuras</option>
-              <option value="awaiting">🟠 Aguardando Chegada</option>
-              <option value="pending">🔴 Pendente</option>
-              <option value="todo" selected>🟡 A Fazer</option>
-              <option value="andamento">🔷 Em Andamento</option>
-              <option value="doing">🔵 Em Progresso</option>
-              <option value="retirada">📦 Retirada</option>
-              <option value="pend_chamado">📞 Pendência chamados</option>
-              <option value="chamados_pendencia">📞 Chamados Pendencia</option>
-              <option value="chamados_espera">⏳ Chamados Espera</option>
-              <option value="done">🟢 Concluído</option>
-            </select>
             <div class="kp-composer-actions">
               <button class="kp-btn-primary" onclick="Kanpro.confirmAddList(this)">Adicionar lista</button>
               <button class="kp-btn-ghost" onclick="Kanpro.hideAddList()">✕</button>
@@ -1934,23 +1918,13 @@
       wrap.querySelector('.kp-add-list-btn').style.display='flex';
       wrap.querySelector('.kp-list-composer').style.display='none';
       wrap.querySelector('input').value='';
-      const chk = wrap.querySelector('.kp-list-type-check');
-      if(chk) chk.checked = false;
-      const sel = wrap.querySelector('.kp-list-type-select');
-      if(sel){ sel.style.display='none'; sel.value='todo'; }
-    },
-    toggleListTypePicker(checkbox){
-      const comp = checkbox.closest('.kp-list-composer');
-      const sel = comp ? comp.querySelector('.kp-list-type-select') : null;
-      if(sel) sel.style.display = (checkbox.checked ? 'block' : 'none');
     },
     confirmAddList(btn){
       const comp = btn.closest('.kp-list-composer');
       const input = comp.querySelector('input[type="text"]');
       const name = input.value.trim() || 'Nova Lista';
-      const chk = comp.querySelector('.kp-list-type-check');
-      const sel = comp.querySelector('.kp-list-type-select');
-      const list_type = (chk && chk.checked && sel) ? sel.value : '';
+      // Lista nova nasce sem categoria; categoria só pelo menu da própria lista.
+      const list_type = 'none';
       btn.disabled=true;
       this.ajax('add_list', {boards_id: this.board.id, name, list_type}).then(res=>{
         btn.disabled=false;
