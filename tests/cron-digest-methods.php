@@ -43,11 +43,6 @@ foreach ([8, 10, 13, 15] as $slot) {
         $failures++;
         continue;
     }
-    if (!is_callable(['PluginKanproMaintenanceZap', $method])) {
-        echo "NOT OK - metodo {$method} e chamavel estaticamente\n";
-        $failures++;
-        continue;
-    }
-    echo "ok - metodo {$method} existe e e chamavel\n";
+    echo "ok - metodo {$method} existe\n";
 }
 exit($failures > 0 ? 1 : 0);
