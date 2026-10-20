@@ -7403,6 +7403,11 @@ switch ($action) {
         $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $pid]);
         // Carimba a origem como liberada: a pendência auto-exclui em 30s e sem isso o
         // Tablet voltava p/ 'none' e o 2º Finalizar criava outra pendência (loop infinito).
+        // Card origem carregado ANTES do try: $srcLid/$srcBid são usados dentro dele
+        // (request do rank) e depois no logActivity — antes eram lidos indefinidos.
+        $srcCard = new PluginKanproCard();
+        $srcBid = $bidC; $srcLid = 0;
+        if ($srcCard->getFromDB($srcId)) { $srcBid = (int)$srcCard->fields['plugin_kanpro_boards_id']; $srcLid = (int)$srcCard->fields['plugin_kanpro_lists_id']; }
         try {
             $DB->update('glpi_plugin_kanpro_cards', ['chamado_status' => 'liberado', 'date_mod' => $nowUnlock], ['id' => $srcId]);
             // Se a origem é um tablet que fez 1º Finalizar: seta flag p/ Confirmar + move pro topo
@@ -7417,9 +7422,6 @@ switch ($action) {
         } catch (Throwable $e) {}
         kanpro_touch_card($srcId);
         kanpro_touch_card($pid);
-        $srcCard = new PluginKanproCard();
-        $srcBid = $bidC; $srcLid = 0;
-        if ($srcCard->getFromDB($srcId)) { $srcBid = (int)$srcCard->fields['plugin_kanpro_boards_id']; $srcLid = (int)$srcCard->fields['plugin_kanpro_lists_id']; }
         // conta real de desbloqueadas (quantas ainda restam travadas na origem)
         $stillLocked = 0;
         try { $stillLocked = countElementsInTable('glpi_plugin_kanpro_maintenance_machines', ['plugin_kanpro_cards_id' => $srcId, 'is_locked' => 1]); } catch (Throwable $e) {}
