@@ -2443,21 +2443,8 @@
         }
       } catch(e){}
       if(btnPegar) btnPegar.style.display = 'none';
-      // sidebar: botão Ok (cria 1x, em AÇÕES acima do Excluir) — Manutenção em Em Andamento/Retirada
-      let btnConcluir = document.getElementById('kp-concluir-btn');
-      const sideAcoes = document.getElementById('kp-delete-btn')?.parentElement;
-      if(sideAcoes && !btnConcluir){
-        btnConcluir = document.createElement('button');
-        btnConcluir.id = 'kp-concluir-btn';
-        btnConcluir.className = 'kp-sidebar-btn';
-        btnConcluir.style.cssText = 'background:#61bd4f;color:#fff;border:1px solid #61bd4f;font-weight:800';
-        btnConcluir.innerHTML = '<i class="ti ti-check"></i> Ok';
-        btnConcluir.onclick = ()=> Kanpro.requestConclusao();
-        const delBtn = document.getElementById('kp-delete-btn');
-        if(delBtn && delBtn.parentElement === sideAcoes) sideAcoes.insertBefore(btnConcluir, delBtn);
-        else sideAcoes.appendChild(btnConcluir);
-      }
-      if(btnConcluir) btnConcluir.style.display = 'none';
+      // botão "Ok" removido da barra AÇÕES (remove instância antiga se existir no DOM)
+      try { document.getElementById('kp-concluir-btn')?.remove(); } catch(e){}
       // sidebar: botão Editar (cria 1x, acima do Excluir) — manutenção finalizada em Retirada
       let btnEditar = document.getElementById('kp-editar-btn');
       if(sideBtns && !btnEditar){
@@ -2496,7 +2483,7 @@
               return;
             }
             if(b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn') return; // Pegar controlado abaixo
-            if(b.id === 'kp-concluir-btn' || b.id === 'kp-editar-btn') return; // Concluir/Editar controlados abaixo
+            if(b.id === 'kp-editar-btn') return; // Editar controlado abaixo
             const onclick = b.getAttribute('onclick') || '';
             if(edicaoOpenModal && /openMembersPicker|openLabelsPicker|openDatesPicker|openCoverPicker/.test(onclick)){
               b.style.display = ''; delete b.dataset.maintHide;
@@ -2511,7 +2498,7 @@
           if(ticBtn && !ticBtn.dataset.pendHide) ticBtn.style.display = '';
           if(escBtn && !escBtn.dataset.pendHide) escBtn.style.display = '';
           allSide.forEach(b=>{
-            if(b.id === 'kp-delete-btn' || b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn' || b.id === 'kp-concluir-btn' || b.id === 'kp-editar-btn') return;
+            if(b.id === 'kp-delete-btn' || b.id === 'kp-pegar-btn' || b.id === 'kp-solicitar-chamado-btn' || b.id === 'kp-editar-btn') return;
             if(b.dataset.maintHide){ b.style.display = ''; delete b.dataset.maintHide; }
           });
         }
@@ -2531,12 +2518,6 @@
         // BUGFIX: renderNotifiedInModal esconde o box quando não é Retirada — se enchemos o act aqui, precisa reexibir
         if(box && act && act.innerHTML.trim()) box.style.display = 'flex';
       }
-      // Concluir: Manutenção em Em Andamento/Retirada, membro/admin, sem pendências abertas
-      try {
-        const inAndRet = this.isCardInListType(data, 'andamento') || this.isCardInListType(data, 'retirada');
-        const showConcluir = isMaint && inAndRet && !this.isConclusaoPending(data) && !this.isExclusaoPending(data) && !this.isEdicaoOpen(data) && !this.isEdicaoPending(data) && !this.isTabletLiberado(data) && !this.isCardFinalized(data) && this.canPegar() && this.canEditLinkedCard(data);
-        if(btnConcluir) btnConcluir.style.display = showConcluir ? '' : 'none';
-      } catch(e){}
       // Editar: manutenção finalizada em Retirada, membro/admin, sem sessão/pendência aberta
       try {
         const inRet = this.isCardInListType(data, 'retirada');
@@ -4565,10 +4546,8 @@
           sepBtn.className = 'kp-sidebar-btn';
           sepBtn.style.cssText = 'background:#fff;border:1px solid #2e9e4f;color:#2e9e4f;font-weight:800';
           sepBtn.onclick = ()=> Kanpro.openSepararModal();
-          const okBtn = document.getElementById('kp-concluir-btn');
           const delBtn = document.getElementById('kp-delete-btn');
-          if(okBtn && okBtn.parentElement === acoesBox) acoesBox.insertBefore(sepBtn, okBtn);
-          else if(delBtn && delBtn.parentElement === acoesBox) acoesBox.insertBefore(sepBtn, delBtn);
+          if(delBtn && delBtn.parentElement === acoesBox) acoesBox.insertBefore(sepBtn, delBtn);
           else acoesBox.appendChild(sepBtn);
         }
         if(sepBtn){
@@ -6049,7 +6028,9 @@
     isExclusaoPending(d){
       try {
         const c = (typeof d === 'object' && d) ? d : (this.cards||[]).find(x=> String(x.id)===String(d));
-        return !!c && Number(c.exclusao_pending || 0) === 1;
+        if(!c || Number(c.exclusao_pending || 0) !== 1) return false;
+        // flag presa (pendência apagada sem destravar a origem): só vale se a pendência existir no quadro
+        return (this.cards||[]).some(x=> String(x.chamado_source_id||0) === String(c.id) && ['exclusao','exclusao_ok'].includes(String(x.chamado_status||'')));
       } catch(e){ return false; }
     },
     isExclusaoPendencia(d){

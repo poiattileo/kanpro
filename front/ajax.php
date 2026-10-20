@@ -1447,7 +1447,22 @@ function kanpro_is_exclusao_pending(int $cards_id): bool {
     try {
         $c = new PluginKanproCard();
         if (!$c->getFromDB($cards_id)) return false;
-        return !empty($c->fields['exclusao_pending']);
+        if (empty($c->fields['exclusao_pending'])) return false;
+        // Flag presa (pendência apagada sem destravar a origem): só bloqueia se a pendência existir de fato.
+        global $DB;
+        if ($DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_source_id')
+            && $DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_status')) {
+            $hasPend = $DB->request([
+                'FROM'=>'glpi_plugin_kanpro_cards',
+                'WHERE'=>['chamado_source_id'=>$cards_id, 'chamado_status'=>['exclusao','exclusao_ok']],
+                'LIMIT'=>1,
+            ])->current();
+            if (!$hasPend) {
+                try { $DB->update('glpi_plugin_kanpro_cards', ['exclusao_pending'=>0], ['id'=>$cards_id]); } catch (Throwable $e) {}
+                return false;
+            }
+        }
+        return true;
     } catch (Throwable $e) { return false; }
 }
 function kanpro_need_not_exclusao_pending(int $cards_id) {
@@ -4777,7 +4792,26 @@ switch ($action) {
             'snapshot'=>json_encode($full, JSON_UNESCAPED_UNICODE),
             'users_id'=>kanpro_acting_user_id(), 'date_creation'=>date('Y-m-d H:i:s'),
         ]);
+        // Pendência apagada: destrava a origem (senão a flag fica presa e bloqueia o card para sempre)
+        $srcDel = (int)($c->fields['chamado_source_id'] ?? 0);
+        $stDelC = (string)($c->fields['chamado_status'] ?? '');
         $c->delete(['id'=>$cid], true);
+        try {
+            $baseDel = preg_replace('/_ok$/', '', $stDelC);
+            $flagMap = ['exclusao'=>'exclusao_pending','conclusao'=>'conclusao_pending','edicao'=>'edicao_pending'];
+            if ($srcDel > 0 && isset($flagMap[$baseDel])) {
+                $still = $DB->request([
+                    'FROM'=>'glpi_plugin_kanpro_cards',
+                    'WHERE'=>['chamado_source_id'=>$srcDel, 'chamado_status'=>[$baseDel, $baseDel.'_ok']],
+                    'LIMIT'=>1,
+                ])->current();
+                if (!$still) {
+                    $updDel = [$flagMap[$baseDel]=>0];
+                    if ($baseDel === 'edicao') $updDel['edicao_by'] = 0;
+                    $DB->update('glpi_plugin_kanpro_cards', $updDel, ['id'=>$srcDel]);
+                }
+            }
+        } catch (Throwable $e) {}
         jexit(['success'=>true]);
 
     case 'delete_liberado_pendencia':
