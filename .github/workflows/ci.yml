@@ -26,6 +26,8 @@ jobs:
           php tests/run.php
           php tests/queue.php
           php tests/cron-context.php
+          php tests/cron-digest-methods.php
+          php tests/src-lid-order.php
 
       - name: guard anti e-mail hardcoded
         run: php ci/check-secrets.php
