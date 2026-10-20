@@ -4269,7 +4269,7 @@
           ${actionHtml}
           <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:2px">
             <button onclick="Kanpro.closeCardModal()" style="background:#f4f5f7;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;color:#172b4d">Fechar</button>
-            ${amAdmin ? `<button onclick="if(confirm('Excluir esta pendência sem liberar a origem? As máquinas continuam travadas.')) Kanpro.deleteCard()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#eb5a46;font-weight:600">Excluir pendência</button>` : `<span style="font-size:11px;color:#97a0af">Somente leitura</span>`}
+            ${amAdmin ? `<button onclick="Kanpro.deleteCard()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#eb5a46;font-weight:600">Excluir pendência</button>` : `<span style="font-size:11px;color:#97a0af">Somente leitura</span>`}
           </div>
         </div>`;
       // cache local mínimo + agenda zap/delete quando liberado
