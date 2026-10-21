@@ -1,4 +1,4 @@
-# Card de Manutenção — só o responsável (vinculado) ou Gerente/Criador edita
+# Card de Manutenção — só o responsável (vinculado) ou Super-Admin/Criador edita
 
 Data: 2026-10-14
 Status: aguardando aprovação
@@ -15,7 +15,7 @@ se a pessoa é a responsável pelaquele card.
 ## Objetivo
 
 Depois que o card de manutenção tem alguém vinculado, **somente quem está vinculado ao
-card** (ou o **Gerente do quadro** / **criador do quadro**) pode modificá-lo. Os demais
+card** (ou o **Super-Admin do quadro** / **criador do quadro**) pode modificá-lo. Os demais
 membros só **visualizam**.
 
 ## Não-objetivos
@@ -37,7 +37,7 @@ membros só **visualizam**.
 1. **Escopo:** só cards de **Manutenção** (`is_maintenance = 1`).
 2. **"Vinculado":** quem está em `glpi_plugin_kanpro_cards_members` **ou** é o criador do
    card — exatamente o que `kanpro_is_card_linked()` já resolve.
-3. **Permissão total:** papel **Gerente** do quadro **+ criador do quadro**
+3. **Permissão total:** papel **Super-Admin** do quadro **+ criador do quadro**
    (`kanpro_can_see_all()` / `canSeeAll()`). Admin do quadro **não** ganha bypass novo.
 4. **Ações cobertas:** fluxo manutenção (Finalizar / Concluir / Solicitar Exclusão /
    Editar), **mover/arrastar** o card, **editar campos/comentários/anexos/checklist** e
@@ -95,7 +95,7 @@ function kanpro_can_edit_linked_card(int $cards_id): bool {
 function kanpro_need_linked_card_edit(int $cards_id): void {
     if (!kanpro_can_edit_linked_card($cards_id)) {
         jexit(['success'=>false,
-               'msg'=>'Só quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo.',
+               'msg'=>'Só quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo.',
                'linked_only'=>true]);
     }
 }
@@ -182,9 +182,9 @@ Aplicar em:
 ### 5. Mensagens
 
 - Aviso no card (front):
-  `🔒 Somente quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo. Você está no modo somente leitura.`
+  `🔒 Somente quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo. Você está no modo somente leitura.`
 - Erro no servidor (bypass via API):
-  `Só quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo.`
+  `Só quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo.`
 
 ## Casos de borda
 
