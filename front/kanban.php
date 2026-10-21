@@ -43,7 +43,7 @@ if (!$__histAdmin) {
 }
 if (!$__histAdmin && in_array(kanpro_board_profile_role($boards_id), ['admin', 'gerente'], true)) $__histAdmin = true;
 
-// Excluídos: somente criador ou Gerente do quadro.
+// Excluídos: somente criador ou Super-Admin do quadro.
 $__canSeeDeleted = false;
 try {
     $__canSeeDeleted = function_exists('kanpro_can_see_all') ? kanpro_can_see_all($boards_id) : false;

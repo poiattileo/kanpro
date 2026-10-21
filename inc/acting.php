@@ -571,7 +571,7 @@ if (!function_exists('kanpro_can_see_all')) {
 }
 
 if (!function_exists('kanpro_can_name_gerente')) {
-    // Nomear/alterar/remover Gerente: criador ou quem já é gerente.
+    // Nomear/alterar/remover Super-Admin: criador ou quem já é Super-Admin.
     function kanpro_can_name_gerente($bid) {
         try {
             if (kanpro_is_board_creator($bid)) return true;
@@ -604,9 +604,9 @@ if (!function_exists('kanpro_is_card_linked')) {
 
 if (!function_exists('kanpro_can_edit_linked_card')) {
     // Card de manutenção "com dono" (≥1 membro vinculado): só quem pegou (vinculado),
-    // o Gerente do quadro ou o criador do quadro pode editar. Não-manutenção, card sem
+    // o Super-Admin do quadro ou o criador do quadro pode editar. Não-manutenção, card sem
     // membros ou erro seguem o comportamento atual (sem trava).
-    // Admin comum do quadro NÃO ganha bypass — só gerente/criador (kanpro_can_see_all).
+    // Admin comum do quadro NÃO ganha bypass — só Super-Admin/criador (kanpro_can_see_all).
     function kanpro_can_edit_linked_card(int $cards_id): bool {
         global $DB;
         try {

@@ -1,4 +1,4 @@
-// KanPro Excluídos — somente criador ou Gerente do quadro.
+// KanPro Excluídos — somente criador ou Super-Admin do quadro.
 // Lista cards excluídos do quadro, mostra tudo + histórico
 // (quem mudou, quem solicitou exclusão, quem excluiu/liberou) e recupera
 // para a lista de origem.
