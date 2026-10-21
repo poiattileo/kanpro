@@ -369,13 +369,13 @@ window.KanproBoards = (function(){
   }
   function roleBadge(m){
     if (m.is_creator) return '<small style="background:#0079bf;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">CRIADOR</small>';
-    if (m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
+    if (m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 SUPER-ADMIN</small>';
     if (m.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
     if (m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">OBSERVADOR</small>';
     return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">MEMBRO</small>';
   }
   function profileBadge(p){
-    if (p.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
+    if (p.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 SUPER-ADMIN</small>';
     if (p.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
     return '<small style="background:#e6f4ff;border:1px solid #91d5ff;color:#0050b3;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">MEMBRO</small>';
   }
@@ -412,7 +412,7 @@ window.KanproBoards = (function(){
     var canNameGer = d.is_creator || d.my_role === 'gerente';
     var body = document.getElementById('kpb-body');
     document.getElementById('kpb-title').textContent = 'Acesso — ' + (d.board_name || ('Quadro #' + state.boardId));
-    var html = '<div style="font-size:12px;color:#5e6c84">Quem pode visualizar este quadro. O <strong>criador</strong>, os <strong>admins</strong> e os <strong>gerentes</strong> podem adicionar pessoas e trocar papéis. Membro comum só visualiza.</div>';
+    var html = '<div style="font-size:12px;color:#5e6c84">Quem pode visualizar este quadro. O <strong>criador</strong>, os <strong>admins</strong> e os <strong>super-admins</strong> podem adicionar pessoas e trocar papéis. Membro comum só visualiza.</div>';
     var membersHtml = (d.members && d.members.length ? d.members.map(function(m){
       try {
       var ctrl;
@@ -422,7 +422,7 @@ window.KanproBoards = (function(){
         ctrl = '<span class="kpb-row-ctrl">'
           + '<select onchange="KanproBoards.setRole(' + m.users_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">'
           + '<option value="admin"' + (m.role==='admin'?' selected':'') + '>⭐ Admin</option>'
-          + (canNameGer ? '<option value="gerente"' + (m.role==='gerente'?' selected':'') + '>👑 Gerente</option>' : '')
+          + (canNameGer ? '<option value="gerente"' + (m.role==='gerente'?' selected':'') + '>👑 Super-Admin</option>' : '')
           + '<option value="member"' + (m.role==='member'?' selected':'') + '>Membro</option>'
           + '<option value="observer"' + (m.role==='observer'?' selected':'') + '>Observador</option>'
           + '</select>'
@@ -447,7 +447,7 @@ window.KanproBoards = (function(){
           var ctrl = '<span class="kpb-row-ctrl">'
             + '<select onchange="KanproBoards.setProfileRole(' + p.profiles_id + ', this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">'
             + '<option value="admin"' + (p.role==='admin'?' selected':'') + '>⭐ Admin</option>'
-            + (canNameGer ? '<option value="gerente"' + (p.role==='gerente'?' selected':'') + '>👑 Gerente</option>' : '')
+            + (canNameGer ? '<option value="gerente"' + (p.role==='gerente'?' selected':'') + '>👑 Super-Admin</option>' : '')
             + '<option value="member"' + (p.role==='member'?' selected':'') + '>Membro</option>'
             + '</select>'
             + '<button onclick="KanproBoards.removeProfile(' + p.profiles_id + ')" title="Remover perfil" style="background:#fef2f2;border:1px solid #fecaca;color:#eb5a46;width:30px;height:30px;border-radius:50%;cursor:pointer;flex-shrink:0">✕</button>'
@@ -465,7 +465,7 @@ window.KanproBoards = (function(){
           + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel do perfil '
           + '<select id="kpb-profile-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
           + '<option value="admin">⭐ Administrador</option>'
-          + (canNameGer ? '<option value="gerente">👑 Gerente</option>' : '')
+          + (canNameGer ? '<option value="gerente">👑 Super-Admin</option>' : '')
           + '<option value="member" selected>Membro — só visualiza</option>'
           + '</select></label>'
           + '<button onclick="KanproBoards.addProfile(this)" style="background:#0050b3;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Adicionar perfil</button>';
@@ -506,7 +506,7 @@ window.KanproBoards = (function(){
         + '<label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado '
         + '<select id="kpb-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">'
         + '<option value="admin">⭐ Administrador — pode adicionar pessoas</option>'
-        + (canNameGer ? '<option value="gerente">👑 Gerente — vê tudo e gerencia</option>' : '')
+        + (canNameGer ? '<option value="gerente">👑 Super-Admin — vê tudo e gerencia</option>' : '')
         + '<option value="member" selected>Membro — só visualiza</option>'
         + '<option value="observer">Observador — só visualiza</option>'
         + '</select></label>'

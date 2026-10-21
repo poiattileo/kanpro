@@ -59,7 +59,7 @@
 
     /* ---------- helpers ---------- */
     isBoardAdmin(){
-      // vale sessão e pessoa (login compartilhado). Gerente tem poder de admin.
+      // vale sessão e pessoa (login compartilhado). Super-Admin tem poder de admin.
       const ids = [parseInt(K.currentUserId)];
       const a = parseInt((K && K.actingUserId) || 0);
       if(a > 0 && !ids.includes(a)) ids.push(a);
@@ -90,7 +90,7 @@
       return ids.filter(x=> x>0);
     },
     // Card de manutenção "com dono" (≥1 vinculado): só quem pegou, o criador do card
-    // ou o Gerente/criador do quadro (canSeeAll) pode editar. Demais = somente leitura.
+    // ou o Super-Admin/criador do quadro (canSeeAll) pode editar. Demais = somente leitura.
     // Não-manutenção, card sem vínculo ou erro → true (sem trava).
     canEditLinkedCard(cardOrData){
       try {
@@ -1282,7 +1282,7 @@
       div.dataset.cardId = card.id;
       // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar.
       // Listas protegidas (Aguardando, Pendente, Pendência, Andamento, Retirada):
-      // nem começa o arraste p/ quem não é Gerente/criador.
+      // nem começa o arraste p/ quem não é Super-Admin/criador.
       // Calcula antes do draggable (listTypeOf + fallback de nome p/ lista legada).
       let _isPendingDrag = false;
       let _lockTitle = '';
@@ -1295,7 +1295,7 @@
           const _code = _t ? _t.code : '';
           if(['awaiting','pending','pend_chamado','andamento','retirada','done'].includes(_code)){
             _isPendingDrag = true;
-            _lockTitle = '🔒 Lista protegida — só quem tem o cargo Gerente pode arrastar';
+            _lockTitle = '🔒 Lista protegida — só quem tem o cargo Super-Admin pode arrastar';
           }
         }
       } catch(e){}
@@ -1825,13 +1825,13 @@
     moveCardTo(cardId, targetListId, position){
       const card = this.cards.find(c=> c.id==cardId);
       if(!card) return;
-      // Gerente (ou criador) pode arrastar em qualquer lista; resto cai nas travas abaixo.
+      // Super-Admin (ou criador) pode arrastar em qualquer lista; resto cai nas travas abaixo.
       const canDragProt = this.canSeeAll();
       // Manutenção com dono: quem não pegou (nem é gerente/criador) não arrasta.
       try {
         if(!this.canEditLinkedCard(card)){
           this.renderBoard();
-          alert('🔒 Este cartão de manutenção é de outra pessoa.\n\nSó quem pegou (ou o Gerente/dono do quadro) pode movê-lo.');
+          alert('🔒 Este cartão de manutenção é de outra pessoa.\n\nSó quem pegou (ou o Super-Admin/dono do quadro) pode movê-lo.');
           this.forceSync();
           return;
         }
@@ -1845,13 +1845,13 @@
           return;
         }
       } catch(e){}
-      // Listas protegidas: arrastar de/para elas só com cargo Gerente (ou criador).
+      // Listas protegidas: arrastar de/para elas só com cargo Super-Admin (ou criador).
       try {
         const PROT = ['awaiting','pending','pend_chamado','andamento','retirada','done'];
         const codeOf = (lid)=>{ const l = (this.lists||[]).find(x=> x.id==lid); const t = l && this.listTypeOf(l); return t ? t.code : ''; };
         if(!canDragProt && (PROT.includes(codeOf(card.plugin_kanpro_lists_id)) || PROT.includes(codeOf(targetListId)))){
           this.renderBoard();
-          alert('🔒 Estas listas só podem ser movimentadas por quem tem o cargo Gerente.\n\n(Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada, Concluído)');
+          alert('🔒 Estas listas só podem ser movimentadas por quem tem o cargo Super-Admin.\n\n(Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada, Concluído)');
           this.forceSync();
           return;
         }
@@ -3828,7 +3828,7 @@
         lockBox.innerHTML = locked
           ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Cartão da lista Pendente é travado — foi criado como Manutenção e o nome vem da entidade. Título, descrição, etiquetas, responsáveis, datas, capa e checklists não podem ser alterados.' + (this.isBoardAdmin() ? ' <span style="font-weight:600">Como admin do quadro você ainda pode excluí-lo.</span>' : '') + '</div>'
           : (linkedRO
-            ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Somente quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo. Você está no modo somente leitura.</div>'
+            ? '<div style="background:#fffae6;border:1px solid #ffecb5;color:#975500;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-lock"></i> Somente quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo. Você está no modo somente leitura.</div>'
             : (splitRO
             ? '<div style="background:#f2fbf3;border:1px solid #61bd4f;color:#006644;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4"><i class="ti ti-scissors"></i> ✂️ Split 1/2+2/2 — card travado até a separação ser aprovada/juntada. Você está no modo somente leitura.</div>'
             : ''));
@@ -4627,7 +4627,7 @@
       } else if (linkedRO) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#f4f5f7;border:2px dashed #97a0af;border-radius:10px;padding:14px;text-align:center">
           <div style="font-size:11px;font-weight:800;color:#5e6c84;letter-spacing:.06em;margin-bottom:8px">CONCLUIR ATENDIMENTO</div>
-          <span title="Somente quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.85"><i class="ti ti-lock"></i> 🔒 Somente quem pegou este cartão pode alterá-lo</span>
+          <span title="Somente quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo" style="display:inline-block;background:#dfe1e6;color:#5e6c84;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;opacity:.85"><i class="ti ti-lock"></i> 🔒 Somente quem pegou este cartão pode alterá-lo</span>
         </div>`;
       } else if (hasMissing) {
         finalizeFootHtml = `<div id="kp-finalize-bar" style="margin-top:12px;background:#ffebe6;border:2px solid #eb5a46;border-radius:10px;padding:14px;text-align:center">
@@ -4757,7 +4757,7 @@
         const statusSelectColor = !status ? "#bf2600" : statusTextColor;
         const invBtns = this.maintInvBtnsHTML(m);
         const lockTxt = linkedRO
-          ? '🔒 Somente quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo.'
+          ? '🔒 Somente quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo.'
           : (splitPend
           ? '✂️ Separação aguardando aprovação na Pendência Chamados. Nada pode ser editado até liberar.'
           : (splitWait
@@ -8190,7 +8190,7 @@
       const memWrap = $('#board-menu-members');
       if(memWrap){
         const roleLabel = (r)=>{
-          if(r === 'gerente') return '👑 GERENTE';
+          if(r === 'gerente') return '👑 SUPER-ADMIN';
           if(r === 'admin') return '⭐ ADMIN';
           if(r === 'observer') return '👁️ OBSERVADOR';
           return '👤 MEMBRO';
@@ -8214,10 +8214,10 @@
         if(!res.success){ body.innerHTML = '<div style="color:#bf2600">' + this.escape(res.msg || 'Erro') + '</div>'; return; }
         const canM = !!res.can_manage;
         const isCreator = !!res.is_creator;
-        const canNameGerente = isCreator || res.my_role === 'gerente';
+        const canNameSuperAdmin = isCreator || res.my_role === 'gerente';
         const badge = (m)=>{
           if(m.is_creator) return '<small style="background:#0079bf;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">CRIADOR</small>';
-          if(m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 GERENTE</small>';
+          if(m.role === 'gerente') return '<small style="background:#6d28d9;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👑 SUPER-ADMIN</small>';
           if(m.role === 'admin') return '<small style="background:#fffae6;border:1px solid #ffab00;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ ADMIN</small>';
           if(m.role === 'observer') return '<small style="background:#dfe1e6;color:#5e6c84;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👁️ OBSERVADOR</small>';
           return '<small style="background:#eaecf0;color:#172b4d;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">👤 MEMBRO</small>';
@@ -8231,7 +8231,7 @@
             ctrl = `<span style="display:flex;gap:6px;align-items:center;flex:0 0 auto">
               <select onchange="Kanpro.setBoardMemberRole(${m.users_id}, this.value)" style="padding:6px 8px;border:1px solid #dfe1e6;border-radius:6px;font-size:12px;background:#fff;flex-shrink:0;max-width:140px">
                 <option value="admin"${m.role==='admin'?' selected':''}>⭐ Admin</option>
-                ${canNameGerente ? `<option value="gerente"${m.role==='gerente'?' selected':''}>👑 Gerente</option>` : ''}
+                ${canNameSuperAdmin ? `<option value="gerente"${m.role==='gerente'?' selected':''}>👑 Super-Admin</option>` : ''}
                 <option value="member"${m.role==='member'?' selected':''}>👤 Membro</option>
                 <option value="observer"${m.role==='observer'?' selected':''}>👁️ Observador</option>
               </select>
@@ -8250,7 +8250,7 @@
             <label style="font-size:12px;font-weight:600;color:#5e6c84">Papel de quem for adicionado
               <select id="kpk-role" style="width:100%;margin-top:4px;padding:8px;border:1px solid #dfe1e6;border-radius:6px;background:#fff">
                 <option value="admin">⭐ Administrador</option>
-                ${canNameGerente ? `<option value="gerente">👑 Gerente</option>` : ''}
+                ${canNameSuperAdmin ? `<option value="gerente">👑 Super-Admin</option>` : ''}
                 <option value="member" selected>👤 Membro</option>
                 <option value="observer">👁️ Observador</option>
               </select></label>
