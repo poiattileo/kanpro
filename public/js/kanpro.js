@@ -126,12 +126,15 @@
         return Number(c.split_finalized) === 1;
       } catch(e){ return false; }
     },
-    // código exibido do card: lado do split (pai 382 vira 382/1, filho 382/2) ou #id
+    // código exibido do card: aprovação 300/2, lado do split 382/1 ou #id
     cardCode(cardOrId){
       try {
         const c = (cardOrId && typeof cardOrId === 'object')
           ? cardOrId
           : (this.cards||[]).find(x=> String(x.id)===String(cardOrId));
+        if(c && c.display_code) return String(c.display_code);
+        if(c && Number(c.pendencia_seq) > 0 && Number(c.chamado_source_id) > 0)
+          return Number(c.chamado_source_id) + '/' + Number(c.pendencia_seq);
         if(c && Number(c.split_group) > 0) return Number(c.split_group) + '/' + (Number(c.split_index) === 2 ? '2' : '1');
         const id = (c && c.id != null) ? c.id : cardOrId;
         return '#' + id;
@@ -1667,7 +1670,7 @@
               : `<div style="margin-top:8px;background:#fff;border:1px dashed ${miniC.bd};color:${miniC.bd};border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:700">⏳ Aguardando admin liberar<br>${waitTitle}</div>`);
           div.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px">${statusPill}${createdHtml||''}</div>
-            <div class="kp-card-title" style="font-size:13px"><span style="color:${miniC.id};font-weight:800;margin-right:4px">#${card.id}</span>${this.escape(card.name)}</div>
+            <div class="kp-card-title" style="font-size:13px"><span style="color:${miniC.id};font-weight:800;margin-right:4px">${this.cardCode(card)}</span>${this.escape(card.name)}</div>
             ${infoLine ? `<div style="margin-top:6px;font-size:11px;color:#5e6c84;line-height:1.5">${infoLine}</div>` : ''}
             ${checkBarHtml}
             ${membersHtml}
@@ -2859,7 +2862,7 @@
       this.showPicker({title:'📞 Chamado criado?', html: `
         <div style="display:grid;gap:10px;font-size:13px;color:#172b4d">
           <div>Confirmar que o chamado foi criado?</div>
-          <div style="background:#f4f5f7;border-radius:6px;padding:8px 10px">📋 Pendência #${cid} "${this.escape(String(pName).slice(0,60))}"<br>🔗 Origem ${srcId ? '#' + srcId + ' "' + this.escape(String(srcName).slice(0,60)) + '"' : this.escape(srcName)}${nMach ? `<br>🔧 ${nMach} máquina(s) serão liberadas` : ''}</div>
+          <div style="background:#f4f5f7;border-radius:6px;padding:8px 10px">📋 Pendência ${this.cardCode(cid)} "${this.escape(String(pName).slice(0,60))}"<br>🔗 Origem ${srcId ? this.cardCode(srcId) + ' "' + this.escape(String(srcName).slice(0,60)) + '"' : this.escape(srcName)}${nMach ? `<br>🔧 ${nMach} máquina(s) serão liberadas` : ''}</div>
           <label style="font-size:12px;font-weight:700">👨‍🔧 Encaminhar para o técnico <small style="font-weight:400">(opcional)</small>
             <select id="kp-chamado-tech" style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid #dfe1e6;border-radius:6px;background:#fff;font-size:13px">
               <option value="0">— Sem técnico definido —</option>
