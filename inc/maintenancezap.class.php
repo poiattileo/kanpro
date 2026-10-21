@@ -519,8 +519,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         $card = new PluginKanproCard();
         $escola = '';
         $receb  = '';
+        $cardId = (string)$cards_id;
         if ($card->getFromDB($cards_id)) {
             $escola = (string)($card->fields['name'] ?? '');
+            $cardId = ltrim(PluginKanproCard::getDisplayCode($card->fields), '#');
+            if ($cardId === '') $cardId = (string)$cards_id;
             $receb  = (string)($card->fields['maintenance_date'] ?? $card->fields['date_creation'] ?? '');
             if ($receb !== '' && $receb !== '0000-00-00 00:00:00') {
                 try { $receb = (new DateTime($receb))->format('d/m/Y H:i'); } catch (Throwable $e) {}
@@ -530,7 +533,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
         }
         return [
             'escola'            => $escola,
-            'card_id'           => (string)$cards_id,
+            'card_id'           => $cardId,
             'card_nome'         => $escola,
             'data_recebimento'  => $receb,
             'data_pronto'       => date('d/m/Y H:i'),
@@ -1155,9 +1158,11 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                     $errors[] = 'sem telefone (' . $tecNome . ')';
                     continue;
                 }
+                $pendCode = ltrim(PluginKanproCard::getDisplayCode($pc->fields), '#');
+                if ($pendCode === '') $pendCode = (string)$pendenciaId;
                 $data = [
                     'tecnico'        => $tecNome,
-                    'card_id'        => (string)$pendenciaId,
+                    'card_id'        => $pendCode,
                     'card_nome'      => $cardNome,
                     'escola'         => $cardNome !== '' ? $cardNome : $srcName,
                     'quadro'         => $boardName,
@@ -1274,6 +1279,8 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             if (!$card->getFromDB($cards_id)) return ['ok' => false, 'error' => 'Card não encontrado'];
             $cardNome = trim((string)($card->fields['name'] ?? ''));
             if ($cardNome === '') $cardNome = 'Card #' . $cards_id;
+            $cardCode = ltrim(PluginKanproCard::getDisplayCode($card->fields), '#');
+            if ($cardCode === '') $cardCode = (string)$cards_id;
             $boardNome = '';
             $b = new PluginKanproBoard();
             if ($b->getFromDB((int)($card->fields['plugin_kanpro_boards_id'] ?? 0))) $boardNome = (string)($b->fields['name'] ?? '');
@@ -1285,7 +1292,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
                 return ['ok' => false, 'error' => 'sem telefone'];
             }
             $txt = self::renderTxt('card_alerta', [
-                'card_id'   => (string)$cards_id,
+                'card_id'   => $cardCode,
                 'card_nome' => $cardNome,
                 'quadro'    => $boardNome,
                 'data'      => date('d/m/Y H:i'),
@@ -1358,7 +1365,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $tpl = ($category === 'pending') ? 'lista_pendente' : 'espera_novo';
             $txt = self::renderTxt($tpl, $data);
             if ($txt === null || trim($txt) === '') {
-                $txt = "Card novo em {$listaNome}: #{$cards_id} \"{$cardNome}\" em " . date('d/m/Y H:i');
+                $txt = "Card novo em {$listaNome}: #" . ($data['card_id'] ?? $cards_id) . " \"{$cardNome}\" em " . date('d/m/Y H:i');
             }
             $sent = 0; $errors = []; $phones = []; $skipped = [];
             foreach (self::grupoARecipients() as $login) {
@@ -1458,7 +1465,7 @@ class PluginKanproMaintenanceZap extends CommonDBTM {
             $tpl = ($category === 'pend_chamado') ? 'pendencia' : 'chamado_abrir';
             $txt = self::renderTxt($tpl, $data);
             if ($txt === null || trim($txt) === '') {
-                $txt = "Card novo em {$listaNome}: #{$cards_id} \"{$cardNome}\" em " . date('d/m/Y H:i');
+                $txt = "Card novo em {$listaNome}: #" . ($data['card_id'] ?? $cards_id) . " \"{$cardNome}\" em " . date('d/m/Y H:i');
             }
             $sent = 0; $errors = []; $phones = []; $skipped = [];
             foreach (self::grupoBRecipients() as $login) {
