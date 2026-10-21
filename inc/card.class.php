@@ -103,6 +103,166 @@ class PluginKanproCard extends CommonDBTM {
         return $out;
     }
 
+    /**
+     * Código exibido no card: 300/2 para aprovações, 382/1 para split,
+     * #123 para cards normais. O código de aprovação usa o ID do card de
+     * origem + o sequencial persistido no próprio card.
+     */
+    static function getDisplayCode($card): string {
+        if (is_numeric($card)) {
+            $id = (int)$card;
+            $obj = new self();
+            $card = $obj->getFromDB($id) ? $obj->fields : ['id' => $id];
+        }
+        if (!is_array($card)) {
+            return '';
+        }
+        $sourceId = (int)($card['chamado_source_id'] ?? 0);
+        $seq = (int)($card['pendencia_seq'] ?? 0);
+        if ($sourceId > 0 && $seq > 0) {
+            return $sourceId . '/' . $seq;
+        }
+        $splitGroup = (int)($card['split_group'] ?? 0);
+        if ($splitGroup > 0) {
+            $splitIndex = (int)($card['split_index'] ?? 1) === 2 ? 2 : 1;
+            return $splitGroup . '/' . $splitIndex;
+        }
+        $id = (int)($card['id'] ?? 0);
+        return $id > 0 ? '#' . $id : '';
+    }
+
+    /**
+     * Reserva o próximo sequencial de aprovação no card de origem.
+     * O contador não regride quando os cards aprovados são excluídos:
+     * 300/2, 300/3, 300/4, ...
+     */
+    static function nextPendenciaSeq($source_id): int {
+        global $DB;
+        $source_id = (int)$source_id;
+        if ($source_id <= 0) {
+            return 0;
+        }
+        try {
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_next_seq')) {
+                return 0;
+            }
+            // UPDATE atômico: 0/1 viram 2; depois 3, 4, 5...
+            $DB->doQuery(
+                "UPDATE `glpi_plugin_kanpro_cards`
+                 SET `pendencia_next_seq` = IF(`pendencia_next_seq` < 2, 2, `pendencia_next_seq`) + 1
+                 WHERE `id` = " . $source_id
+            );
+            $row = $DB->request([
+                'SELECT' => ['pendencia_next_seq'],
+                'FROM'   => 'glpi_plugin_kanpro_cards',
+                'WHERE'  => ['id' => $source_id],
+                'LIMIT'  => 1,
+            ])->current();
+            $next = (int)($row['pendencia_next_seq'] ?? 0);
+            // O UPDATE guarda o próximo; o card recebe o valor anterior (2 no primeiro).
+            return $next > 2 ? $next - 1 : 0;
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Backfill único para cards de aprovação criados antes das colunas
+     * pendencia_seq/pendencia_next_seq. Só considera listas de Pendência
+     * Chamados, nunca clones de "Abrir chamado".
+     */
+    static function backfillPendenciaCodes(): bool {
+        global $DB;
+        try {
+            if (!$DB->tableExists('glpi_plugin_kanpro_cards')
+                || !$DB->tableExists('glpi_plugin_kanpro_lists')
+                || !$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_seq')
+                || !$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_next_seq')) {
+                return false;
+            }
+
+            $pendListIds = [];
+            foreach ($DB->request([
+                'SELECT' => ['id', 'name', 'list_type'],
+                'FROM'   => 'glpi_plugin_kanpro_lists',
+            ]) as $list) {
+                $type = strtolower(trim((string)($list['list_type'] ?? '')));
+                $name = (string)($list['name'] ?? '');
+                $name = function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name);
+                $name = strtr($name, [
+                    'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
+                    'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+                    'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+                    'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
+                    'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+                    'ç' => 'c',
+                ]);
+                $isPend = ($type === 'pend_chamado');
+                if (!$isPend && $type === '') {
+                    $isPend = strpos($name, 'pendencia') !== false && strpos($name, 'chamado') !== false;
+                }
+                if ($isPend) {
+                    $pendListIds[] = (int)$list['id'];
+                }
+            }
+            if (empty($pendListIds)) {
+                return true;
+            }
+
+            $bySource = [];
+            foreach ($DB->request([
+                'SELECT' => ['id', 'chamado_source_id', 'pendencia_seq'],
+                'FROM'   => 'glpi_plugin_kanpro_cards',
+                'WHERE'  => [
+                    'plugin_kanpro_lists_id' => $pendListIds,
+                    'chamado_source_id'      => ['>', 0],
+                ],
+                'ORDER'  => ['chamado_source_id ASC', 'id ASC'],
+            ]) as $row) {
+                $srcId = (int)($row['chamado_source_id'] ?? 0);
+                if ($srcId > 0) {
+                    $bySource[$srcId][] = $row;
+                }
+            }
+
+            foreach ($bySource as $srcId => $rows) {
+                $max = 0;
+                $pending = [];
+                foreach ($rows as $row) {
+                    $seq = (int)($row['pendencia_seq'] ?? 0);
+                    if ($seq > $max) {
+                        $max = $seq;
+                    }
+                    if ($seq <= 0) {
+                        $pending[] = (int)$row['id'];
+                    }
+                }
+                $next = max(2, $max + 1);
+                foreach ($pending as $cardId) {
+                    try {
+                        $DB->update('glpi_plugin_kanpro_cards', ['pendencia_seq' => $next], ['id' => $cardId]);
+                    } catch (Throwable $e) {}
+                    $next++;
+                }
+                try {
+                    $srcRow = $DB->request([
+                        'SELECT' => ['pendencia_next_seq'],
+                        'FROM'   => 'glpi_plugin_kanpro_cards',
+                        'WHERE'  => ['id' => $srcId],
+                        'LIMIT'  => 1,
+                    ])->current();
+                    $current = (int)($srcRow['pendencia_next_seq'] ?? 2);
+                    if ($next > $current) {
+                        $DB->update('glpi_plugin_kanpro_cards', ['pendencia_next_seq' => $next], ['id' => $srcId]);
+                    }
+                } catch (Throwable $e) {}
+            }
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     static function reorderInList($lists_id, array $ordered_ids) {
         global $DB;
         $rank = 1024;
@@ -425,10 +585,24 @@ class PluginKanproCard extends CommonDBTM {
         }
         $data['chamado_pendencias'] = [];
         try {
-            foreach ($DB->request(['SELECT' => ['id','name','chamado_status'], 'FROM' => 'glpi_plugin_kanpro_cards', 'WHERE' => ['chamado_source_id' => $cards_id]]) as $pr) {
-                $data['chamado_pendencias'][] = ['id' => (int)$pr['id'], 'name' => $pr['name'] ?? '', 'status' => $pr['chamado_status'] ?? ''];
+            foreach ($DB->request([
+                'SELECT' => ['id','name','chamado_status','chamado_source_id','pendencia_seq','split_group','split_index'],
+                'FROM'   => 'glpi_plugin_kanpro_cards',
+                'WHERE'  => ['chamado_source_id' => $cards_id],
+                'ORDER'  => ['id ASC'],
+            ]) as $pr) {
+                $data['chamado_pendencias'][] = [
+                    'id' => (int)$pr['id'],
+                    'name' => $pr['name'] ?? '',
+                    'status' => $pr['chamado_status'] ?? '',
+                    'pendencia_seq' => (int)($pr['pendencia_seq'] ?? 0),
+                    'display_code' => self::getDisplayCode($pr),
+                ];
             }
         } catch (\Throwable $e) {}
+
+        $data['pendencia_seq'] = (int)($data['pendencia_seq'] ?? 0);
+        $data['display_code'] = self::getDisplayCode($data);
 
         return $data;
     }
