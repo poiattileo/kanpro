@@ -152,6 +152,8 @@ function plugin_kanpro_install(): bool {
                 `chamado_machines`            TEXT         DEFAULT NULL COMMENT 'JSON ids das maquinas da origem',
                 `chamado_status`              VARCHAR(20)  NOT NULL DEFAULT '' COMMENT 'pendente,liberado',
                 `chamado_by`                  INT {$sign} NOT NULL DEFAULT '0' COMMENT 'quem solicitou/pegou (users_id)',
+                `pendencia_seq`               INT {$sign} NOT NULL DEFAULT '0' COMMENT 'sequencial da pendencia no card origem (2=300/2, 3=300/3...)',
+                `pendencia_next_seq`          INT {$sign} NOT NULL DEFAULT '2' COMMENT 'proximo sequencial a distribuir (fica no card origem)',
                 `whatsapp_notify`             TINYINT(1)   NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada',
                 `users_id`                    INT {$sign} NOT NULL DEFAULT '0',
                 `date_creation`               DATETIME     DEFAULT NULL,
@@ -219,6 +221,13 @@ function plugin_kanpro_install(): bool {
         }
         if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_by` INT NOT NULL DEFAULT '0' COMMENT 'quem solicitou/pegou (users_id)' AFTER `chamado_status`");
+        }
+        // Numeração das aprovações por card de origem: 300/2, 300/3, 300/4...
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_seq')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `pendencia_seq` INT NOT NULL DEFAULT '0' COMMENT 'sequencial da pendencia no card origem' AFTER `chamado_by`");
+        }
+        if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_next_seq')) {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `pendencia_next_seq` INT NOT NULL DEFAULT '2' COMMENT 'proximo sequencial a distribuir (card origem)' AFTER `pendencia_seq`");
         }
         // Tablet fluxo 2 finalizares: quem fez o 1º Finalizar (tablet_finalized_by)
         // e flag de aguardando confirmação pós-liberado (tablet_liberado_pending)

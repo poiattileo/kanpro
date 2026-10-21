@@ -901,6 +901,12 @@ function kanpro_migrate_schema_once() {
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'chamado_by')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `chamado_by` INT NOT NULL DEFAULT '0' AFTER `chamado_status`"); } catch (Throwable $e) {}
             }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_seq')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `pendencia_seq` INT NOT NULL DEFAULT '0' COMMENT 'sequencial da pendencia no card origem' AFTER `chamado_by`"); } catch (Throwable $e) {}
+            }
+            if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'pendencia_next_seq')) {
+                try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `pendencia_next_seq` INT NOT NULL DEFAULT '2' COMMENT 'proximo sequencial a distribuir (card origem)' AFTER `pendencia_seq`"); } catch (Throwable $e) {}
+            }
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'whatsapp_notify')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `whatsapp_notify` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=notificacao whatsapp habilitada' AFTER `chamado_by`"); } catch (Throwable $e) {}
             }
@@ -936,6 +942,14 @@ function kanpro_migrate_schema_once() {
             }
             if (!$DB->fieldExists('glpi_plugin_kanpro_cards', 'finalized_direct')) {
                 try { $DB->doQuery("ALTER TABLE `glpi_plugin_kanpro_cards` ADD `finalized_direct` TINYINT(1) NOT NULL DEFAULT '0' COMMENT '1=finalizado direto em Concluido sem termo (entidade 0)' AFTER `split_finalized`"); } catch (Throwable $e) {}
+            }
+            // Backfill único: cards de aprovação antigos ganham 300/2, 300/3...
+            if (class_exists('PluginKanproCard')
+                && function_exists('kanpro_config_get')
+                && kanpro_config_get('pendencia_seq_backfill', '0') !== '1') {
+                if (PluginKanproCard::backfillPendenciaCodes() && function_exists('kanpro_config_set')) {
+                    kanpro_config_set('pendencia_seq_backfill', '1');
+                }
             }
         }
         if ($DB->tableExists('glpi_plugin_kanpro_lists')) {
@@ -1142,7 +1156,8 @@ function kanpro_create_pendencia_chamado(int $boards_id, int $src_cards_id, arra
             'description'=>"{$origin_label}: card #{$src_cards_id} ('" . ($src->fields['name'] ?? '') . "'). Todas as máquinas travadas até 'Chamado criado'."]);
         if (!$pendId) return $fail('Falha ao criar card na Pendência Chamado');
         $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$src_cards_id,'chamado_machines'=>json_encode(array_values($mids), JSON_UNESCAPED_UNICODE),
-            'chamado_status'=>'pendente','chamado_by'=>$who,'entities_id'=>(int)($src->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pendId]);
+            'chamado_status'=>'pendente','chamado_by'=>$who,'entities_id'=>(int)($src->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')]
+            + kanpro_pendencia_seq_fields($src_cards_id), ['id'=>$pendId]);
         $cl = new PluginKanproChecklist();
         $clId = (int)$cl->add(['plugin_kanpro_cards_id'=>$pendId,'name'=>'Máquinas para chamado']);
         if ($clId) {
@@ -1162,6 +1177,13 @@ function kanpro_create_pendencia_chamado(int $boards_id, int $src_cards_id, arra
     } catch (Throwable $e) {
         return $fail('Erro: ' . $e->getMessage());
     }
+}
+
+// Numeração da aprovação no card de origem: 300/2, 300/3, 300/4...
+// Retorna [] se a coluna ainda não existir, para não quebrar o fluxo.
+function kanpro_pendencia_seq_fields(int $src_cards_id): array {
+    $seq = PluginKanproCard::nextPendenciaSeq($src_cards_id);
+    return $seq > 0 ? ['pendencia_seq' => $seq] : [];
 }
 
 // Categorias de lista que NÃO aceitam cartão novo pelo botão genérico: são de ajuste
@@ -7442,7 +7464,7 @@ switch ($action) {
             'chamado_by'        => kanpro_acting_user_id(),
             'entities_id'       => (int)($src->fields['entities_id'] ?? 0),
             'date_mod'          => date('Y-m-d H:i:s'),
-        ], ['id' => $newId]);
+        ] + kanpro_pendencia_seq_fields($srcId), ['id' => $newId]);
         // checklist com as máquinas (espelho p/ acompanhar no card da pendência)
         $cl = new PluginKanproChecklist();
         $clId = (int)$cl->add(['plugin_kanpro_cards_id' => $newId, 'name' => 'Máquinas para chamado']);
@@ -7617,7 +7639,7 @@ switch ($action) {
             try { $DB->update('glpi_plugin_kanpro_cards', ['conclusao_pending'=>0,'date_mod'=>$nowConc], ['id'=>$cid]); } catch (Throwable $e) {}
             jexit(['success'=>false,'msg'=>'Falha ao criar pendência de conclusão']);
         }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'conclusao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowConc], ['id'=>$pendId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'conclusao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowConc] + kanpro_pendencia_seq_fields($cid), ['id'=>$pendId]);
         kanpro_touch_card($cid);
         kanpro_touch_card($pendId);
         PluginKanproBoard::logActivity($bid, $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'conclusao_requested', "Conclusão solicitada por #{$who} — card travado até 'Liberar conclusão' (pendência #{$pendId})");
@@ -7687,7 +7709,7 @@ switch ($action) {
             try { $DB->update('glpi_plugin_kanpro_cards', ['exclusao_pending'=>0,'date_mod'=>$nowExc], ['id'=>$cid]); } catch (Throwable $e) {}
             jexit(['success'=>false,'msg'=>'Falha ao criar pendência de exclusão']);
         }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'exclusao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowExc], ['id'=>$pendId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'exclusao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowExc] + kanpro_pendencia_seq_fields($cid), ['id'=>$pendId]);
         kanpro_touch_card($cid);
         kanpro_touch_card($pendId);
         PluginKanproBoard::logActivity($bid, $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'exclusao_requested', "Exclusão solicitada por #{$who} — card travado até 'Liberar exclusão' (pendência #{$pendId})");
@@ -7831,7 +7853,7 @@ switch ($action) {
             try { $DB->update('glpi_plugin_kanpro_cards', ['is_archived'=>1,'date_mod'=>$nowSep], ['id'=>$childId]); } catch (Throwable $e) {}
             jexit(['success'=>false,'msg'=>'Falha ao criar pendência de separação']);
         }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'separacao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowSep], ['id'=>$pendId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_status'=>'separacao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowSep] + kanpro_pendencia_seq_fields($cid), ['id'=>$pendId]);
         kanpro_touch_card($cid);
         kanpro_touch_card($childId);
         kanpro_touch_card($pendId);
@@ -7986,7 +8008,7 @@ switch ($action) {
             try { $DB->update('glpi_plugin_kanpro_cards', ['edicao_pending'=>0,'date_mod'=>$nowEd], ['id'=>$cid]); } catch (Throwable $e) {}
             jexit(['success'=>false,'msg'=>'Falha ao criar pendência de edição']);
         }
-        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($mids), JSON_UNESCAPED_UNICODE),'chamado_status'=>'edicao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowEd], ['id'=>$pendId]);
+        $DB->update('glpi_plugin_kanpro_cards', ['plugin_kanpro_lists_id'=>$pendLid,'rank'=>$topRank,'chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($mids), JSON_UNESCAPED_UNICODE),'chamado_status'=>'edicao','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>$nowEd] + kanpro_pendencia_seq_fields($cid), ['id'=>$pendId]);
         kanpro_touch_card($cid);
         kanpro_touch_card($pendId);
         PluginKanproBoard::logActivity($bid, $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'edicao_confirmed', "Edição confirmada por #{$who} — card travado até 'Liberar edição' (pendência #{$pendId})");
@@ -8098,7 +8120,7 @@ switch ($action) {
             $pendId = (int)$nc->add(['plugin_kanpro_boards_id'=>$bid,'plugin_kanpro_lists_id'=>$pendLid,'name'=>$nm,'description'=>"Pegar: card #{$cid} movido para '{$dest['name']}'. Todas as máquinas travadas até 'Chamado criado'."]);
             if ($pendId) {
                 $midsAll = array_map(function ($m) { return (int)$m['id']; }, $allM);
-                $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($midsAll), JSON_UNESCAPED_UNICODE),'chamado_status'=>'pendente','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$pendId]);
+                $DB->update('glpi_plugin_kanpro_cards', ['chamado_source_id'=>$cid,'chamado_machines'=>json_encode(array_values($midsAll), JSON_UNESCAPED_UNICODE),'chamado_status'=>'pendente','chamado_by'=>$who,'entities_id'=>(int)($c->fields['entities_id'] ?? 0),'date_mod'=>date('Y-m-d H:i:s')] + kanpro_pendencia_seq_fields($cid), ['id'=>$pendId]);
                 $cl = new PluginKanproChecklist();
                 $clId = (int)$cl->add(['plugin_kanpro_cards_id'=>$pendId,'name'=>'Máquinas para chamado']);
                 if ($clId) {
