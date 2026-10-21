@@ -282,7 +282,7 @@ function kanpro_user_brief($uid) {
     }
     return ['users_id' => (int)$uid, 'name' => $name, 'login' => $login, 'initials' => $initials];
 }
-// ---------- Aba "Excluídos": somente criador ou Gerente do quadro ----------
+// ---------- Aba "Excluídos": somente criador ou Super-Admin do quadro ----------
 function kanpro_require_deleted_manager($bid) {
     $bid = (int)$bid;
     if ($bid > 0) kanpro_require_board_view($bid);
@@ -290,7 +290,7 @@ function kanpro_require_deleted_manager($bid) {
     try { $ok = function_exists('kanpro_can_see_all') ? kanpro_can_see_all($bid) : false; } catch (Throwable $e) { $ok = false; }
     if (!$ok) {
         http_response_code(403);
-        jexit(['success'=>false,'msg'=>'Somente o criador ou Gerente do quadro pode ver os cartões excluídos.']);
+        jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin do quadro pode ver os cartões excluídos.']);
     }
 }
 function kanpro_deleted_actor_name($uid) {
@@ -1226,16 +1226,16 @@ function kanpro_list_category(int $lists_id): string {
     return '';
 }
 // Listas protegidas contra arrasto manual: Aguardando Chegada, Pendente,
-// Pendência Chamados, Em Andamento, Retirada, Concluído. Só Gerente (ou criador) move.
+// Pendência Chamados, Em Andamento, Retirada, Concluído. Só Super-Admin (ou criador) move.
 function kanpro_drag_protected_category(string $cat): bool {
     return in_array($cat, ['awaiting','pending','pend_chamado','andamento','retirada','done'], true);
 }
-// Retorna true se pode arrastar (Gerente/criador); senão jexit quando origem ou
+// Retorna true se pode arrastar (Super-Admin/criador); senão jexit quando origem ou
 // destino é protegida.
 function kanpro_need_drag_allowed(int $boards_id, string $fromCat, string $toCat): bool {
     $can = ($boards_id > 0 && function_exists('kanpro_can_see_all') && kanpro_can_see_all($boards_id));
     if (!$can && (kanpro_drag_protected_category($fromCat) || kanpro_drag_protected_category($toCat))) {
-        jexit(['success'=>false,'msg'=>'🔒 Estas listas só podem ser movimentadas por quem tem o cargo Gerente (Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada, Concluído).']);
+        jexit(['success'=>false,'msg'=>'🔒 Estas listas só podem ser movimentadas por quem tem o cargo Super-Admin (Aguardando Chegada, Pendente, Pendência Chamados, Em Andamento, Retirada, Concluído).']);
     }
     return $can;
 }
@@ -1272,11 +1272,11 @@ function kanpro_notify_entry(int $bid, int $cid, int $lists_id): array {
 }
 
 // Guard: card de manutenção "com dono" só pode ser alterado por quem está vinculado
-// (quem pegou) ou pelo Gerente/criador do quadro. Não-manutenção e card sem membros
+// (quem pegou) ou pelo Super-Admin/criador do quadro. Não-manutenção e card sem membros
 // passam direto (kanpro_can_edit_linked_card já trata). Usado nos handlers de escrita.
 function kanpro_need_linked_card_edit(int $cards_id) {
     if (function_exists('kanpro_can_edit_linked_card') && !kanpro_can_edit_linked_card($cards_id)) {
-        jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Gerente/dono do quadro) pode alterá-lo.']);
+        jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Super-Admin/dono do quadro) pode alterá-lo.']);
     }
 }
 
@@ -2406,7 +2406,7 @@ switch ($action) {
         if (!in_array($role, ['admin','member','observer','gerente'], true)) $role = 'member';
         // gerente: só o criador do quadro nomeia (admin não se autopromove)
         if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin pode nomear um Super-Admin.']);
         }
         if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
         kanpro_need_manage_members($bid);
@@ -2429,7 +2429,7 @@ switch ($action) {
         try {
             $curRole = ($DB->request(['SELECT'=>['role'],'FROM'=>'glpi_plugin_kanpro_boards_members','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid],'LIMIT'=>1])->current()['role'] ?? '');
             if ($curRole === 'gerente' && !kanpro_can_name_gerente($bid)) {
-                jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode remover Gerente.']);
+                jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin pode remover um Super-Admin.']);
             }
         } catch (Throwable $e) {}
         if (in_array($uid, [(int)Session::getLoginUserID(), kanpro_acting_user_id()], true) && kanpro_count_other_managers($bid, $uid) === 0) {
@@ -2446,7 +2446,7 @@ switch ($action) {
         if (!in_array($role, ['admin','member','observer','gerente'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin, member, observer ou gerente)']);
         // gerente: só o criador do quadro nomeia
         if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin pode nomear um Super-Admin.']);
         }
         if (!$bid || !$uid) jexit(['success'=>false,'msg'=>'Quadro ou usuário inválido']);
         kanpro_need_manage_members($bid);
@@ -2460,7 +2460,7 @@ switch ($action) {
         try {
             $curRole = ($DB->request(['SELECT'=>['role'],'FROM'=>'glpi_plugin_kanpro_boards_members','WHERE'=>['plugin_kanpro_boards_id'=>$bid,'users_id'=>$uid],'LIMIT'=>1])->current()['role'] ?? '');
             if ($curRole === 'gerente' && !kanpro_can_name_gerente($bid)) {
-                jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode alterar Gerente.']);
+                jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin pode alterar um Super-Admin.']);
             }
         } catch (Throwable $e) {}
         // não permite se rebaixar sendo o último gestor (admin ou gerente)
@@ -2477,7 +2477,7 @@ switch ($action) {
         $role = $_POST['role'] ?? 'member';
         if (!in_array($role, ['admin','member','gerente'], true)) $role = 'member';
         if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin pode nomear um Super-Admin.']);
         }
         if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
         kanpro_need_manage_members($bid);
@@ -2521,7 +2521,7 @@ switch ($action) {
         $role = $_POST['role'] ?? 'member';
         if (!in_array($role, ['admin','member','gerente'], true)) jexit(['success'=>false,'msg'=>'Papel inválido (use admin, member ou gerente)']);
         if ($role === 'gerente' && !kanpro_can_name_gerente($bid)) {
-            jexit(['success'=>false,'msg'=>'Somente o criador ou um Gerente pode nomear Gerente.']);
+            jexit(['success'=>false,'msg'=>'Somente o criador ou um Super-Admin pode nomear um Super-Admin.']);
         }
         if (!$bid || !$pid) jexit(['success'=>false,'msg'=>'Quadro ou perfil inválido']);
         kanpro_need_manage_members($bid);
@@ -4037,10 +4037,10 @@ switch ($action) {
             $fl0 = new PluginKanproList();
             if ($fl0->getFromDB($from_list)) $from_name = $fl0->fields['name'];
         }
-        // Listas protegidas: arrastar de/para elas só com cargo Gerente (ou criador).
+        // Listas protegidas: arrastar de/para elas só com cargo Super-Admin (ou criador).
         $canDragProt = kanpro_need_drag_allowed($bid0, ($from_list ? kanpro_list_category($from_list) : ''), ($target_list ? kanpro_list_category($target_list) : ''));
         // Pendente é travado: ninguém arrasta — o caminho é o botão Pegar (membro ou admin).
-        // (Gerente/criador passa direto pela regra acima.)
+        // (Super-Admin/criador passa direto pela regra acima.)
         if ($from_list && kanpro_list_category($from_list) === 'pending' && !$canDragProt) {
             jexit(['success'=>false,'msg'=>'Card da lista Pendente é travado — ninguém pode arrastar. Use o botão Pegar (membro ou admin do quadro) para mover para Em Andamento.']);
         }
@@ -4118,7 +4118,7 @@ switch ($action) {
         $fl = new PluginKanproList(); $tl = new PluginKanproList();
         if (!$fl->getFromDB($from) || !$tl->getFromDB($to)) jexit(['success'=>false,'msg'=>'Lista não encontrada']);
         if ((int)$fl->fields['plugin_kanpro_boards_id'] !== (int)$tl->fields['plugin_kanpro_boards_id']) jexit(['success'=>false,'msg'=>'Listas de quadros diferentes']);
-        // Listas protegidas: mover tudo de/para elas só com cargo Gerente (ou criador).
+        // Listas protegidas: mover tudo de/para elas só com cargo Super-Admin (ou criador).
         kanpro_need_drag_allowed((int)$fl->fields['plugin_kanpro_boards_id'], kanpro_list_category($from), kanpro_list_category($to));
         // Pendente só recebe cartão de Manutenção (lá tudo é travado)
         if (kanpro_list_category($to) === 'pending') {
@@ -5650,7 +5650,7 @@ switch ($action) {
         // Só dono do comentário ou gestor do quadro (criador/admin) pode excluir — antes qualquer membro excluía qualquer um
         $__meIds = array_unique([(int)Session::getLoginUserID(), function_exists('kanpro_acting_user_id') ? (int)kanpro_acting_user_id() : 0]);
         $__isOwner = in_array((int)($delCrow['users_id'] ?? 0), $__meIds, true);
-        if (!$__isOwner && !kanpro_can_see_all($__delBid)) jexit(['success'=>false,'msg'=>'Somente o autor ou o Gerente/dono do quadro pode excluir.']);
+        if (!$__isOwner && !kanpro_can_see_all($__delBid)) jexit(['success'=>false,'msg'=>'Somente o autor ou o Super-Admin/dono do quadro pode excluir.']);
         $DB->delete('glpi_plugin_kanpro_comments', ['id'=>$id]);
         if ($delCrow) kanpro_touch_card((int)$delCrow['plugin_kanpro_cards_id']);
         jexit(['success'=>true]);
@@ -7688,8 +7688,8 @@ switch ($action) {
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         // Excluir ignora travas de estado (split/tablet/edição/conclusão/finalizado):
         // trava a origem e segue p/ aprovação ("Liberar exclusão"). Só mantém idempotência.
-        // Gerente/Admin pode solicitar mesmo sem vínculo; técnico precisa estar vinculado
-        if (!kanpro_can_edit_linked_card($cid) && !(function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid))) jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Gerente/Admin do quadro) pode solicitar a exclusão.']);
+        // Super-Admin/Admin pode solicitar mesmo sem vínculo; técnico precisa estar vinculado
+        if (!kanpro_can_edit_linked_card($cid) && !(function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid))) jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Super-Admin/Admin do quadro) pode solicitar a exclusão.']);
         if (kanpro_is_exclusao_pending($cid)) jexit(['success'=>true,'already'=>true,'msg'=>'Exclusão já solicitada — aguardando liberação']);
         $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
         if (!$pendList) jexit(['success'=>false,'msg'=>'Crie a lista "Pendência chamados" (categoria) neste quadro','need_pend_list'=>true]);
@@ -7806,8 +7806,8 @@ switch ($action) {
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         $cat = kanpro_list_category((int)$c->fields['plugin_kanpro_lists_id']);
         if (!in_array($cat, ['andamento','retirada'], true)) jexit(['success'=>false,'msg'=>'Separar só vale nas listas Em Andamento ou Retirada']);
-        // Gerente/Admin do quadro pode separar mesmo sem vínculo; técnico precisa estar vinculado
-        if (!kanpro_can_edit_linked_card($cid) && !(function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid))) jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Gerente/Admin do quadro) pode separá-lo.']);
+        // Super-Admin/Admin do quadro pode separar mesmo sem vínculo; técnico precisa estar vinculado
+        if (!kanpro_can_edit_linked_card($cid) && !(function_exists('kanpro_can_manage_members') && kanpro_can_manage_members($bid))) jexit(['success'=>false,'linked_only'=>true,'msg'=>'🔒 Só quem pegou este cartão (ou o Super-Admin/Admin do quadro) pode separá-lo.']);
         kanpro_need_not_split_locked($cid);
         if ((int)($c->fields['split_group'] ?? 0) > 0) jexit(['success'=>false,'msg'=>'Este card já está em split 1/2 — não dá para separar de novo','split'=>true]);
         if (kanpro_is_tablet_pending($cid) || kanpro_is_conclusao_pending($cid) || kanpro_is_exclusao_pending($cid) || kanpro_is_edicao_pending($cid)) jexit(['success'=>false,'msg'=>'Resolva a pendência atual antes de separar']);
@@ -7967,7 +7967,7 @@ switch ($action) {
         $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         $owner = (int)($c->fields['edicao_by'] ?? 0);
-        if ($owner !== $who && !kanpro_can_see_all($bid)) jexit(['success'=>false,'msg'=>'Somente quem abriu a edição (ou o Gerente/dono do quadro) pode cancelar']);
+        if ($owner !== $who && !kanpro_can_see_all($bid)) jexit(['success'=>false,'msg'=>'Somente quem abriu a edição (ou o Super-Admin/dono do quadro) pode cancelar']);
         try { $DB->update('glpi_plugin_kanpro_cards', ['edicao_by'=>0,'date_mod'=>date('Y-m-d H:i:s')], ['id'=>$cid]); } catch (Throwable $e) {}
         kanpro_touch_card($cid);
         PluginKanproBoard::logActivity($bid, $cid, (int)$c->fields['plugin_kanpro_lists_id'], 'edicao_cancelled', "Edição abandonada por #{$who}");
@@ -7985,7 +7985,7 @@ switch ($action) {
         $bid = (int)$c->fields['plugin_kanpro_boards_id'];
         $who = function_exists('kanpro_acting_user_id') ? kanpro_acting_user_id() : (int)Session::getLoginUserID();
         $owner = (int)($c->fields['edicao_by'] ?? 0);
-        if ($owner !== $who && !kanpro_can_see_all($bid)) jexit(['success'=>false,'msg'=>'Somente quem está editando (ou o Gerente/dono do quadro) pode confirmar']);
+        if ($owner !== $who && !kanpro_can_see_all($bid)) jexit(['success'=>false,'msg'=>'Somente quem está editando (ou o Super-Admin/dono do quadro) pode confirmar']);
         $pendList = kanpro_find_list_by_type($bid, 'pend_chamado');
         if (!$pendList) jexit(['success'=>false,'msg'=>'Crie a lista "Pendência chamados" (categoria) neste quadro','need_pend_list'=>true]);
         $nowEd = date('Y-m-d H:i:s');
