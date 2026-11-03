@@ -59,7 +59,7 @@ function plugin_version_kanpro() {
     return [
         'name'         => '[URE] KanPro',
         'version'      => PLUGIN_KANPRO_VERSION,
-        'author'       => 'URE',
+        'author'       => 'Leonardo Poiatti Fação',
         'license'      => 'GPLv3+',
         'homepage'     => '',
         'requirements' => ['glpi' => ['min' => PLUGIN_KANPRO_MIN_GLPI, 'max' => PLUGIN_KANPRO_MAX_GLPI], 'php' => ['min' => '8.2.0']],
